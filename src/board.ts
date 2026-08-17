@@ -149,6 +149,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <span class="spacer"></span>
       <button class="danger" id="mStop">stop</button>
       <button class="ghost" id="mCleanup">cleanup worktree</button>
+      <button class="ghost" id="mCloseTask">close task</button>
     </div>
   </div>
 </div>
@@ -184,7 +185,9 @@ function render(){
 }
 function cardHTML(r){
   const task = tasks.get(r.taskId);
-  const title = task ? esc(task.title) : ('task ' + (r.taskId ?? '?'));
+  const closed = task && task.status==='closed';
+  const title = (task ? esc(task.title) : ('task ' + (r.taskId ?? '?')))
+    + (closed ? ' <span style="color:var(--muted);font-weight:400">· closed</span>' : '');
   const evs = (r.events||[]).slice(-8).map(e =>
     '<div class="ev"><span class="k">'+esc(e.kind)+'</span><span class="t">'+esc(summarize(e.kind,e.payload)).slice(0,120)+'</span></div>'
   ).join('') || '<div class="ev"><span class="t" style="color:var(--muted)">waiting…</span></div>';
@@ -243,6 +246,9 @@ function connectWS(){
       const r = runs.get(ev.runId); if(!r){ hydrate(); return; }
       r.events = r.events||[]; r.events.push({ kind:ev.kind, payload:ev.payload });
       render(); flash(ev.runId); paintModal();
+    } else if (ev.type==='task'){
+      const t = tasks.get(ev.taskId);
+      if (t){ t.status = ev.status; render(); paintModal(); } else { hydrate(); }
     }
   };
 }
@@ -305,6 +311,13 @@ $('mCleanup').addEventListener('click', async ()=>{
   if (openRunId==null) return;
   if (!confirm('Remove worktree + branch for r'+openRunId+'?')) return;
   await fetch('/api/runs/'+openRunId+'/cleanup',{method:'POST'});
+  closeModal(); hydrate();
+});
+$('mCloseTask').addEventListener('click', async ()=>{
+  if (openRunId==null) return;
+  const r = runs.get(openRunId); if(!r) return;
+  if (!confirm('Close task — stop + cleanup ALL its runs?')) return;
+  await fetch('/api/tasks/'+r.taskId+'/close',{method:'POST'});
   closeModal(); hydrate();
 });
 

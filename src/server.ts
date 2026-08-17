@@ -210,6 +210,28 @@ export async function buildServer(): Promise<FastifyInstance> {
     return reply.code(202).send({ ok: true, runs: created.map((r) => ({ id: r.id, status: r.status })) });
   });
 
+  // 태스크 닫기 — 살아있는 run 중지 후 소속 run 전체 worktree/브랜치 정리.
+  app.post('/api/tasks/:id/close', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+    if (!tr[0]) return reply.code(404).send({ error: 'task not found' });
+    const trs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, id));
+
+    let anyStopped = false;
+    for (const r of trs) {
+      if (stopRun(r.id).ok) anyStopped = true;
+    }
+    // SIGTERM 직후 worktree 파일 잠금이 풀리도록 잠깐 양보
+    if (anyStopped) await new Promise((res) => setTimeout(res, 400));
+
+    const cleanups = [];
+    for (const r of trs) cleanups.push({ runId: r.id, ...(await cleanupRun(r.id)) });
+
+    await db.update(tasks).set({ status: 'closed' }).where(eq(tasks.id, id));
+    broadcast({ type: 'task', taskId: id, status: 'closed' });
+    return { ok: true, taskId: id, cleanups };
+  });
+
   // ─── Run ───────────────────────────────────────────────────────
   app.get('/api/runs/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
