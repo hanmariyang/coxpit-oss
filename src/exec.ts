@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { config } from './config';
 
 export interface RunResult {
@@ -53,4 +53,21 @@ export async function runShellOn(m: MachineTarget, shellCmd: string, timeoutMs =
   const target = m.sshUser ? `${m.sshUser}@${m.address}` : m.address;
   args.push(target, shellCmd);
   return run('ssh', args, timeoutMs);
+}
+
+/**
+ * 스트리밍 실행 — 자식 프로세스를 반환(stdout/stderr pipe).
+ * 오케스트레이터가 stdout 라인을 실시간 파싱하는 용도.
+ */
+export function spawnShellOn(m: MachineTarget, shellCmd: string): ChildProcess {
+  if (isLocal(m)) return spawn('sh', ['-c', shellCmd], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const args: string[] = [
+    '-o', 'BatchMode=yes',
+    '-o', 'ConnectTimeout=6',
+    '-o', 'StrictHostKeyChecking=accept-new',
+  ];
+  if (config.sshKey) args.push('-i', config.sshKey);
+  const target = m.sshUser ? `${m.sshUser}@${m.address}` : m.address;
+  args.push(target, shellCmd);
+  return spawn('ssh', args, { stdio: ['ignore', 'pipe', 'pipe'] });
 }
