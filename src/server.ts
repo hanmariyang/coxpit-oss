@@ -6,7 +6,8 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents } from './db/schema';
 import { runShellOn, shq } from './exec';
 import { launchRun, cleanupRun } from './orchestrator';
-import { addSink, removeSink } from './hub';
+import { addSink, removeSink, broadcast } from './hub';
+import { BOARD_HTML } from './board';
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -15,6 +16,30 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // 무인증 헬스(외부 감시용)
   app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.0.0-p1' }));
+
+  // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
+  app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
+
+  // 보드 하이드레이션 — machines/repos/tasks/runs(+events) 한 방에.
+  app.get('/api/fleet', async () => {
+    const [ms, rs, ts, rns, evs] = await Promise.all([
+      db.select().from(machines),
+      db.select().from(repos),
+      db.select().from(tasks),
+      db.select().from(agentRuns),
+      db.select().from(agentEvents),
+    ]);
+    const byRun = new Map<number, Array<{ kind: string; payload: string }>>();
+    for (const e of evs) {
+      const arr = byRun.get(e.runId) ?? [];
+      arr.push({ kind: e.kind, payload: e.payload });
+      byRun.set(e.runId, arr);
+    }
+    return {
+      machines: ms, repos: rs, tasks: ts,
+      runs: rns.map((r) => ({ ...r, events: byRun.get(r.id) ?? [] })),
+    };
+  });
 
   // ─── 머신 레지스트리 ────────────────────────────────────────────
   app.get('/api/machines', async () => ({ machines: await db.select().from(machines) }));
@@ -177,8 +202,11 @@ export async function buildServer(): Promise<FastifyInstance> {
         .returning();
       created.push(ins[0]!);
     }
-    // 백그라운드 시작 — 응답은 즉시.
-    for (const r of created) void launchRun(r.id, b.real);
+    // 보드가 taskId 를 알도록 생성 브로드캐스트 후 백그라운드 시작.
+    for (const r of created) {
+      broadcast({ type: 'run', runId: r.id, taskId: id, status: 'pending', agent, branch: '', filesChanged: 0 });
+      void launchRun(r.id, b.real);
+    }
     return reply.code(202).send({ ok: true, runs: created.map((r) => ({ id: r.id, status: r.status })) });
   });
 
