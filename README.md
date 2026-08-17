@@ -2,6 +2,8 @@
 
 **Own your agent fleet. Run parallel AI coding agents across your own machines — steer them from any browser.**
 
+**[Landing & downloads](https://hanmariyang.github.io/coxpit-oss/)** · [Latest release](https://github.com/hanmariyang/coxpit-oss/releases/latest)
+
 Coxpit is a self-hosted cockpit for CLI coding agents (Claude Code first). Give it a task and it launches N agents in parallel — each in its own **isolated git worktree**, on its own branch, inside its own tmux session — then streams everything to a live board where you watch, compare diffs side by side, attach a real terminal, and merge the winner.
 
 Your machines. Your auth. Your code never leaves your network.
