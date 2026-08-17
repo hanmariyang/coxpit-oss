@@ -2,7 +2,7 @@
 
 > **개인 Coxpit(`projects/coxpit`)의 OSS 스핀아웃.** 이름은 그대로 Coxpit, 하지만 **완전 별개 신규 코드베이스(Node/TS)**. 목표는 시장 경쟁이 아니라 "개인도 이런 오픈소스를 낼 수 있음"의 증명·공유·자용. **개인 배선(Triforge·원탁·시크릿·워크스페이스)은 절대 포함하지 않는다.**
 
-**Last Updated**: 2026-08-18 · **Status**: **v2.0-p1 에이전트 플릿 P1 완료**(전 6단계 실측 검증, 7커밋) · License: MIT
+**Last Updated**: 2026-08-18 · **Status**: **P1 에이전트 플릿 + P2 비교/리뷰 완료**(전부 실측 검증) · License: MIT
 
 ---
 
@@ -64,6 +64,7 @@ tmux · git · 에이전트 CLI(claude-code 등) — 사용자 환경에 설치.
 ## 9. 주의사항
 
 - **P1 완료 범위**: 머신 등록+SSH 프로브 · repo 등록(work-tree 검증) · Task→run×N(격리 worktree+브랜치+tmux 창) · claude 헤드리스 stream-json 파싱(드라이런/실제 동일 파서, 실제 opus 검증) · `GET /` 플릿 보드(WS 라이브·run 상세 모달=타임라인+diff+stop/cleanup) · task close(전 run 정지+정리). stop 은 프로세스 그룹 kill(손자 에이전트 포함).
+- **P2 비교/리뷰 완료**: `GET /api/tasks/:id/compare`(전 run diff 나란히) + `POST /api/runs/:id/merge`(worktree 자동 커밋→본 repo 가드[기본 브랜치+클린]→`merge --no-ff`, 충돌 시 자동 abort·409, 실행 중 run 거부) + 보드 비교 오버레이(run 컬럼별 diff·merge 버튼·merged 칩).
 - 기본은 **드라이런**(`COXPIT_AGENT_REAL=1` 켜야 실제 CLI — 크레딧 소모). 헤드리스 권한 `COXPIT_AGENT_PERM`(기본 acceptEdits).
 - 원격 run stop 은 ssh 종료 기반 — 원격 프로세스 잔존 가능(P2 에서 tmux 경유 kill 로 보강 예정).
 - 라이브 터미널 attach(tmux 웹 접속)는 P2 멀티 터미널로 이월.
