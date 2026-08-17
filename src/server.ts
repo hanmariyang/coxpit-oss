@@ -29,7 +29,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.0.0-p1' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.0.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -354,7 +354,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.0.0-p1' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.0.0' }));
     socket.on('close', () => removeSink(socket));
   });
 

@@ -1,13 +1,16 @@
 {
   "name": "coxpit",
-  "version": "2.0.0-p1",
-  "description": "Owner-first web cockpit to run and steer a fleet of AI coding agents across your own machines.",
+  "version": "2.0.0",
+  "description": "Self-hosted cockpit for running a fleet of AI coding agents across your own machines — parallel worktree runs, live board, compare & merge, web terminal, design capture.",
   "type": "module",
-  "private": true,
   "license": "MIT",
-  "engines": {
-    "node": ">=20"
-  },
+  "repository": { "type": "git", "url": "git+https://github.com/hanmariyang/coxpit-oss.git" },
+  "homepage": "https://hanmariyang.github.io/coxpit-oss/",
+  "bugs": { "url": "https://github.com/hanmariyang/coxpit-oss/issues" },
+  "keywords": ["ai-agents", "claude-code", "git-worktree", "tmux", "self-hosted", "fleet", "coding-agents", "cockpit"],
+  "engines": { "node": ">=20" },
+  "bin": { "coxpit": "bin/coxpit.js" },
+  "files": ["bin", "src", "README.md", "LICENSE", ".env.example"],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
@@ -22,12 +25,12 @@
     "dotenv": "^16",
     "drizzle-orm": "^0.38",
     "fastify": "^5",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "tsx": "^4"
   },
   "devDependencies": {
     "@types/node": "^22",
     "drizzle-kit": "^0.30",
-    "tsx": "^4",
     "typescript": "^5"
   }
 }
