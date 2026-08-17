@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import { eq } from 'drizzle-orm';
@@ -5,9 +7,19 @@ import { authGate } from './auth';
 import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents } from './db/schema';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo } from './orchestrator';
+import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
+
+const require_ = createRequire(import.meta.url);
+
+// 자가완결 서빙 — CDN 없이 node_modules 의 xterm 배포본을 그대로 낸다.
+const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
+  'xterm.js': { pkg: '@xterm/xterm/package.json', rel: 'lib/xterm.js', type: 'text/javascript' },
+  'xterm.css': { pkg: '@xterm/xterm/package.json', rel: 'css/xterm.css', type: 'text/css' },
+  'addon-fit.js': { pkg: '@xterm/addon-fit/package.json', rel: 'lib/addon-fit.js', type: 'text/javascript' },
+};
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -294,6 +306,53 @@ export async function buildServer(): Promise<FastifyInstance> {
     addSink(socket);
     socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.0.0-p1' }));
     socket.on('close', () => removeSink(socket));
+  });
+
+  // xterm 배포본 서빙(브라우저 터미널용, CDN 없음)
+  app.get('/vendor/:file', async (req, reply) => {
+    const { file } = req.params as { file: string };
+    const v = VENDOR[file];
+    if (!v) return reply.code(404).send({ error: 'not found' });
+    const path = require_.resolve(v.pkg).replace(/package\.json$/, v.rel);
+    const body = await readFile(path);
+    return reply.type(v.type).header('cache-control', 'public, max-age=86400').send(body);
+  });
+
+  // run 터미널 — tmux 세션에 PTY attach, WS 로 중계.
+  // client → {t:'i',d:string} 입력 · {t:'r',cols,rows} 리사이즈 / server → {t:'o',d} 출력 · {t:'exit'}
+  app.get('/ws/term/:id', { websocket: true }, async (socket, req) => {
+    const id = Number((req.params as { id: string }).id);
+    const info = await getRunTermInfo(id);
+    if (!info) {
+      socket.send(JSON.stringify({ t: 'err', d: 'run or tmux session not found' }));
+      socket.close();
+      return;
+    }
+    // 세션 생존 확인(정리됐거나 머신 재부팅이면 attach 가 바로 죽는다)
+    const has = await runShellOn(info.machine, `tmux has-session -t ${shq(info.session)} 2>&1`, 8000);
+    if (!has.ok) {
+      socket.send(JSON.stringify({ t: 'err', d: `tmux session '${info.session}' not available` }));
+      socket.close();
+      return;
+    }
+    let term;
+    try {
+      term = openTerm(info.machine, info.session, 80, 24);
+    } catch (e) {
+      socket.send(JSON.stringify({ t: 'err', d: 'pty spawn failed: ' + String(e).slice(0, 200) }));
+      socket.close();
+      return;
+    }
+    term.onData((d) => { try { socket.send(JSON.stringify({ t: 'o', d })); } catch { /* closed */ } });
+    term.onExit(() => { try { socket.send(JSON.stringify({ t: 'exit' })); socket.close(); } catch { /* closed */ } });
+    socket.on('message', (raw: Buffer) => {
+      try {
+        const m = JSON.parse(raw.toString()) as { t?: string; d?: string; cols?: number; rows?: number };
+        if (m.t === 'i' && typeof m.d === 'string') term.write(m.d);
+        else if (m.t === 'r' && m.cols && m.rows) term.resize(Math.max(20, Math.min(500, m.cols)), Math.max(5, Math.min(200, m.rows)));
+      } catch { /* ignore */ }
+    });
+    socket.on('close', () => { try { term.kill(); } catch { /* gone */ } });
   });
 
   return app;

@@ -159,6 +159,15 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
   }
 }
 
+/** 터미널 attach 용 — run 의 머신 타깃 + tmux 세션명. */
+export async function getRunTermInfo(runId: number): Promise<{ machine: MachineTarget; session: string } | null> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.tmuxWindow) return null;
+  return { machine: ctx.machine, session: run.tmuxWindow };
+}
+
 /**
  * 실행 중 run 중지 — 자식 프로세스 SIGTERM. close 핸들러가 status='stopped' 로 봉인.
  */

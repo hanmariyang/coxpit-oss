@@ -5,7 +5,9 @@
   "type": "module",
   "private": true,
   "license": "MIT",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
@@ -15,9 +17,12 @@
   "dependencies": {
     "@fastify/websocket": "^11",
     "@libsql/client": "^0.14",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "dotenv": "^16",
     "drizzle-orm": "^0.38",
-    "fastify": "^5"
+    "fastify": "^5",
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@types/node": "^22",
