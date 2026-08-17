@@ -11,7 +11,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     --bg:#0e1116; --panel:#161b22; --panel2:#1b2129; --line:#232a33;
     --fg:#d6dde5; --muted:#7d8894; --accent:#4ec9b0;
     --s-pending:#7d8894; --s-preparing:#d3a04e; --s-running:#4ea1d3;
-    --s-done:#57ab5a; --s-failed:#e05561; --s-error:#e05561; --s-stopped:#b085d6;
+    --s-done:#57ab5a; --s-failed:#e05561; --s-error:#e05561; --s-stopped:#b085d6; --s-merged:#4ec9b0;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
   }
@@ -86,6 +86,21 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .modal-f .spacer{flex:1}
   button.danger{background:transparent;color:var(--s-failed);border:1px solid var(--s-failed);font-weight:500}
   @media (max-width:760px){.modal-b{grid-template-columns:1fr}.pane{border-right:none;border-bottom:1px solid var(--line)}}
+  /* 비교 뷰 — run 컬럼 나란히 */
+  .modal.wide{width:min(1400px,100%)}
+  .cmp{display:flex;gap:0;overflow-x:auto;flex:1;min-height:0}
+  .cmp-col{min-width:340px;flex:1;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .cmp-col:last-child{border-right:none}
+  .cmp-h{display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid var(--line)}
+  .cmp-h .rid{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .cmp-meta{font-family:var(--mono);font-size:11px;color:var(--muted);padding:7px 13px;border-bottom:1px solid var(--line);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cmp-meta b{color:var(--fg);font-weight:500}
+  .cmp-diff{overflow:auto;padding:9px 13px;flex:1;min-height:0}
+  .cmp-f{padding:9px 13px;border-top:1px solid var(--line);display:flex;gap:7px;align-items:center}
+  .cmp-f .msg{font-family:var(--mono);font-size:11px;color:var(--muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  button.merge{background:var(--s-merged);color:#06231d}
+  button[disabled]{opacity:.45;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -146,11 +161,22 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     </div>
     <div class="modal-f">
       <button class="ghost" id="mRefreshDiff">refresh diff</button>
+      <button class="ghost" id="mCompare">compare runs</button>
       <span class="spacer"></span>
       <button class="danger" id="mStop">stop</button>
       <button class="ghost" id="mCleanup">cleanup worktree</button>
       <button class="ghost" id="mCloseTask">close task</button>
     </div>
+  </div>
+</div>
+<div class="overlay" id="cmpOverlay">
+  <div class="modal wide">
+    <div class="modal-h">
+      <span class="title" id="cmpTitle">compare</span>
+      <button class="ghost" id="cmpRefresh">refresh</button>
+      <button class="x" id="cmpClose" aria-label="close">×</button>
+    </div>
+    <div class="cmp" id="cmpBody"></div>
   </div>
 </div>
 <script>
@@ -240,8 +266,9 @@ function connectWS(){
       upsertRun(ev);
       if (!known && ev.taskId==null){ hydrate(); return; } // unknown run w/o task → resync
       render(); flash(ev.runId ?? ev.id); paintModal();
-      // run 이 끝나면 열려있는 상세의 diff 자동 갱신
+      // run 이 끝나면 열려있는 상세의 diff / 비교 뷰 자동 갱신
       if (openRunId===(ev.runId??ev.id) && ['done','failed','error','stopped'].includes(ev.status)) loadDiff();
+      if (cmpTaskId!=null && ['done','failed','error','stopped','merged'].includes(ev.status)) paintCompare();
     } else if (ev.type==='event'){
       const r = runs.get(ev.runId); if(!r){ hydrate(); return; }
       r.events = r.events||[]; r.events.push({ kind:ev.kind, payload:ev.payload });
@@ -319,6 +346,59 @@ $('mCloseTask').addEventListener('click', async ()=>{
   if (!confirm('Close task — stop + cleanup ALL its runs?')) return;
   await fetch('/api/tasks/'+r.taskId+'/close',{method:'POST'});
   closeModal(); hydrate();
+});
+
+// ── 비교/리뷰 뷰 ─────────────────────────────────────────────
+let cmpTaskId = null;
+async function openCompare(taskId){
+  cmpTaskId = taskId;
+  $('cmpOverlay').classList.add('open');
+  $('cmpBody').innerHTML = '<div class="empty">loading…</div>';
+  await paintCompare();
+}
+async function paintCompare(){
+  if (cmpTaskId==null) return;
+  let d;
+  try{ d = await fetch('/api/tasks/'+cmpTaskId+'/compare').then(x=>x.json()); }
+  catch{ $('cmpBody').innerHTML = '<div class="empty">compare failed</div>'; return; }
+  $('cmpTitle').textContent = 'compare · '+(d.task ? d.task.title : 'task '+cmpTaskId);
+  if (!d.runs || !d.runs.length){ $('cmpBody').innerHTML = '<div class="empty">no runs</div>'; return; }
+  $('cmpBody').innerHTML = d.runs.map(r=>{
+    const files = r.stat ? r.stat.split('\\n').filter(Boolean).length : 0;
+    const summary = (r.exitSummary||'').slice(0,140);
+    const mergeable = ['done','failed','stopped'].includes(r.status) && files>0;
+    const merged = r.status==='merged';
+    return '<div class="cmp-col" data-run="'+r.id+'">'
+      + '<div class="cmp-h"><span class="rid">r'+r.id+'</span>'
+      + '<span class="chip" style="color:'+statusColor(r.status)+'">'+esc(r.status)+'</span>'
+      + '<span class="rid">'+files+' file'+(files===1?'':'s')+'</span></div>'
+      + '<div class="cmp-meta" title="'+esc(summary)+'">'+(summary?esc(summary):'—')+'</div>'
+      + '<div class="cmp-diff"><pre class="diff">'+diffHTML(r.diff||'')+'</pre></div>'
+      + '<div class="cmp-f"><span class="msg" id="cmpMsg-'+r.id+'"></span>'
+      + (merged
+        ? '<span class="chip" style="color:var(--s-merged)">merged</span>'
+        : '<button class="merge" data-merge="'+r.id+'"'+(mergeable?'':' disabled')+'>merge this</button>')
+      + '</div></div>';
+  }).join('');
+}
+$('cmpBody').addEventListener('click', async (e)=>{
+  const btn = e.target.closest('button[data-merge]'); if(!btn) return;
+  const rid = Number(btn.dataset.merge);
+  if (!confirm('Merge r'+rid+' into the base branch?')) return;
+  btn.disabled = true;
+  const res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});
+  const j = await res.json().catch(()=>({detail:'merge failed'}));
+  const msg = $('cmpMsg-'+rid);
+  if (msg) msg.textContent = j.detail || (res.ok?'merged':'failed');
+  if (res.ok){ await paintCompare(); hydrate(); } else { btn.disabled = false; }
+});
+$('cmpClose').addEventListener('click', ()=>{ cmpTaskId=null; $('cmpOverlay').classList.remove('open'); });
+$('cmpOverlay').addEventListener('click',(e)=>{ if(e.target===$('cmpOverlay')){ cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+$('cmpRefresh').addEventListener('click', paintCompare);
+$('mCompare').addEventListener('click', ()=>{
+  if (openRunId==null) return;
+  const r = runs.get(openRunId); if(!r) return;
+  closeModal(); openCompare(r.taskId);
 });
 
 $('repoForm').addEventListener('submit', async (e)=>{

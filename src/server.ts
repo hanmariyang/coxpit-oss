@@ -5,7 +5,7 @@ import { authGate } from './auth';
 import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents } from './db/schema';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun } from './orchestrator';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
 
@@ -210,6 +210,20 @@ export async function buildServer(): Promise<FastifyInstance> {
     return reply.code(202).send({ ok: true, runs: created.map((r) => ({ id: r.id, status: r.status })) });
   });
 
+  // 비교 뷰 — 태스크의 모든 run + 각 diff 를 한 방에 (승자 고르기용).
+  app.get('/api/tasks/:id/compare', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+    if (!tr[0]) return reply.code(404).send({ error: 'task not found' });
+    const trs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, id));
+    const runsOut = [];
+    for (const r of trs) {
+      const d = await getRunDiff(r.id);
+      runsOut.push({ ...r, diff: d.ok ? d.diff : '', stat: d.ok ? d.stat : d.stat });
+    }
+    return { task: tr[0], runs: runsOut };
+  });
+
   // 태스크 닫기 — 살아있는 run 중지 후 소속 run 전체 worktree/브랜치 정리.
   app.post('/api/tasks/:id/close', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
@@ -246,6 +260,16 @@ export async function buildServer(): Promise<FastifyInstance> {
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     const res = await cleanupRun(id);
+    return res;
+  });
+
+  // 승자 run 머지 — run 브랜치를 repo 기본 브랜치로.
+  app.post('/api/runs/:id/merge', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const res = await mergeRun(id);
+    if (!res.ok) return reply.code(409).send(res);
     return res;
   });
 

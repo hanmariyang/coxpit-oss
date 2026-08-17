@@ -197,6 +197,54 @@ export async function getRunDiff(runId: number): Promise<{ ok: boolean; diff: st
 }
 
 /**
+ * 승자 run 머지 — worktree 미커밋 변경을 자동 커밋 후 run 브랜치를
+ * repo 기본 브랜치에 merge. 본 repo 가 기본 브랜치+클린일 때만, 충돌 시 abort.
+ */
+export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: string }> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.worktreePath || !run.branch) return { ok: false, detail: 'no worktree/branch' };
+  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — stop it first' };
+  const wt = shq(run.worktreePath);
+  const repo = shq(ctx.repoPath);
+  const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
+
+  // 1) worktree 미커밋 변경 자동 커밋(있을 때만)
+  const c1 = await runShellOn(
+    ctx.machine,
+    `git -C ${wt} add -A && (git -C ${wt} diff --cached --quiet || git -C ${wt} ${ident} -c commit.gpgsign=false commit -m ${shq(`coxpit r${runId}: agent changes`)})`,
+    20000,
+  );
+  if (!c1.ok) return { ok: false, detail: 'worktree commit failed: ' + (c1.stderr || c1.stdout).trim().slice(0, 300) };
+
+  // 2) 본 repo 가드 — 기본 브랜치 위 + 클린
+  const guard = await runShellOn(
+    ctx.machine,
+    `git -C ${repo} rev-parse --abbrev-ref HEAD && echo '---S---' && git -C ${repo} status --porcelain`,
+    10000,
+  );
+  if (!guard.ok) return { ok: false, detail: 'repo check failed' };
+  const [head = '', dirty = ''] = guard.stdout.split('---S---');
+  if (head.trim() !== ctx.baseBranch) {
+    return { ok: false, detail: `repo is on '${head.trim()}', expected '${ctx.baseBranch}'` };
+  }
+  if (dirty.trim() !== '') return { ok: false, detail: 'repo working tree not clean' };
+
+  // 3) merge (충돌 시 abort)
+  const mg = await runShellOn(
+    ctx.machine,
+    `git -C ${repo} ${ident} -c commit.gpgsign=false merge --no-ff -m ${shq(`coxpit: merge r${runId} (${run.branch})`)} ${shq(run.branch)} 2>&1 || (git -C ${repo} merge --abort 2>/dev/null; echo COXPIT_MERGE_FAILED)`,
+    30000,
+  );
+  if (mg.stdout.includes('COXPIT_MERGE_FAILED')) {
+    return { ok: false, detail: 'merge conflict — aborted: ' + mg.stdout.replace('COXPIT_MERGE_FAILED', '').trim().slice(0, 300) };
+  }
+  await setRun(runId, { status: 'merged' });
+  return { ok: true, detail: mg.stdout.trim().slice(0, 300) };
+}
+
+/**
  * worktree/브랜치/tmux 정리(태스크 종료·run 폐기 시).
  */
 export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: string }> {
