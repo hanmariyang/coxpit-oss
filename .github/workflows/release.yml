@@ -5,6 +5,7 @@ name: release-desktop
 on:
   push:
     tags: ['v*']
+  workflow_dispatch: {}   # 수동 재실행 — electron-builder 는 package.json 버전의 릴리스에 업로드
 
 permissions:
   contents: write
