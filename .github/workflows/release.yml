@@ -1,0 +1,50 @@
+name: release-desktop
+
+# 태그 push 시 3-OS 데스크톱 인스톨러를 빌드해 GitHub Release 에 업로드한다.
+# (electron-builder publish: provider github — GH_TOKEN 은 기본 GITHUB_TOKEN)
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest      # dmg (arm64 + x64)
+          - os: windows-latest    # nsis exe
+          - os: ubuntu-latest     # AppImage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      # 데몬 프로덕션 의존성 (플랫폼별 네이티브 프리빌드 포함) — 앱에 번들됨
+      - run: npm ci --omit=dev
+
+      # 데스크톱 셸 빌드 + Release 업로드
+      - run: npm ci
+        working-directory: desktop
+      - run: npx electron-builder --publish always
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm run typecheck
+      - name: boot daemon and hit health
+        run: |
+          COXPIT_AUTH_DISABLED=1 COXPIT_DB=/tmp/ci.db node bin/coxpit.js &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8210/api/health && exit 0 || sleep 1; done
+          exit 1

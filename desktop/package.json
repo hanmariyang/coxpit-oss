@@ -1,0 +1,41 @@
+{
+  "name": "coxpit-desktop",
+  "version": "2.0.0",
+  "description": "Coxpit desktop app — embeds the coxpit daemon and opens the fleet board.",
+  "main": "main.cjs",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33",
+    "electron-builder": "^25"
+  },
+  "build": {
+    "appId": "dev.coxpit.app",
+    "productName": "Coxpit",
+    "files": ["main.cjs"],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "daemon",
+        "filter": [
+          "package.json",
+          "tsconfig.json",
+          "src/**",
+          "bin/**",
+          "node_modules/**",
+          "!node_modules/.cache/**",
+          "!node_modules/typescript/**",
+          "!node_modules/drizzle-kit/**"
+        ]
+      }
+    ],
+    "mac": { "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }], "category": "public.app-category.developer-tools" },
+    "win": { "target": "nsis" },
+    "linux": { "target": "AppImage", "category": "Development" },
+    "publish": { "provider": "github", "owner": "hanmariyang", "repo": "coxpit-oss" }
+  }
+}

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Coxpit — own your agent fleet</title>
+<meta name="description" content="Self-hosted cockpit for running a fleet of AI coding agents across your own machines. Parallel worktree runs, live board, compare & merge, web terminal." />
+<style>
+  :root{
+    --bg:#0b0d12; --surface:#12151c; --surface2:#171b24; --line:#222835; --line-hi:#2f3648;
+    --ink:#dee4ec; --muted:#8792a2; --faint:#5c6675;
+    --brand:#4ec9b0; --brand-ink:#062822; --brand-dim:rgba(78,201,176,.12);
+    --running:#55a7e0; --done:#58b368; --failed:#e25b67; --stopped:#b58be0;
+    --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;
+    -webkit-font-smoothing:antialiased}
+  a{color:var(--brand)}
+  ::selection{background:var(--brand-dim)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  code,pre{font-family:var(--mono)}
+
+  nav{display:flex;align-items:center;gap:16px;padding:18px 0}
+  nav .mark{font-family:var(--mono);font-weight:700;font-size:16px;color:var(--brand);text-decoration:none}
+  nav .links{margin-left:auto;display:flex;gap:18px}
+  nav .links a{color:var(--muted);text-decoration:none;font-size:14px}
+  nav .links a:hover{color:var(--ink)}
+
+  /* hero */
+  .hero{padding:64px 0 30px;text-align:center}
+  .hero h1{font-family:var(--mono);font-size:clamp(30px,5.4vw,52px);line-height:1.15;margin:0 0 18px;
+    letter-spacing:-.01em;text-wrap:balance;font-weight:700}
+  .hero h1 .b{color:var(--brand)}
+  .hero p.sub{color:var(--muted);font-size:clamp(15px,2vw,18px);max-width:640px;margin:0 auto 30px;text-wrap:balance}
+  .cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:9px;font-weight:600;
+    text-decoration:none;font-size:15px;transition:filter .15s}
+  .btn.primary{background:var(--brand);color:var(--brand-ink)}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.ghost{border:1px solid var(--line-hi);color:var(--ink)}
+  .btn.ghost:hover{border-color:var(--brand);color:var(--brand)}
+  .hero .fine{font-family:var(--mono);font-size:12px;color:var(--faint)}
+
+  /* console mock */
+  .mock{margin:52px auto 0;max-width:960px;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    background:var(--surface);box-shadow:0 24px 70px rgba(0,0,0,.5);text-align:left}
+  .mock-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface2)}
+  .mock-bar i{width:10px;height:10px;border-radius:50%;background:#2c3444;display:inline-block}
+  .mock-bar .t{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:8px}
+  .mock-bar .live{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--done)}
+  .mock-bar .live::before{content:'●';margin-right:6px;animation:pulse 1.4s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  @media (prefers-reduced-motion:reduce){.mock-bar .live::before{animation:none}}
+  .mock-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px}
+  .mrun{border:1px solid var(--line);border-radius:9px;background:var(--bg);overflow:hidden}
+  .mrun-h{display:flex;align-items:center;gap:8px;padding:9px 12px;font-family:var(--mono);font-size:11px}
+  .mrun-h .rid{color:var(--faint)}
+  .mrun-h .nm{color:var(--ink);font-weight:600;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .mchip{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:999px;border:1px solid}
+  .mlog{border-top:1px solid var(--line);padding:9px 12px;font-family:var(--mono);font-size:10.5px;color:var(--muted);
+    display:flex;flex-direction:column;gap:4px}
+  .mlog .k{color:var(--brand)}
+  .mlog .add{color:var(--done)} .mlog .del{color:var(--failed)}
+  @media (max-width:760px){.mock-grid{grid-template-columns:1fr}}
+
+  /* sections */
+  section{padding:72px 0 0}
+  .sect-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--brand);margin:0 0 10px}
+  h2{font-size:clamp(22px,3.4vw,30px);margin:0 0 12px;letter-spacing:-.01em;text-wrap:balance}
+  .lead{color:var(--muted);max-width:620px;margin:0 0 34px}
+
+  .feat{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+  .fcard{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:20px 22px;
+    transition:border-color .18s}
+  .fcard:hover{border-color:var(--line-hi)}
+  .fcard h3{font-size:15px;margin:0 0 8px;display:flex;align-items:center;gap:9px}
+  .fcard h3 .g{font-family:var(--mono);color:var(--brand);font-size:14px}
+  .fcard p{font-size:13.5px;color:var(--muted);margin:0}
+
+  pre.code{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px 22px;
+    font-size:13.5px;line-height:1.75;overflow-x:auto;margin:0}
+  pre.code .c{color:var(--faint)}
+  pre.code .p{color:var(--brand)}
+
+  .dl{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+  .dcard{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:22px;text-decoration:none;
+    color:var(--ink);display:flex;flex-direction:column;gap:6px;transition:border-color .18s,transform .18s}
+  .dcard:hover{border-color:var(--brand);transform:translateY(-2px)}
+  .dcard .os{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .dcard .nm{font-weight:700;font-size:17px}
+  .dcard .fmt{font-family:var(--mono);font-size:12px;color:var(--brand)}
+  .dl-note{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:14px}
+
+  footer{margin-top:88px;border-top:1px solid var(--line);padding:26px 0 40px;display:flex;gap:18px;align-items:center}
+  footer span,footer a{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  footer .sp{flex:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="mark" href="#">coxpit</a>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="#download">Download</a>
+      <a href="https://github.com/hanmariyang/coxpit-oss">GitHub</a>
+    </div>
+  </nav>
+
+  <div class="hero">
+    <h1>Own your <span class="b">agent fleet</span>.</h1>
+    <p class="sub">Run parallel AI coding agents across your own machines — each in an isolated git worktree.
+    Watch them live, compare their diffs, attach a terminal, merge the winner. Self-hosted. Your code never leaves your network.</p>
+    <div class="cta-row">
+      <a class="btn primary" href="#download">Download</a>
+      <a class="btn ghost" href="https://github.com/hanmariyang/coxpit-oss">Source on GitHub</a>
+    </div>
+    <span class="fine">MIT · Node 20+ · macOS / Linux / Windows(WSL)</span>
+
+    <div class="mock" aria-hidden="true">
+      <div class="mock-bar"><i></i><i></i><i></i><span class="t">coxpit · fleet console</span><span class="live">live</span></div>
+      <div class="mock-grid">
+        <div class="mrun">
+          <div class="mrun-h"><span class="rid">r14</span><span class="nm">refactor auth flow</span>
+            <span class="mchip" style="color:var(--running);border-color:var(--running)">running</span></div>
+          <div class="mlog"><span><span class="k">assistant</span> reading src/auth.ts…</span>
+            <span><span class="k">tool_use</span> [Edit] session guard</span>
+            <span><span class="k">assistant</span> updating tests…</span></div>
+        </div>
+        <div class="mrun">
+          <div class="mrun-h"><span class="rid">r15</span><span class="nm">refactor auth flow</span>
+            <span class="mchip" style="color:var(--done);border-color:var(--done)">done</span></div>
+          <div class="mlog"><span><span class="add">+ 84</span> <span class="del">− 31</span> · 6 files</span>
+            <span><span class="k">result</span> extracted middleware, all tests green</span>
+            <span style="color:var(--brand)">⌥ merge this</span></div>
+        </div>
+        <div class="mrun">
+          <div class="mrun-h"><span class="rid">r16</span><span class="nm">refactor auth flow</span>
+            <span class="mchip" style="color:var(--stopped);border-color:var(--stopped)">stopped</span></div>
+          <div class="mlog"><span><span class="k">assistant</span> rewriting from scratch…</span>
+            <span style="color:var(--faint)">stopped by user</span>
+            <span style="color:var(--faint)">worktree cleaned</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section id="features">
+    <p class="sect-label">What it does</p>
+    <h2>One task. N agents. You pick the winner.</h2>
+    <p class="lead">Every run is isolated — its own git worktree, its own branch, its own tmux session. Agents can't touch your checkout, and you can watch or interrupt any of them.</p>
+    <div class="feat">
+      <div class="fcard"><h3><span class="g">×N</span> Fleet runs</h3><p>Launch the same task on multiple agents in parallel. Each run streams its progress to the board in real time over WebSocket.</p></div>
+      <div class="fcard"><h3><span class="g">⇄</span> Compare &amp; merge</h3><p>All runs side by side with colorized diffs. Merge the winner to your base branch — auto-commit, clean-base guard, conflict auto-abort.</p></div>
+      <div class="fcard"><h3><span class="g">&gt;_</span> Real terminal</h3><p>Attach to any run's tmux session right in the browser. Type, interrupt, steer. Resize propagates — even over SSH.</p></div>
+      <div class="fcard"><h3><span class="g">⌖</span> Design Mode</h3><p>Click an element in your running app with the inspect bookmarklet — its selector, HTML and computed styles are injected into the agents' prompt.</p></div>
+      <div class="fcard"><h3><span class="g">⌂</span> Multi-machine</h3><p>Register remote machines over SSH (Tailscale/LAN). Probe reachability, run fleets on your desktop from your laptop — or your phone.</p></div>
+      <div class="fcard"><h3><span class="g">◼</span> Safe by default</h3><p>Dry-run mode exercises the whole pipeline without spending credits. Stops kill entire process groups. Task close cleans every worktree.</p></div>
+    </div>
+  </section>
+
+  <section id="quickstart">
+    <p class="sect-label">Quickstart</p>
+    <h2>Running in a minute.</h2>
+    <p class="lead">Requirements: Node 20+, git, tmux, and an agent CLI on PATH (Claude Code first).</p>
+    <pre class="code"><span class="c"># from source</span>
+<span class="p">$</span> git clone https://github.com/hanmariyang/coxpit-oss && cd coxpit-oss
+<span class="p">$</span> npm install && cp .env.example .env
+<span class="p">$</span> npm run dev            <span class="c"># → http://127.0.0.1:8210</span>
+
+<span class="c"># or docker</span>
+<span class="p">$</span> docker build -t coxpit . && docker run -p 127.0.0.1:8210:8210 -v coxpit:/data coxpit</pre>
+  </section>
+
+  <section id="download">
+    <p class="sect-label">Download</p>
+    <h2>Desktop app.</h2>
+    <p class="lead">The desktop app embeds the daemon and opens the board in its own window — no terminal needed. Installers are built per release.</p>
+    <div class="dl">
+      <a class="dcard" href="https://github.com/hanmariyang/coxpit-oss/releases/latest">
+        <span class="os">macOS · Apple Silicon &amp; Intel</span><span class="nm">Coxpit for Mac</span><span class="fmt">.dmg</span></a>
+      <a class="dcard" href="https://github.com/hanmariyang/coxpit-oss/releases/latest">
+        <span class="os">Windows 10/11</span><span class="nm">Coxpit for Windows</span><span class="fmt">.exe (nsis)</span></a>
+      <a class="dcard" href="https://github.com/hanmariyang/coxpit-oss/releases/latest">
+        <span class="os">Linux</span><span class="nm">Coxpit for Linux</span><span class="fmt">.AppImage</span></a>
+    </div>
+    <p class="dl-note">All downloads land on the latest GitHub Release. Prefer the CLI? <code>npm i -g coxpit && coxpit</code> · self-host the daemon anywhere Node runs.</p>
+  </section>
+
+  <footer>
+    <span>MIT © 2026 coxpit</span>
+    <span class="sp"></span>
+    <a href="https://github.com/hanmariyang/coxpit-oss">github.com/hanmariyang/coxpit-oss</a>
+  </footer>
+</div>
+</body>
+</html>
