@@ -36,6 +36,6 @@
     "mac": { "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }], "category": "public.app-category.developer-tools" },
     "win": { "target": "nsis" },
     "linux": { "target": "AppImage", "category": "Development" },
-    "publish": { "provider": "github", "owner": "hanmariyang", "repo": "coxpit-oss" }
+    "publish": { "provider": "github", "owner": "hanmariyang", "repo": "coxpit-oss", "releaseType": "release" }
   }
 }
