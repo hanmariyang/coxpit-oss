@@ -295,7 +295,7 @@ export async function buildServer(): Promise<FastifyInstance> {
 
     let anyStopped = false;
     for (const r of trs) {
-      if (stopRun(r.id).ok) anyStopped = true;
+      if ((await stopRun(r.id)).ok) anyStopped = true;
     }
     // SIGTERM 직후 worktree 파일 잠금이 풀리도록 잠깐 양보
     if (anyStopped) await new Promise((res) => setTimeout(res, 400));

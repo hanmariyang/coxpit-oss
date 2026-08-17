@@ -122,7 +122,10 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, real: useReal }));
 
     // 3) 에이전트 spawn(스트리밍)
-    const cmd = `cd ${shq(wtPath)} && ${agentCommand(ctx.prompt, useReal)}`;
+    // 원격은 ssh 채널이 죽어도 프로세스가 남을 수 있어 pid 파일을 남긴다(stop 시 원격 kill).
+    const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
+    const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
+    const cmd = `cd ${shq(wtPath)} && ${pidPrefix}{ ${agentCommand(ctx.prompt, useReal)}; }`;
     const child = spawnShellOn(ctx.machine, cmd);
     liveChildren.set(runId, child);
 
@@ -185,11 +188,26 @@ export async function getRunTermInfo(runId: number): Promise<{ machine: MachineT
 /**
  * 실행 중 run 중지 — 자식 프로세스 SIGTERM. close 핸들러가 status='stopped' 로 봉인.
  */
-export function stopRun(runId: number): { ok: boolean; detail: string } {
+export async function stopRun(runId: number): Promise<{ ok: boolean; detail: string }> {
   const child = liveChildren.get(runId);
   if (!child) return { ok: false, detail: 'not running' };
   stoppedRuns.add(runId);
-  // 프로세스 그룹 전체 종료(sh 의 손자 = 실제 에이전트 포함). 실패 시 단일 kill.
+
+  // 원격이면 먼저 원격 프로세스를 pid 파일로 죽인다(ssh 채널만 끊으면 잔존 가능).
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (ctx && run && ctx.machine.kind !== 'local' && ctx.machine.address !== '' && run.worktreePath) {
+    const pidFile = shq(`${run.worktreePath}/.coxpit-agent.pid`);
+    // 그룹 kill(-P, sshd 는 커맨드 셸을 세션리더로 띄워 성립) → 실패 시 자식(pkill -P)+본체 순.
+    await runShellOn(
+      ctx.machine,
+      `P=$(cat ${pidFile} 2>/dev/null) && { kill -TERM -"$P" 2>/dev/null || { pkill -TERM -P "$P" 2>/dev/null; kill -TERM "$P" 2>/dev/null; }; } || true`,
+      8000,
+    );
+  }
+
+  // 로컬(또는 ssh 채널) 프로세스 그룹 종료 — sh 손자(실제 에이전트) 포함.
   try {
     if (child.pid) process.kill(-child.pid, 'SIGTERM');
     else child.kill('SIGTERM');
