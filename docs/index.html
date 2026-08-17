@@ -175,13 +175,15 @@
     <p class="sect-label">Quickstart</p>
     <h2>Running in a minute.</h2>
     <p class="lead">Requirements: Node 20+, git, tmux, and an agent CLI on PATH (Claude Code first).</p>
-    <pre class="code"><span class="c"># from source</span>
-<span class="p">$</span> git clone https://github.com/hanmariyang/coxpit-oss && cd coxpit-oss
-<span class="p">$</span> npm install && cp .env.example .env
-<span class="p">$</span> npm run dev            <span class="c"># → http://127.0.0.1:8210</span>
+    <pre class="code"><span class="c"># fastest — straight from npm</span>
+<span class="p">$</span> npx coxpit              <span class="c"># → http://127.0.0.1:8210</span>
 
-<span class="c"># or docker</span>
-<span class="p">$</span> docker build -t coxpit . && docker run -p 127.0.0.1:8210:8210 -v coxpit:/data coxpit</pre>
+<span class="c"># or docker (ghcr image)</span>
+<span class="p">$</span> docker run -p 127.0.0.1:8210:8210 -v coxpit:/data ghcr.io/hanmariyang/coxpit
+
+<span class="c"># or from source</span>
+<span class="p">$</span> git clone https://github.com/hanmariyang/coxpit-oss && cd coxpit-oss
+<span class="p">$</span> npm install && npm run dev</pre>
   </section>
 
   <section id="download">

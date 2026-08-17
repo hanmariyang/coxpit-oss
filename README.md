@@ -31,9 +31,13 @@ External tools are spawned, never vendored: `git`, `tmux`, your agent CLI. No ed
 Requirements: Node 20+, git, tmux, an agent CLI on PATH (e.g. `claude`).
 
 ```bash
+# fastest — straight from npm
+COXPIT_AUTH_DISABLED=1 npx coxpit    # → http://127.0.0.1:8210
+
+# or from source
 npm install
 cp .env.example .env        # set COXPIT_AUTH_PASS (or COXPIT_AUTH_DISABLED=1 locally)
-npm run dev                 # → http://127.0.0.1:8210
+npm run dev
 ```
 
 Open the board, register a repo (absolute path), write a task, hit **Run fleet**.

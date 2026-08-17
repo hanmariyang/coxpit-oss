@@ -9,8 +9,8 @@ Coxpit's goal is simple: prove that a self-hosted, owner-first agent-fleet cockp
 - [x] GHCR container image published per release
 - [x] Desktop auto-update (electron-updater, GitHub provider)
 - [x] Real screenshots on README & landing
+- [x] npm publish (`npx coxpit`)
 - [ ] macOS code signing + notarization (cert pending)
-- [ ] npm publish (`npx coxpit`)
 
 ## v2.2 — daily driver
 
