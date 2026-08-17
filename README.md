@@ -4,6 +4,8 @@
 
 **[Landing & downloads](https://hanmariyang.github.io/coxpit-oss/)** · [Latest release](https://github.com/hanmariyang/coxpit-oss/releases/latest)
 
+![coxpit fleet board — three agents racing the same task](docs/demo.gif)
+
 Coxpit is a self-hosted cockpit for CLI coding agents (Claude Code first). Give it a task and it launches N agents in parallel — each in its own **isolated git worktree**, on its own branch, inside its own tmux session — then streams everything to a live board where you watch, compare diffs side by side, attach a real terminal, and merge the winner.
 
 Your machines. Your auth. Your code never leaves your network.
@@ -19,6 +21,10 @@ Your machines. Your auth. Your code never leaves your network.
 - **Design Mode** — drag the `⌖ coxpit inspect` bookmarklet to your bar, click it on your running app, click any element: its selector, HTML and computed styles are captured and injected into the agents' prompt as design context.
 
 External tools are spawned, never vendored: `git`, `tmux`, your agent CLI. No editor bundled — terminal-first.
+
+| Fleet board | Compare & merge |
+|---|---|
+| ![board](docs/shot-board.png) | ![compare](docs/shot-compare.png) |
 
 ## Quickstart
 

@@ -71,9 +71,23 @@ async function createWindow() {
   }
 }
 
+function setupAutoUpdate() {
+  if (!app.isPackaged) return;
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true; // 다음 종료 때 조용히 설치
+    autoUpdater.on('error', () => { /* 오프라인 등 — 무해 */ });
+    autoUpdater.checkForUpdates().catch(() => { /* ignore */ });
+    // 이후 6시간마다 재확인
+    setInterval(() => autoUpdater.checkForUpdates().catch(() => { /* ignore */ }), 6 * 60 * 60 * 1000);
+  } catch { /* updater 미동봉 빌드 — skip */ }
+}
+
 app.whenReady().then(() => {
   startDaemon();
   createWindow();
+  setupAutoUpdate();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

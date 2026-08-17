@@ -1,16 +1,30 @@
 name: release-desktop
 
-# 태그 push 시 3-OS 데스크톱 인스톨러를 빌드해 GitHub Release 에 업로드한다.
-# (electron-builder publish: provider github — GH_TOKEN 은 기본 GITHUB_TOKEN)
+# 태그 push(v*) 또는 수동 dispatch:
+#  - e2e: 리눅스에서 전체 E2E 스위트
+#  - desktop: 3-OS 인스톨러 빌드 → GitHub Release 업로드
+#  - ghcr: 컨테이너 이미지 → ghcr.io/hanmariyang/coxpit
 on:
   push:
     tags: ['v*']
-  workflow_dispatch: {}   # 수동 재실행 — electron-builder 는 package.json 버전의 릴리스에 업로드
+  workflow_dispatch: {}
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - run: npm ci
+      - run: npm run typecheck
+      - run: bash test/e2e.sh
+
   desktop:
     strategy:
       fail-fast: false
@@ -36,16 +50,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  smoke:
+  ghcr:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
-      - run: npm ci
-      - run: npm run typecheck
-      - name: boot daemon and hit health
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: resolve version tag
+        id: v
         run: |
-          COXPIT_AUTH_DISABLED=1 COXPIT_DB=/tmp/ci.db node bin/coxpit.js &
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8210/api/health && exit 0 || sleep 1; done
-          exit 1
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/hanmariyang/coxpit:latest
+            ghcr.io/hanmariyang/coxpit:${{ steps.v.outputs.version }}

@@ -120,9 +120,10 @@
     </div>
     <span class="fine">MIT · Node 20+ · macOS / Linux / Windows(WSL)</span>
 
-    <div class="mock" aria-hidden="true">
+    <div class="mock">
       <div class="mock-bar"><i></i><i></i><i></i><span class="t">coxpit · fleet console</span><span class="live">live</span></div>
-      <div class="mock-grid">
+      <img src="demo.gif" alt="coxpit fleet board — three agents racing the same task, live" style="display:block;width:100%" />
+      <div class="mock-grid" hidden>
         <div class="mrun">
           <div class="mrun-h"><span class="rid">r14</span><span class="nm">refactor auth flow</span>
             <span class="mchip" style="color:var(--running);border-color:var(--running)">running</span></div>
@@ -160,6 +161,14 @@
       <div class="fcard"><h3><span class="g">⌂</span> Multi-machine</h3><p>Register remote machines over SSH (Tailscale/LAN). Probe reachability, run fleets on your desktop from your laptop — or your phone.</p></div>
       <div class="fcard"><h3><span class="g">◼</span> Safe by default</h3><p>Dry-run mode exercises the whole pipeline without spending credits. Stops kill entire process groups. Task close cleans every worktree.</p></div>
     </div>
+  </section>
+
+  <section id="shots">
+    <p class="sect-label">In action</p>
+    <h2>Compare, then merge the winner.</h2>
+    <p class="lead">Every run of a task, side by side — colorized diffs, exit summaries, one-click merge with a clean-base guard.</p>
+    <img src="shot-compare.png" alt="compare view — three runs side by side with diffs and merge buttons"
+         style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
   </section>
 
   <section id="quickstart">
