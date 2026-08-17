@@ -68,6 +68,7 @@ tmux · git · 에이전트 CLI(claude-code 등) — 사용자 환경에 설치.
 - 기본은 **드라이런**(`COXPIT_AGENT_REAL=1` 켜야 실제 CLI — 크레딧 소모). 헤드리스 권한 `COXPIT_AGENT_PERM`(기본 acceptEdits).
 - 원격 run stop 은 ssh 종료 기반 — 원격 프로세스 잔존 가능(P2 에서 tmux 경유 kill 로 보강 예정).
 - 라이브 터미널 attach(tmux 웹 접속)는 P2 멀티 터미널로 이월.
-- 신규 의존성 도입 시 라이선스 감사(GPL/AGPL 전염 금지).
+- 신규 의존성 도입 시 라이선스 감사(GPL/AGPL 전염 금지). — 2026-08-18 프로덕션 트리 123패키지 감사: copyleft 0 (MIT 73·ISC 7·BSD 6·Apache 2, 나머지는 미설치 옵셔널 피어).
+- **공개 push 전 수동 2건**: ① 이 CLAUDE.md 는 워크스페이스 참조(개인 프로젝트명·상대경로)를 포함 — public repo 에는 일반화판으로 교체하거나 제외. ② `.env.example` 에 `COXPIT_SSH_KEY`·`COXPIT_AGENT_REAL/BIN/PERM` 키 추가(세션 시크릿 가드로 자동수정 불가). 코드·README 는 스캔 클린(개인 배선 0·시크릿 패턴 0).
 
 설계 상세: `../coxpit/Docs/v2.0/plan/` (direction · extraction · feature_selection · p1_agent_fleet).
