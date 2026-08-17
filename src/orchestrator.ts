@@ -11,7 +11,8 @@ import { broadcast } from './hub';
 function agentCommand(prompt: string, real: boolean): string {
   if (real) {
     // claude-code headless. stream-json 라인이 stdout 으로 흐른다.
-    return `${config.agent.bin} -p ${shq(prompt)} --output-format stream-json --verbose`;
+    return `${config.agent.bin} -p ${shq(prompt)} --output-format stream-json --verbose` +
+      ` --permission-mode ${config.agent.perm}`;
   }
   // 모의: init → assistant → (파일 변경) → result. 진짜 stream-json 라인 형태.
   return [
@@ -113,9 +114,10 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
         if (!s) return;
         let kind = 'log';
         try {
-          const obj = JSON.parse(s) as { type?: string };
+          const obj = JSON.parse(s) as { type?: string; result?: string };
           if (obj.type) kind = obj.type;
-          if (obj.type === 'result') lastResult = s;
+          // result 이벤트의 사람이 읽는 요약만 뽑아 둔다(없으면 원본 라인).
+          if (obj.type === 'result') lastResult = typeof obj.result === 'string' ? obj.result : s;
         } catch { /* 비-JSON 로그 라인 */ }
         void recordEvent(runId, kind, s.slice(0, 2000));
       });

@@ -11,6 +11,9 @@ export const config = {
     // 기본 드라이런(모의 에이전트). 실제 CLI 실행은 켤 때만(크레딧 소모).
     real: process.env.COXPIT_AGENT_REAL === '1',
     bin: process.env.COXPIT_AGENT_BIN ?? 'claude',
+    // 격리 worktree에서 헤드리스 실행 권한: acceptEdits(파일편집 자동허용) 기본.
+    // 완전 자율은 bypassPermissions.
+    perm: process.env.COXPIT_AGENT_PERM ?? 'acceptEdits',
   },
   auth: {
     disabled: process.env.COXPIT_AUTH_DISABLED === '1',
