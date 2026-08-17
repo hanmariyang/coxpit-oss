@@ -1,0 +1,24 @@
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { config } from './config';
+
+const EXEMPT = new Set(['/api/health']);
+
+/**
+ * 인증 게이트 — 현재 basic. 플러그형 좌석: 배포 시 앞단에 Cloudflare Access / Tailscale 을
+ * 두는 것을 권장(그 경우 COXPIT_AUTH_DISABLED=1 로 내부 인증을 끄고 게이트웨이에 위임).
+ */
+export async function authGate(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (config.auth.disabled) return;
+  const path = req.url.split('?')[0] ?? '';
+  if (EXEMPT.has(path)) return;
+
+  const h = req.headers.authorization ?? '';
+  if (h.startsWith('Basic ') && config.auth.pass !== '') {
+    const decoded = Buffer.from(h.slice(6), 'base64').toString('utf8');
+    const idx = decoded.indexOf(':');
+    const u = decoded.slice(0, idx);
+    const p = decoded.slice(idx + 1);
+    if (u === config.auth.user && p === config.auth.pass) return;
+  }
+  await reply.header('WWW-Authenticate', 'Basic realm="coxpit"').code(401).send({ error: 'unauthorized' });
+}
