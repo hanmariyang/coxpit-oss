@@ -4,8 +4,10 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import { eq } from 'drizzle-orm';
 import { authGate } from './auth';
+import { config } from './config';
 import { db } from './db';
-import { machines, repos, tasks, agentRuns, agentEvents } from './db/schema';
+import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
+import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
 import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo } from './orchestrator';
 import { openTerm } from './term';
@@ -32,14 +34,15 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
 
-  // 보드 하이드레이션 — machines/repos/tasks/runs(+events) 한 방에.
+  // 보드 하이드레이션 — machines/repos/tasks/runs(+events)/captures 한 방에.
   app.get('/api/fleet', async () => {
-    const [ms, rs, ts, rns, evs] = await Promise.all([
+    const [ms, rs, ts, rns, evs, dcs] = await Promise.all([
       db.select().from(machines),
       db.select().from(repos),
       db.select().from(tasks),
       db.select().from(agentRuns),
       db.select().from(agentEvents),
+      db.select().from(designCaptures),
     ]);
     const byRun = new Map<number, Array<{ kind: string; payload: string }>>();
     for (const e of evs) {
@@ -48,7 +51,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       byRun.set(e.runId, arr);
     }
     return {
-      machines: ms, repos: rs, tasks: ts,
+      machines: ms, repos: rs, tasks: ts, captures: dcs,
       runs: rns.map((r) => ({ ...r, events: byRun.get(r.id) ?? [] })),
     };
   });
@@ -166,6 +169,47 @@ export async function buildServer(): Promise<FastifyInstance> {
     return reply.code(201).send({ ok: true, repo: ins[0] });
   });
 
+  // ─── Design Mode ───────────────────────────────────────────────
+  // 캡처 키: 인증 off 면 자유, on 이면 ?k=<COXPIT_AUTH_PASS> (북마클릿은 basic 헤더 불가)
+  const captureKeyOk = (req: { query?: unknown }): boolean => {
+    if (config.auth.disabled || config.auth.pass === '') return config.auth.disabled;
+    return ((req.query ?? {}) as { k?: string }).k === config.auth.pass;
+  };
+  const cors = (reply: { header: (k: string, v: string) => unknown }) => {
+    reply.header('access-control-allow-origin', '*');
+    reply.header('access-control-allow-methods', 'POST, OPTIONS');
+    reply.header('access-control-allow-headers', 'content-type');
+  };
+
+  app.options('/api/design/capture', async (_req, reply) => { cors(reply); return reply.code(204).send(); });
+
+  app.post('/api/design/capture', async (req, reply) => {
+    cors(reply);
+    if (!captureKeyOk(req)) return reply.code(401).send({ error: 'bad capture key' });
+    const b = (req.body ?? {}) as { url?: string; selector?: string; html?: string; css?: string; note?: string };
+    const ins = await db.insert(designCaptures).values({
+      url: (b.url ?? '').slice(0, 500),
+      selector: (b.selector ?? '').slice(0, 500),
+      html: (b.html ?? '').slice(0, 8000),
+      css: (b.css ?? '').slice(0, 4000),
+      note: (b.note ?? '').slice(0, 200),
+    }).returning();
+    broadcast({ type: 'capture', capture: ins[0] });
+    return reply.code(201).send({ ok: true, id: ins[0]!.id });
+  });
+
+  app.get('/api/design', async () => ({ captures: await db.select().from(designCaptures) }));
+
+  app.delete('/api/design/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    await db.delete(designCaptures).where(eq(designCaptures.id, id));
+    return reply.code(200).send({ ok: true });
+  });
+
+  // 북마클릿 본체 — 외부 앱 <script> 로 로드됨(인증 예외, 키는 src 쿼리로 전달)
+  app.get('/design/bookmarklet.js', async (_req, reply) =>
+    reply.type('text/javascript').header('cache-control', 'no-store').send(BOOKMARKLET_JS));
+
   // ─── Task ──────────────────────────────────────────────────────
   app.get('/api/tasks', async (req) => {
     const q = (req.query ?? {}) as { repo?: string };
@@ -177,13 +221,19 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   app.post('/api/tasks', async (req, reply) => {
-    const b = (req.body ?? {}) as { repoId?: number; title?: string; prompt?: string };
+    const b = (req.body ?? {}) as { repoId?: number; title?: string; prompt?: string; designCaptureId?: number };
     const repoId = Number(b.repoId);
     const title = (b.title ?? '').trim();
     if (!repoId || !title) return reply.code(400).send({ error: 'repoId and title required' });
     const rp = await db.select().from(repos).where(eq(repos.id, repoId)).limit(1);
     if (!rp[0]) return reply.code(404).send({ error: 'repo not found' });
-    const ins = await db.insert(tasks).values({ repoId, title, prompt: b.prompt ?? '' }).returning();
+    let designCaptureId: number | null = null;
+    if (b.designCaptureId) {
+      const dc = await db.select().from(designCaptures).where(eq(designCaptures.id, Number(b.designCaptureId))).limit(1);
+      if (!dc[0]) return reply.code(404).send({ error: 'design capture not found' });
+      designCaptureId = dc[0].id;
+    }
+    const ins = await db.insert(tasks).values({ repoId, title, prompt: b.prompt ?? '', designCaptureId }).returning();
     return reply.code(201).send({ ok: true, task: ins[0] });
   });
 

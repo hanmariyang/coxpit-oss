@@ -28,12 +28,22 @@ export async function ensureSchema(): Promise<void> {
       name TEXT NOT NULL,
       default_branch TEXT NOT NULL DEFAULT 'main'
     );
+    CREATE TABLE IF NOT EXISTS design_captures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      url TEXT NOT NULL DEFAULT '',
+      selector TEXT NOT NULL DEFAULT '',
+      html TEXT NOT NULL DEFAULT '',
+      css TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_at INTEGER DEFAULT (unixepoch())
+    );
     CREATE TABLE IF NOT EXISTS tasks (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       repo_id INTEGER NOT NULL,
       title TEXT NOT NULL,
       prompt TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'open',
+      design_capture_id INTEGER,
       created_at INTEGER DEFAULT (unixepoch())
     );
     CREATE TABLE IF NOT EXISTS agent_runs (
@@ -58,4 +68,6 @@ export async function ensureSchema(): Promise<void> {
       ts INTEGER DEFAULT (unixepoch())
     );
   `);
+  // 기존 DB 마이그레이션(멱등) — tasks.design_capture_id
+  try { await client.execute('ALTER TABLE tasks ADD COLUMN design_capture_id INTEGER'); } catch { /* exists */ }
 }

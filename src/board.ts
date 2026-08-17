@@ -194,12 +194,21 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <select id="taskRepo"></select>
         <input id="taskTitle" placeholder="Task title" />
         <textarea id="taskPrompt" placeholder="Prompt for the agents…"></textarea>
+        <select id="taskCapture"><option value="">no design capture</option></select>
         <div class="row">
           <input id="taskCount" class="narrow" type="number" min="1" max="8" value="2" title="number of agents" />
           <button class="btn" type="submit">Run fleet</button>
         </div>
         <label class="check"><input type="checkbox" id="taskReal" /> real agent · spends credits</label>
       </form>
+    </div>
+    <div class="sect">
+      <p class="sect-label">Design captures</p>
+      <div id="captures" style="display:flex;flex-direction:column;gap:6px"></div>
+      <a id="bmk" class="btn-ghost sm" style="text-decoration:none;text-align:center;display:block;padding:6px"
+         title="drag me to your bookmarks bar, then click it on your running app">⌖ coxpit inspect</a>
+      <span style="font-size:11px;color:var(--faint)">Drag to bookmarks. Click it on your app, then click an element.
+      With auth on, append ?k=&lt;pass&gt; to the script URL.</span>
     </div>
   </aside>
   <main>
@@ -270,7 +279,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 <script>
 const runs = new Map();      // runId -> run object
 const tasks = new Map();     // taskId -> task
-let repos = [], machines = [];
+let repos = [], machines = [], captures = [];
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -339,7 +348,7 @@ function upsertRun(patch){
 
 async function hydrate(){
   const r = await fetch('/api/fleet').then(x=>x.json());
-  machines = r.machines||[]; repos = r.repos||[];
+  machines = r.machines||[]; repos = r.repos||[]; captures = r.captures||[];
   tasks.clear();
   (r.tasks||[]).forEach(t => tasks.set(t.id, t));
   runs.clear();
@@ -355,7 +364,24 @@ function paintSidebar(){
     || '<div class="repo" style="color:var(--faint)">none registered</div>';
   $('repoMachine').innerHTML = machines.map(m=>'<option value="'+esc(m.slug)+'">'+esc(m.slug)+'</option>').join('');
   $('taskRepo').innerHTML = repos.map(r=>'<option value="'+r.id+'">'+esc(r.name)+'</option>').join('');
+  const capSel = $('taskCapture');
+  const cur = capSel.value;
+  capSel.innerHTML = '<option value="">no design capture</option>' + captures.map(c=>
+    '<option value="'+c.id+'">#'+c.id+' '+esc((c.selector||'').slice(0,40))+'</option>').join('');
+  capSel.value = cur;
+  $('captures').innerHTML = captures.map(c=>
+    '<div class="repo"><span class="nm">'+esc((c.selector||'?').slice(0,46))+'</span>'
+    + '<button class="x" data-delcap="'+c.id+'" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button>'
+    + '<div class="path">'+esc((c.url||'').slice(0,70))+'</div></div>').join('')
+    || '<div class="repo" style="color:var(--faint)">none captured</div>';
+  $('bmk').href = "javascript:(function(){var s=document.createElement('script');s.src='"
+    + location.origin + "/design/bookmarklet.js';document.body.appendChild(s)})()";
 }
+$('captures').addEventListener('click', async (e)=>{
+  const b = e.target.closest('button[data-delcap]'); if(!b) return;
+  await fetch('/api/design/'+b.dataset.delcap,{method:'DELETE'});
+  hydrate();
+});
 
 function connectWS(){
   const proto = location.protocol==='https:'?'wss':'ws';
@@ -378,6 +404,8 @@ function connectWS(){
     } else if (ev.type==='task'){
       const t = tasks.get(ev.taskId);
       if (t){ t.status = ev.status; render(); paintModal(); } else { hydrate(); }
+    } else if (ev.type==='capture'){
+      captures.push(ev.capture); paintSidebar();
     }
   };
 }
@@ -558,8 +586,9 @@ $('taskForm').addEventListener('submit', async (e)=>{
   const repoId = Number($('taskRepo').value);
   const title = $('taskTitle').value.trim();
   if (!repoId || !title) return;
+  const capId = Number($('taskCapture').value) || undefined;
   const t = await fetch('/api/tasks',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({repoId,title,prompt:$('taskPrompt').value})}).then(x=>x.json());
+    body:JSON.stringify({repoId,title,prompt:$('taskPrompt').value,designCaptureId:capId})}).then(x=>x.json());
   if (!t.ok){ alert('task failed'); return; }
   tasks.set(t.task.id, t.task);
   await fetch('/api/tasks/'+t.task.id+'/run',{method:'POST',headers:{'content-type':'application/json'},

@@ -4,7 +4,7 @@ import type { ChildProcess } from 'node:child_process';
 import { eq } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
-import { agentRuns, agentEvents, tasks, repos, machines } from './db/schema';
+import { agentRuns, agentEvents, tasks, repos, machines, designCaptures } from './db/schema';
 import { runShellOn, spawnShellOn, shq, type MachineTarget } from './exec';
 import { broadcast } from './hub';
 
@@ -61,12 +61,26 @@ async function loadContext(runId: number): Promise<RunContext | null> {
   const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
   const m = mr[0];
   if (!m) return null;
+
+  // Design Mode — 태스크에 캡처가 연결돼 있으면 프롬프트에 컨텍스트 블록 주입
+  let prompt = task.prompt;
+  if (task.designCaptureId) {
+    const dc = (await db.select().from(designCaptures).where(eq(designCaptures.id, task.designCaptureId)).limit(1))[0];
+    if (dc) {
+      prompt += `\n\n--- DESIGN CONTEXT (captured from the running app) ---\n` +
+        `Page: ${dc.url}\nSelector: ${dc.selector}\n` +
+        `Element HTML:\n${dc.html}\n` +
+        `Computed styles:\n${dc.css}\n` +
+        `--- END DESIGN CONTEXT ---`;
+    }
+  }
+
   return {
     runId,
     machine: { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser },
     repoPath: repo.path,
     baseBranch: repo.defaultBranch,
-    prompt: task.prompt,
+    prompt,
     real: run.agent === 'claude-code' ? config.agent.real : config.agent.real,
   };
 }

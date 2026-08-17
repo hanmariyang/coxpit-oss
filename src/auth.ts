@@ -1,7 +1,9 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { config } from './config';
 
-const EXEMPT = new Set(['/api/health']);
+// /api/design/capture · /design/bookmarklet.js 는 외부 앱(북마클릿)에서 오므로
+// basic 헤더를 못 싣는다 — 라우트 자체가 캡처 키(?k=)를 검증한다.
+const EXEMPT = new Set(['/api/health', '/api/design/capture', '/design/bookmarklet.js']);
 
 /**
  * 인증 게이트 — 현재 basic. 플러그형 좌석: 배포 시 앞단에 Cloudflare Access / Tailscale 을

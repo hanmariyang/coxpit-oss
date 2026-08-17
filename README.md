@@ -14,6 +14,7 @@ Your machines. Your auth. Your code never leaves your network.
 - **Real terminal** — attach to any run's tmux session in the browser (xterm.js over a server-side PTY; resize propagates, `Ctrl-b d` detaches).
 - **Multi-machine** — register remote machines over SSH (Tailscale/LAN); probe reachability (git·tmux), run fleets there.
 - **Safe stops** — stop kills the whole process group; task close stops and cleans every worktree/branch.
+- **Design Mode** — drag the `⌖ coxpit inspect` bookmarklet to your bar, click it on your running app, click any element: its selector, HTML and computed styles are captured and injected into the agents' prompt as design context.
 
 External tools are spawned, never vendored: `git`, `tmux`, your agent CLI. No editor bundled — terminal-first.
 
@@ -60,7 +61,7 @@ One daemon, one SQLite file, zero external services. Machines are reached over S
 
 ## Status
 
-`v2.0` — agent fleet (P1) and compare/review + terminal (P2) are implemented and tested. Roadmap: richer review tooling, more agent providers, packaging (Docker/npm).
+`v2.0` — agent fleet (P1), compare/review + terminal (P2), and Design Mode (P3) are implemented and tested. Roadmap: richer review tooling, more agent providers, packaging (Docker/npm).
 
 ## License
 

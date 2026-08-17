@@ -21,6 +21,17 @@ export const repos = sqliteTable('repos', {
   defaultBranch: text('default_branch').notNull().default('main'),
 });
 
+/** Design Mode 캡처 — 북마클릿 인스펙터가 보낸 UI 요소 컨텍스트. */
+export const designCaptures = sqliteTable('design_captures', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  url: text('url').notNull().default(''),
+  selector: text('selector').notNull().default(''),
+  html: text('html').notNull().default(''),
+  css: text('css').notNull().default(''),
+  note: text('note').notNull().default(''),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
 /** 하나의 요청. 여러 AgentRun 으로 병렬 시도됨. */
 export const tasks = sqliteTable('tasks', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -28,6 +39,7 @@ export const tasks = sqliteTable('tasks', {
   title: text('title').notNull(),
   prompt: text('prompt').notNull().default(''),
   status: text('status').notNull().default('open'), // open | done
+  designCaptureId: integer('design_capture_id'), // 선택 — 프롬프트에 DESIGN CONTEXT 주입
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 
