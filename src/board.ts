@@ -11,7 +11,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     --bg:#0e1116; --panel:#161b22; --panel2:#1b2129; --line:#232a33;
     --fg:#d6dde5; --muted:#7d8894; --accent:#4ec9b0;
     --s-pending:#7d8894; --s-preparing:#d3a04e; --s-running:#4ea1d3;
-    --s-done:#57ab5a; --s-failed:#e05561; --s-error:#e05561;
+    --s-done:#57ab5a; --s-failed:#e05561; --s-error:#e05561; --s-stopped:#b085d6;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
   }
@@ -63,6 +63,29 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .flash{animation:flash .6s ease}
   @keyframes flash{from{background:var(--panel2)}to{background:var(--panel)}}
   @media (prefers-reduced-motion:reduce){.flash{animation:none}}
+  .card{cursor:pointer}
+  /* run 상세 모달 */
+  .overlay{position:fixed;inset:0;background:rgba(8,10,14,.72);display:none;z-index:20}
+  .overlay.open{display:flex;align-items:center;justify-content:center;padding:28px}
+  .modal{width:min(980px,100%);max-height:90vh;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+  .modal-h{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
+  .modal-h .title{font-weight:600;flex:1}
+  .modal-h .x{background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:2px 8px}
+  .modal-b{display:grid;grid-template-columns:1fr 1fr;gap:0;overflow:hidden;flex:1;min-height:0}
+  .pane{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+  .pane:last-child{border-right:none}
+  .pane-h{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+    padding:9px 14px;border-bottom:1px solid var(--line)}
+  .pane-c{overflow:auto;padding:10px 14px;font-family:var(--mono);font-size:11px;flex:1;min-height:0}
+  .tl .ev{margin-bottom:5px}
+  .tl .ev .t{white-space:normal;word-break:break-word}
+  pre.diff{margin:0;white-space:pre-wrap;word-break:break-all;line-height:1.45}
+  .dl-add{color:var(--s-done)} .dl-del{color:var(--s-failed)} .dl-hunk{color:var(--s-running)} .dl-file{color:var(--accent);font-weight:600}
+  .modal-f{display:flex;gap:8px;padding:11px 16px;border-top:1px solid var(--line)}
+  .modal-f .spacer{flex:1}
+  button.danger{background:transparent;color:var(--s-failed);border:1px solid var(--s-failed);font-weight:500}
+  @media (max-width:760px){.modal-b{grid-template-columns:1fr}.pane{border-right:none;border-bottom:1px solid var(--line)}}
 </style>
 </head>
 <body>
@@ -102,6 +125,32 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     <div class="grid" id="grid"></div>
     <div class="empty" id="empty">No runs yet — create a task and hit run.</div>
   </main>
+</div>
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modal-h">
+      <span class="rid" id="mRid" style="font-family:var(--mono);color:var(--muted)"></span>
+      <span class="title" id="mTitle"></span>
+      <span class="chip" id="mChip"></span>
+      <button class="x" id="mClose" aria-label="close">×</button>
+    </div>
+    <div class="modal-b">
+      <div class="pane">
+        <div class="pane-h">Timeline</div>
+        <div class="pane-c tl" id="mTimeline"></div>
+      </div>
+      <div class="pane">
+        <div class="pane-h">Diff <span id="mStat" style="text-transform:none;letter-spacing:0"></span></div>
+        <div class="pane-c"><pre class="diff" id="mDiff">loading…</pre></div>
+      </div>
+    </div>
+    <div class="modal-f">
+      <button class="ghost" id="mRefreshDiff">refresh diff</button>
+      <span class="spacer"></span>
+      <button class="danger" id="mStop">stop</button>
+      <button class="ghost" id="mCleanup">cleanup worktree</button>
+    </div>
+  </div>
 </div>
 <script>
 const runs = new Map();      // runId -> run object
@@ -187,14 +236,77 @@ function connectWS(){
       const known = runs.has(ev.runId ?? ev.id);
       upsertRun(ev);
       if (!known && ev.taskId==null){ hydrate(); return; } // unknown run w/o task → resync
-      render(); flash(ev.runId ?? ev.id);
+      render(); flash(ev.runId ?? ev.id); paintModal();
+      // run 이 끝나면 열려있는 상세의 diff 자동 갱신
+      if (openRunId===(ev.runId??ev.id) && ['done','failed','error','stopped'].includes(ev.status)) loadDiff();
     } else if (ev.type==='event'){
       const r = runs.get(ev.runId); if(!r){ hydrate(); return; }
       r.events = r.events||[]; r.events.push({ kind:ev.kind, payload:ev.payload });
-      render(); flash(ev.runId);
+      render(); flash(ev.runId); paintModal();
     }
   };
 }
+
+// ── run 상세 모달 ─────────────────────────────────────────────
+let openRunId = null;
+function diffHTML(text){
+  if (!text.trim()) return '<span style="color:var(--muted)">no changes</span>';
+  return text.split('\\n').map(l=>{
+    const e = esc(l);
+    if (l.startsWith('diff --git')||l.startsWith('+++')||l.startsWith('---')) return '<span class="dl-file">'+e+'</span>';
+    if (l.startsWith('@@')) return '<span class="dl-hunk">'+e+'</span>';
+    if (l.startsWith('+')) return '<span class="dl-add">'+e+'</span>';
+    if (l.startsWith('-')) return '<span class="dl-del">'+e+'</span>';
+    return e;
+  }).join('\\n');
+}
+function paintModal(){
+  if (openRunId==null) return;
+  const r = runs.get(openRunId); if(!r) return;
+  const task = tasks.get(r.taskId);
+  $('mRid').textContent = 'r'+r.id;
+  $('mTitle').textContent = task ? task.title : 'task '+(r.taskId??'?');
+  const chip = $('mChip');
+  chip.textContent = r.status||'pending';
+  chip.style.color = statusColor(r.status);
+  $('mStop').style.display = (r.status==='running'||r.status==='preparing'||r.status==='pending') ? '' : 'none';
+  $('mTimeline').innerHTML = (r.events||[]).map(e =>
+    '<div class="ev"><span class="k">'+esc(e.kind)+'</span><span class="t">'+esc(summarize(e.kind,e.payload))+'</span></div>'
+  ).join('') || '<span style="color:var(--muted)">no events yet</span>';
+}
+async function loadDiff(){
+  if (openRunId==null) return;
+  $('mDiff').textContent = 'loading…'; $('mStat').textContent='';
+  try{
+    const d = await fetch('/api/runs/'+openRunId+'/diff').then(x=>x.json());
+    if (!d.ok){ $('mDiff').textContent = d.stat||'no worktree'; return; }
+    const files = d.stat ? d.stat.split('\\n').length : 0;
+    $('mStat').textContent = files ? '· '+files+' file'+(files>1?'s':'') : '· clean';
+    $('mDiff').innerHTML = diffHTML(d.diff||'');
+  }catch{ $('mDiff').textContent = 'diff failed'; }
+}
+function openModal(id){
+  openRunId = id; paintModal(); $('overlay').classList.add('open'); loadDiff();
+}
+function closeModal(){ openRunId=null; $('overlay').classList.remove('open'); }
+$('grid').addEventListener('click',(e)=>{
+  const card = e.target.closest('.card'); if(!card) return;
+  openModal(Number(card.id.replace('card-','')));
+});
+$('mClose').addEventListener('click', closeModal);
+$('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeModal(); });
+$('mRefreshDiff').addEventListener('click', loadDiff);
+$('mStop').addEventListener('click', async ()=>{
+  if (openRunId==null) return;
+  await fetch('/api/runs/'+openRunId+'/stop',{method:'POST'});
+});
+$('mCleanup').addEventListener('click', async ()=>{
+  if (openRunId==null) return;
+  if (!confirm('Remove worktree + branch for r'+openRunId+'?')) return;
+  await fetch('/api/runs/'+openRunId+'/cleanup',{method:'POST'});
+  closeModal(); hydrate();
+});
 
 $('repoForm').addEventListener('submit', async (e)=>{
   e.preventDefault();

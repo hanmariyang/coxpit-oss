@@ -5,7 +5,7 @@ import { authGate } from './auth';
 import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents } from './db/schema';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff } from './orchestrator';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
 
@@ -225,6 +225,22 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     const res = await cleanupRun(id);
     return res;
+  });
+
+  // 실행 중 run 중지(SIGTERM) — close 핸들러가 stopped 로 봉인.
+  app.post('/api/runs/:id/stop', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    return stopRun(id);
+  });
+
+  // run worktree 의 변경 diff(tracked + untracked)
+  app.get('/api/runs/:id/diff', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    return getRunDiff(id);
   });
 
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.

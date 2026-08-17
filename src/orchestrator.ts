@@ -1,5 +1,6 @@
 import { posix as ppath } from 'node:path';
 import { createInterface } from 'node:readline';
+import type { ChildProcess } from 'node:child_process';
 import { eq } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
@@ -33,6 +34,10 @@ async function setRun(runId: number, patch: Partial<typeof agentRuns.$inferInser
   await db.update(agentRuns).set(patch).where(eq(agentRuns.id, runId));
   broadcast({ type: 'run', runId, ...patch });
 }
+
+// 실행 중 run 의 자식 프로세스(stop 용). stoppedRuns = 사용자가 멈춘 run 표식.
+const liveChildren = new Map<number, ChildProcess>();
+const stoppedRuns = new Set<number>();
 
 interface RunContext {
   runId: number;
@@ -105,6 +110,7 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     // 3) 에이전트 spawn(스트리밍)
     const cmd = `cd ${shq(wtPath)} && ${agentCommand(ctx.prompt, useReal)}`;
     const child = spawnShellOn(ctx.machine, cmd);
+    liveChildren.set(runId, child);
 
     let lastResult = '';
     if (child.stdout) {
@@ -134,21 +140,60 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
       child.on('close', (c) => resolve(c ?? 0));
       child.on('error', () => resolve(-1));
     });
+    liveChildren.delete(runId);
 
     // 4) 변경 파일 수 집계
     const stat = await runShellOn(ctx.machine, `git -C ${shq(wtPath)} status --porcelain | wc -l`, 10000);
     const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
 
+    const wasStopped = stoppedRuns.delete(runId);
     await setRun(runId, {
-      status: code === 0 ? 'done' : 'failed',
+      status: wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed',
       endedAt: new Date(),
       filesChanged,
-      exitSummary: lastResult ? lastResult.slice(0, 500) : `exit ${code}`,
+      exitSummary: wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`,
     });
   } catch (e) {
     await recordEvent(runId, 'error', String(e).slice(0, 500));
     await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'orchestrator error' });
   }
+}
+
+/**
+ * 실행 중 run 중지 — 자식 프로세스 SIGTERM. close 핸들러가 status='stopped' 로 봉인.
+ */
+export function stopRun(runId: number): { ok: boolean; detail: string } {
+  const child = liveChildren.get(runId);
+  if (!child) return { ok: false, detail: 'not running' };
+  stoppedRuns.add(runId);
+  // 프로세스 그룹 전체 종료(sh 의 손자 = 실제 에이전트 포함). 실패 시 단일 kill.
+  try {
+    if (child.pid) process.kill(-child.pid, 'SIGTERM');
+    else child.kill('SIGTERM');
+  } catch {
+    child.kill('SIGTERM');
+  }
+  return { ok: true, detail: 'SIGTERM sent' };
+}
+
+/**
+ * run worktree 의 변경 diff — tracked 는 diff HEAD, untracked 는 /dev/null 대비.
+ */
+export async function getRunDiff(runId: number): Promise<{ ok: boolean; diff: string; stat: string }> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.worktreePath) return { ok: false, diff: '', stat: 'no worktree' };
+  const wt = shq(run.worktreePath);
+  const cmd =
+    `git -C ${wt} status --porcelain` +
+    ` ; echo '---DIFF---'` +
+    ` ; git -C ${wt} diff HEAD` +
+    ` ; git -C ${wt} ls-files --others --exclude-standard | while IFS= read -r f; do` +
+    ` git -C ${wt} diff --no-index -- /dev/null "$f"; done ; true`;
+  const r = await runShellOn(ctx.machine, cmd, 20000);
+  const [stat = '', diff = ''] = r.stdout.split('---DIFF---\n');
+  return { ok: true, stat: stat.trim(), diff: diff.slice(0, 200_000) };
 }
 
 /**

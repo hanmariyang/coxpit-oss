@@ -60,7 +60,9 @@ export async function runShellOn(m: MachineTarget, shellCmd: string, timeoutMs =
  * 오케스트레이터가 stdout 라인을 실시간 파싱하는 용도.
  */
 export function spawnShellOn(m: MachineTarget, shellCmd: string): ChildProcess {
-  if (isLocal(m)) return spawn('sh', ['-c', shellCmd], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // detached → 자체 프로세스 그룹. stop 시 그룹 전체(-pid) SIGTERM 으로
+  // sh 의 손자(실제 에이전트)까지 확실히 종료.
+  if (isLocal(m)) return spawn('sh', ['-c', shellCmd], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   const args: string[] = [
     '-o', 'BatchMode=yes',
     '-o', 'ConnectTimeout=6',
