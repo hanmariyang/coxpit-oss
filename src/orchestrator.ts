@@ -45,6 +45,8 @@ const stoppedRuns = new Set<number>();
 interface RunContext {
   runId: number;
   machine: MachineTarget;
+  machineId: number;
+  repoId: number;
   repoPath: string;
   baseBranch: string;
   prompt: string;
@@ -81,6 +83,8 @@ async function loadContext(runId: number): Promise<RunContext | null> {
   return {
     runId,
     machine: { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser },
+    machineId: m.id,
+    repoId: repo.id,
     repoPath: repo.path,
     baseBranch: repo.defaultBranch,
     prompt,
@@ -285,7 +289,7 @@ export async function getRunDiff(runId: number): Promise<{ ok: boolean; diff: st
  * 승자 run 머지 — worktree 미커밋 변경을 자동 커밋 후 run 브랜치를
  * repo 기본 브랜치에 merge. 본 repo 가 기본 브랜치+클린일 때만, 충돌 시 abort.
  */
-export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: string }> {
+export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: string; conflict?: boolean }> {
   const ctx = await loadContext(runId);
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
@@ -323,10 +327,57 @@ export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: st
     30000,
   );
   if (mg.stdout.includes('COXPIT_MERGE_FAILED')) {
-    return { ok: false, detail: 'merge conflict — aborted: ' + mg.stdout.replace('COXPIT_MERGE_FAILED', '').trim().slice(0, 300) };
+    return { ok: false, conflict: true, detail: 'merge conflict — aborted: ' + mg.stdout.replace('COXPIT_MERGE_FAILED', '').trim().slice(0, 300) };
   }
   await setRun(runId, { status: 'merged' });
   return { ok: true, detail: mg.stdout.trim().slice(0, 300) };
+}
+
+export interface IntegrateResult {
+  runId: number;
+  status: 'merged' | 'conflict' | 'skipped';
+  detail?: string;
+  integrationTaskId?: number;
+  integrationRunId?: number;
+}
+
+/**
+ * 통합(Integrate) — 여러 run(태스크 무관)을 base 에 순차 머지한다.
+ * 충돌 나는 run 은 멈추지 않고 "통합 태스크"를 자동 발사 — 에이전트가
+ * base 에서 분기한 새 worktree 에서 해당 브랜치를 머지·충돌 해소한다.
+ * (스웜의 수렴 단계: 분업한 결과를 다시 하나로.)
+ */
+export async function integrateRuns(runIds: number[], real?: boolean): Promise<IntegrateResult[]> {
+  const results: IntegrateResult[] = [];
+  for (const id of runIds) {
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    const run = rr[0];
+    if (!run) { results.push({ runId: id, status: 'skipped', detail: 'not found' }); continue; }
+    if (run.status === 'merged') { results.push({ runId: id, status: 'skipped', detail: 'already merged' }); continue; }
+
+    const m = await mergeRun(id);
+    if (m.ok) { results.push({ runId: id, status: 'merged' }); continue; }
+    if (!m.conflict) { results.push({ runId: id, status: 'skipped', detail: m.detail }); continue; }
+
+    // 충돌 → 통합 태스크 자동 발사 (에이전트가 머지를 대신 푼다)
+    const ctx = await loadContext(id);
+    if (!ctx) { results.push({ runId: id, status: 'skipped', detail: 'context missing for integration' }); continue; }
+    const title = `Integrate r${id} into ${ctx.baseBranch}`;
+    const prompt =
+      `This worktree is branched from '${ctx.baseBranch}'. Merge the branch '${run.branch}' into it:\n` +
+      `1. Run: git merge ${run.branch}\n` +
+      `2. Resolve every conflict by preserving the intent of BOTH sides — do not simply pick one side.\n` +
+      `3. Make sure the result is consistent (typecheck/tests if available), then commit the merge.\n` +
+      `Do not modify files unrelated to the conflicts.`;
+    const tIns = await db.insert(tasks).values({ repoId: ctx.repoId, title, prompt }).returning();
+    const newTask = tIns[0]!;
+    const rIns = await db.insert(agentRuns).values({ taskId: newTask.id, machineId: ctx.machineId, agent: 'claude-code', status: 'pending' }).returning();
+    const newRun = rIns[0]!;
+    broadcast({ type: 'run', runId: newRun.id, taskId: newTask.id, status: 'pending', agent: newRun.agent, branch: '', filesChanged: 0 });
+    void launchRun(newRun.id, real ?? true);
+    results.push({ runId: id, status: 'conflict', detail: m.detail, integrationTaskId: newTask.id, integrationRunId: newRun.id });
+  }
+  return results;
 }
 
 /**

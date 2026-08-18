@@ -12,7 +12,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
@@ -32,7 +32,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.6.0' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.7.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -401,6 +401,22 @@ export async function buildServer(): Promise<FastifyInstance> {
     return reply.code(202).send(res);
   });
 
+  // 통합 — 여러 run(태스크 무관)을 base 에 순차 머지, 충돌은 통합 에이전트 자동 발사.
+  app.post('/api/integrate', async (req, reply) => {
+    const b = (req.body ?? {}) as { runIds?: number[]; real?: boolean };
+    const ids = (b.runIds ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    if (!ids.length) return reply.code(400).send({ error: 'runIds required' });
+    if (ids.length > 20) return reply.code(400).send({ error: 'too many runs (max 20)' });
+    const results = await integrateRuns(ids, b.real);
+    return {
+      ok: true,
+      merged: results.filter((r) => r.status === 'merged').length,
+      conflicts: results.filter((r) => r.status === 'conflict').length,
+      skipped: results.filter((r) => r.status === 'skipped').length,
+      results,
+    };
+  });
+
   // 결과 파일 회수 — 머지 없이 worktree 산출물만 지정 폴더로 복사(조회성 태스크).
   app.post('/api/runs/:id/export', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
@@ -441,7 +457,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.6.0' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.7.0' }));
     socket.on('close', () => removeSink(socket));
   });
 

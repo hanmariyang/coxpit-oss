@@ -159,6 +159,21 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .ev{display:flex;gap:9px;align-items:baseline;min-width:0}
   .ev .k{color:var(--brand);min-width:78px;flex:none;opacity:.85}
   .ev .t{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  /* ── select mode (integrate) ── */
+  .toolbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px}
+  .card.selmode{cursor:copy}
+  .card .selbox{display:none;width:20px;height:20px;border-radius:50%;border:1px solid var(--line-hi);
+    align-items:center;justify-content:center;font-size:11px;color:transparent;flex:none}
+  .card.selmode .selbox{display:flex}
+  .card.selected{border-color:var(--brand)}
+  .card.selected .selbox{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+  .selbar{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:45;display:none;
+    align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line-hi);border-radius:12px;
+    padding:10px 16px;box-shadow:var(--shadow)}
+  .selbar.on{display:flex}
+  .selbar .cnt{font-family:var(--mono);font-size:12px;color:var(--brand)}
+  .selbar .note{font-family:var(--mono);font-size:11px;color:var(--faint)}
+
   .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:64px 24px;text-align:center;
     display:flex;flex-direction:column;gap:10px;align-items:center}
   .empty .glyph{font-size:22px;color:#2c3444;letter-spacing:4px}
@@ -300,7 +315,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         </div>
         <input type="checkbox" id="taskReal" hidden />
         <div class="row">
-          <input id="taskCount" class="narrow" type="number" min="1" max="8" value="2" title="number of agents" />
+          <input id="taskCount" class="narrow" type="number" min="1" max="8" value="1" title="number of agents — 1 for a job, N to explore variants" />
           <button class="btn" type="submit" id="runFleetBtn">Run fleet</button>
         </div>
       </form>
@@ -315,6 +330,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     </div>
   </aside>
   <main>
+    <div class="toolbar"><button class="btn-ghost sm" id="selToggle">Select runs</button></div>
     <div class="grid" id="grid"></div>
     <div class="empty" id="empty">
       <span class="glyph">▚▞▚</span>
@@ -399,6 +415,13 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 </div>
 
 <div class="toasts" id="toasts"></div>
+
+<div class="selbar" id="selbar">
+  <span class="cnt" id="selCnt">0 selected</span>
+  <span class="note">merges in selection order · conflicts spawn an integration agent</span>
+  <button class="btn sm" id="selGo">Integrate → base</button>
+  <button class="btn-ghost sm" id="selCancel">Cancel</button>
+</div>
 
 <div class="overlay" id="expOverlay">
   <div class="cfm">
@@ -636,8 +659,10 @@ function cardHTML(r){
   const evs = (r.events||[]).slice(-8).map(e =>
     '<div class="ev"><span class="k">'+esc(e.kind)+'</span><span class="t">'+esc(summarize(e.kind,e.payload)).slice(0,140)+'</span></div>'
   ).join('') || '<div class="ev"><span class="t" style="color:var(--faint)">waiting…</span></div>';
-  return '<div class="card" id="card-'+r.id+'">'
-    + '<div class="card-h"><span class="rid">r'+r.id+'</span><span class="title">'+title+'</span>'+chipHTML(r.status)+'</div>'
+  const selCls = (selectMode?' selmode':'') + (selected.has(r.id)?' selected':'');
+  return '<div class="card'+selCls+'" id="card-'+r.id+'">'
+    + '<div class="card-h"><span class="rid">r'+r.id+'</span><span class="title">'+title+'</span>'
+    + '<span class="selbox">✓</span>'+chipHTML(r.status)+'</div>'
     + '<div class="meta"><span>branch <b>'+esc(r.branch||'—')+'</b></span>'
     + '<span>files <b>'+(r.filesChanged??0)+'</b></span>'
     + '<span>'+esc(r.agent||'')+'</span>'
@@ -717,6 +742,7 @@ function connectWS(){
       const known = runs.has(ev.runId ?? ev.id);
       upsertRun(ev);
       if (!known && ev.taskId==null){ hydrate(); return; }
+      if (ev.taskId!=null && !tasks.has(ev.taskId)) hydrate(); // 통합 태스크 등 신규 태스크 동기화
       render(); flash(ev.runId ?? ev.id); paintModal();
       if (openRunId===(ev.runId??ev.id) && ['done','failed','error','stopped'].includes(ev.status)) loadDiff();
       if (cmpTaskId!=null && ['done','failed','error','stopped','merged'].includes(ev.status)) paintCompare();
@@ -766,9 +792,48 @@ async function loadDiff(){
 }
 function openModal(id){ openRunId = id; paintModal(); $('overlay').classList.add('open'); loadDiff(); }
 function closeModal(){ openRunId=null; $('overlay').classList.remove('open'); }
+/* ── select mode (integrate) ── */
+let selectMode = false;
+const selected = new Set();
+const selOrder = [];
+function setSelectMode(on){
+  selectMode = on;
+  if (!on){ selected.clear(); selOrder.length = 0; }
+  $('selToggle').textContent = on ? 'Exit select' : 'Select runs';
+  $('selbar').classList.toggle('on', on);
+  $('selCnt').textContent = selected.size + ' selected';
+  render();
+}
+$('selToggle').addEventListener('click', ()=>setSelectMode(!selectMode));
+$('selCancel').addEventListener('click', ()=>setSelectMode(false));
+$('selGo').addEventListener('click', async ()=>{
+  if (!selOrder.length){ toast('select settled runs with changes first', 'error'); return; }
+  const yes = await confirmUI('Integrate '+selOrder.length+' run(s) into the base branch?',
+    { sub: 'Merged one by one in selection order. A run that conflicts spawns an integration agent (real, spends credits) to resolve it.', okLabel: 'Integrate' });
+  if (!yes) return;
+  const res = await fetch('/api/integrate',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({runIds:selOrder})});
+  const j = await res.json().catch(()=>({}));
+  if (res.ok){
+    toast('integrate: '+j.merged+' merged · '+j.conflicts+' conflict→agent · '+j.skipped+' skipped', j.conflicts||j.skipped ? undefined : 'ok');
+    setSelectMode(false); hydrate();
+  } else toast('integrate: '+(j.error||res.status), 'error');
+});
+
 $('grid').addEventListener('click',(e)=>{
   const card = e.target.closest('.card'); if(!card) return;
-  openModal(Number(card.id.replace('card-','')));
+  const id = Number(card.id.replace('card-',''));
+  if (selectMode){
+    const r = runs.get(id);
+    const eligible = r && ['done','failed','stopped'].includes(r.status) && (r.filesChanged||0) > 0 && r.status!=='merged';
+    if (!eligible){ toast('r'+id+': only settled runs with changes can be integrated', 'error'); return; }
+    if (selected.has(id)){ selected.delete(id); selOrder.splice(selOrder.indexOf(id),1); }
+    else { selected.add(id); selOrder.push(id); }
+    $('selCnt').textContent = selected.size + ' selected';
+    render();
+    return;
+  }
+  openModal(id);
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });

@@ -109,6 +109,20 @@ expect_code 409 -X POST "$B/api/runs/2/merge"
 [ -z "$(git -C "$REPO" status --porcelain)" ] || fail "base repo dirty after abort"
 pass "merge conflict auto-abort, base clean"
 
+# integrate: 충돌 run → 통합 태스크 자동 발사 (real:false = 모의 에이전트로 배관만 검증)
+INTEG=$(curl -sf -X POST "$B/api/integrate" -H 'content-type: application/json' -d '{"runIds":[2],"real":false}')
+echo "$INTEG" | grep -q '"conflicts":1' || fail "integrate should report 1 conflict: $INTEG"
+ITID=$(echo "$INTEG" | python3 -c 'import sys,json;print(json.load(sys.stdin)["results"][0]["integrationTaskId"])')
+IRID=$(echo "$INTEG" | python3 -c 'import sys,json;print(json.load(sys.stdin)["results"][0]["integrationRunId"])')
+S=''
+for i in $(seq 1 40); do
+  S=$(curl -s "$B/api/runs/$IRID" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$S" ] && break; sleep 0.5
+done
+[ -n "$S" ] || fail "integration run did not settle"
+curl -s "$B/api/tasks/$ITID" | grep -q 'Integrate r2' || fail "integration task title"
+pass "integrate: conflict spawns integration agent task (run settles)"
+
 # export: r2 worktree 산출물을 머지 없이 회수
 curl -sf -X POST "$B/api/runs/2/export" -H 'content-type: application/json' -d "{\"dest\":\"$WORK/exp\"}" | grep -q '"ok":true' || fail "export"
 [ -f "$WORK/exp/COXPIT_DRYRUN.txt" ] || fail "exported file missing"
@@ -127,8 +141,9 @@ expect_code 409 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json
 expect_code 400 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json' -d '{}'
 pass "steer guards (no session 409, empty 400)"
 
-# task close cleans everything
+# task close cleans everything (통합 태스크까지 닫아야 브랜치 0)
 curl -sf -X POST "$B/api/tasks/1/close" | grep -q '"ok":true' || fail "close"
+curl -sf -X POST "$B/api/tasks/$ITID/close" | grep -q '"ok":true' || fail "close integration task"
 [ -z "$(git -C "$REPO" branch --list 'coxpit/*')" ] || fail "branches not cleaned"
 pass "task close cleans worktrees + branches"
 

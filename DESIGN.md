@@ -40,6 +40,7 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Repo browser | `.brw` modal + `GET /api/browse` | pick-don't-type: navigate folders, git repos get a badge + inline Register; local machine only (remote = manual path) |
 | Export dialog | `#expOverlay` (`.cfm` variant) | one input + consequence line; empty dest falls back to `~/coxpit-exports/r<id>` |
 | PR affordance | `Open PR` ghost in compare · `PR ↗` link on cards | once a run has a PR, the button becomes the link — never both |
+| Select mode | `Select runs` toolbar toggle + `.selbar` | cards grow a ✓ circle; click toggles instead of opening; the floating bar states the consequence ("merges in selection order · conflicts spawn an integration agent") |
 | Terminal | xterm themed with tokens | background `--bg`, cursor `--brand` |
 
 ## Interaction rules
