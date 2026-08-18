@@ -33,7 +33,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.2.0' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.2.1' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -502,7 +502,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '3.2.0' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '3.2.1' }));
     socket.on('close', () => removeSink(socket));
   });
 
@@ -536,7 +536,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
       const wt = rr[0]?.worktreePath ?? '';
       const revive = wt
-        ? await runShellOn(info.machine, `test -d ${shq(wt)} && tmux new-session -d -s ${shq(info.session)} -c ${shq(wt)}`, 10000)
+        ? await runShellOn(info.machine, `export LANG=${shq(config.lang)}; test -d ${shq(wt)} && tmux new-session -d -s ${shq(info.session)} -c ${shq(wt)}`, 10000)
         : { ok: false } as { ok: boolean };
       if (!revive.ok) {
         socket.send(JSON.stringify({ t: 'err', d: `tmux session '${info.session}' gone and could not be revived (worktree missing?)` }));

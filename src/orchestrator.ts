@@ -122,9 +122,10 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
       return;
     }
 
-    // 2) tmux 창(사람이 attach 해 개입할 수 있게) — best-effort. 동명 잔재는 선제 정리('=' 정확 일치)
+    // 2) tmux 창(사람이 attach 해 개입할 수 있게) — best-effort. 동명 잔재는 선제 정리('=' 정확 일치).
+    // export LANG: 이 명령이 tmux 서버를 처음 띄우는 경우(특히 원격) C 로케일로 뜨면 CJK 가 깨진다.
     await runShellOn(ctx.machine,
-      `tmux kill-session -t ${shq('=' + session)} 2>/dev/null; tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)} 2>/dev/null || true`, 8000);
+      `export LANG=${shq(config.lang)}; tmux kill-session -t ${shq('=' + session)} 2>/dev/null; tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)} 2>/dev/null || true`, 8000);
 
     await setRun(runId, { status: 'running' });
     await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, real: useReal }));
@@ -444,8 +445,9 @@ export async function openWorkbench(repoId: number, title: string): Promise<{
 
   const prep = await runShellOn(
     machine,
-    // 동명 세션 잔재(DB 리셋 등으로 run id 재사용) 선제 정리 — '=' 정확 일치만
-    `mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
+    // 동명 세션 잔재(DB 리셋 등으로 run id 재사용) 선제 정리 — '=' 정확 일치만.
+    // export LANG: tmux 서버 첫 기동이 C 로케일이면 세션 셸의 CJK 입력·표시가 깨진다.
+    `export LANG=${shq(config.lang)}; mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
     ` && { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
     ` && tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)}`,
     20000,

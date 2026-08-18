@@ -14,8 +14,20 @@ import 'dotenv/config';
   process.env.PATH = cur.join(':');
 }
 
+// launchd/systemd 데몬은 LANG 미설정(C 로케일)로 뜬다 — 그 상태로 tmux 에 attach 하면
+// tmux 가 클라이언트를 UTF-8 불가로 판단해 CJK(한글 등)를 '_'/8진수로 뭉갠다.
+// UTF-8 로케일을 부팅 시 1회 보장한다 (COXPIT_LANG 으로 재정의 가능).
+{
+  const want = process.env.COXPIT_LANG
+    ?? (/utf-?8/i.test(process.env.LANG ?? '') ? process.env.LANG! : 'en_US.UTF-8');
+  process.env.LANG = want;
+  if (process.env.LC_ALL && !/utf-?8/i.test(process.env.LC_ALL)) delete process.env.LC_ALL;
+}
+
 /** 런타임 설정. 시크릿은 전부 env 주입(번들 0). */
 export const config = {
+  // UTF-8 보장된 로케일 — PTY/원격 셸에 명시 전달용
+  lang: process.env.LANG!,
   host: process.env.COXPIT_HOST ?? '127.0.0.1',
   port: Number(process.env.COXPIT_PORT ?? 8210),
   dbPath: process.env.COXPIT_DB ?? './coxpit.db',

@@ -41,7 +41,8 @@ export function openTerm(m: MachineTarget, session: string, cols: number, rows: 
     name: 'xterm-256color',
     cols: Math.max(20, Math.min(500, cols || 80)),
     rows: Math.max(5, Math.min(200, rows || 24)),
-    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+    // LANG: C 로케일 클라이언트로 attach 하면 tmux 가 CJK 를 '_' 로 뭉갠다 (config 에서 UTF-8 보장)
+    env: { ...process.env, TERM: 'xterm-256color', LANG: config.lang } as Record<string, string>,
   };
   if (isLocal(m)) {
     return pty().spawn('tmux', ['attach-session', '-t', '=' + session], opts);
@@ -55,6 +56,7 @@ export function openTerm(m: MachineTarget, session: string, cols: number, rows: 
   if (config.sshKey) args.push('-i', config.sshKey);
   const target = m.sshUser ? `${m.sshUser}@${m.address}` : m.address;
   // 세션명은 우리가 만든 coxpit-rN 형식이라 셸 주입 여지 없음 — 그래도 인용.
-  args.push(target, `tmux attach-session -t '=${session.replace(/'/g, "'\\''")}'`);
+  // 원격도 UTF-8 로케일 명시 (비대화 ssh 는 LANG 미설정이 보통)
+  args.push(target, `export LANG='${config.lang.replace(/'/g, '')}'; tmux attach-session -t '=${session.replace(/'/g, "'\\''")}'`);
   return pty().spawn('ssh', args, opts);
 }
