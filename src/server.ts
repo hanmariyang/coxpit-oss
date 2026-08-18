@@ -29,7 +29,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.2.2' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.3.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -96,12 +96,14 @@ export async function buildServer(): Promise<FastifyInstance> {
     const m = rows[0];
     if (!m) return reply.code(404).send({ error: 'not found' });
 
+    const agentBin = config.agent.bin;
     const cmd = [
       'echo GIT:$(git --version 2>&1)',
       'echo TMUX:$(tmux -V 2>&1)',
+      `echo AGENT:$(command -v ${shq(agentBin)} >/dev/null 2>&1 && ${shq(agentBin)} --version 2>/dev/null | head -1 || echo missing)`,
       'echo OS:$(uname -sr 2>&1)',
     ].join('; ');
-    const r = await runShellOn(m, cmd);
+    const r = await runShellOn(m, cmd, 20000);
 
     const pick = (key: string): string => {
       const line = r.stdout.split('\n').find((l) => l.startsWith(`${key}:`));
@@ -109,9 +111,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     };
     const gitStr = pick('GIT');
     const tmuxStr = pick('TMUX');
+    const agentStr = pick('AGENT');
     const reachable = r.ok;
     const git = { ok: /git version/i.test(gitStr), version: gitStr };
     const tmux = { ok: /tmux \d/i.test(tmuxStr), version: tmuxStr };
+    // 에이전트 CLI 존재 여부(인증까지는 여기서 알 수 없음 — 첫 real run 이 판정)
+    const agent = { ok: agentStr !== '' && agentStr !== 'missing', version: agentStr, bin: agentBin };
 
     await db.update(machines)
       .set({ online: reachable, lastSeen: new Date() })
@@ -119,7 +124,7 @@ export async function buildServer(): Promise<FastifyInstance> {
 
     return {
       slug, reachable,
-      git, tmux, os: pick('OS'),
+      git, tmux, agent, os: pick('OS'),
       ready: reachable && git.ok && tmux.ok,
       error: reachable ? undefined : (r.stderr.trim() || `ssh exit ${r.code}`),
     };
@@ -367,7 +372,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.2.2' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.3.0' }));
     socket.on('close', () => removeSink(socket));
   });
 

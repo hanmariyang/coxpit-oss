@@ -42,7 +42,22 @@ npm run dev
 
 Open the board, register a repo (absolute path), write a task, hit **Run fleet**.
 
-By default agents run in **dry-run mode** (a mock that exercises the whole pipeline without spending credits). Flip the "real agent" toggle per launch, or set `COXPIT_AGENT_REAL=1` to default to real.
+By default agents run in **dry-run mode** (a mock that exercises the whole pipeline without spending credits). Flip the Dry/Real toggle per launch, or set `COXPIT_AGENT_REAL=1` to default to real.
+
+## First run
+
+Coxpit has no accounts of its own — it drives the agent CLI already on your machine, with that CLI's own login:
+
+1. **Install & sign in to the agent CLI once** (Claude Code by default):
+   ```bash
+   npm i -g @anthropic-ai/claude-code
+   claude        # first run opens browser login
+   ```
+   Prefer another CLI? Set `COXPIT_AGENT_BIN`.
+2. **Open the board** — the first-run panel checks this machine (git · tmux · agent CLI) and tells you what's missing.
+3. **Rehearse with Dry run**, then flip to Real agent. Real runs spend your CLI account's credits — nothing is billed through coxpit.
+
+Your keys and login never touch coxpit's config or database.
 
 ## Configuration
 

@@ -1,5 +1,19 @@
 import 'dotenv/config';
 
+// GUI 앱(Finder/데스크톱)에서 뜨면 PATH 가 최소(/usr/bin:/bin...)라 brew 로 설치한
+// 도구(claude·tmux·git)를 못 찾는다 — 표준 설치 경로를 부팅 시 1회 보강한다.
+{
+  const extra = [
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    `${process.env.HOME ?? ''}/.local/bin`,
+    `${process.env.HOME ?? ''}/.npm-global/bin`,
+  ];
+  const cur = (process.env.PATH ?? '').split(':').filter(Boolean);
+  for (const p of extra) if (p && !p.startsWith('/.') && !cur.includes(p)) cur.push(p);
+  process.env.PATH = cur.join(':');
+}
+
 /** 런타임 설정. 시크릿은 전부 env 주입(번들 0). */
 export const config = {
   host: process.env.COXPIT_HOST ?? '127.0.0.1',

@@ -120,6 +120,48 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:64px 24px;text-align:center;
     display:flex;flex-direction:column;gap:10px;align-items:center}
   .empty .glyph{font-size:22px;color:#2c3444;letter-spacing:4px}
+
+  /* ── onboarding (first run) ─────────────── */
+  .setup{max-width:560px;margin:40px auto;border:1px solid var(--line);border-radius:14px;
+    background:var(--surface);overflow:hidden;text-align:left}
+  .setup-h{padding:18px 22px 14px;border-bottom:1px solid var(--line)}
+  .setup-h .t{font-weight:700;font-size:16px}
+  .setup-h .d{color:var(--muted);font-size:13px;margin-top:3px}
+  .setup-sec{padding:14px 22px;border-bottom:1px solid var(--line)}
+  .setup-sec:last-child{border-bottom:none}
+  .setup-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.14em;
+    color:var(--faint);margin:0 0 9px}
+  .chk{display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px}
+  .chk .st{font-family:var(--mono);font-size:12px;width:18px;text-align:center;flex:none}
+  .chk.ok .st{color:var(--s-done)} .chk.bad .st{color:var(--s-failed)} .chk.wait .st{color:var(--faint)}
+  .chk .nm{color:var(--ink);min-width:88px;font-weight:500}
+  .chk .v{color:var(--faint);font-family:var(--mono);font-size:11.5px;overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis}
+  .setup-fix{margin:8px 0 2px;padding:10px 13px;background:#0e1118;border:1px solid var(--line);
+    border-radius:8px;font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow-x:auto;white-space:pre}
+  .setup-steps{margin:0;padding-left:20px;color:var(--muted);font-size:13px}
+  .setup-steps li{margin-bottom:7px}
+  .setup-steps b{color:var(--ink)}
+
+  /* ── toasts ─────────────────────────────── */
+  .toasts{position:fixed;top:66px;right:18px;z-index:60;display:flex;flex-direction:column;gap:8px;
+    max-width:380px}
+  .toast{border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink);
+    padding:10px 14px;font-size:13px;box-shadow:var(--shadow);display:flex;gap:9px;align-items:baseline;
+    animation:tin .18s ease}
+  .toast .tk{font-family:var(--mono);font-size:11px;flex:none}
+  .toast.err{border-color:rgba(226,91,103,.5)} .toast.err .tk{color:var(--s-failed)}
+  .toast.ok{border-color:rgba(78,201,176,.5)} .toast.ok .tk{color:var(--brand)}
+  @keyframes tin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.toast{animation:none}}
+
+  /* ── confirm dialog ─────────────────────── */
+  .cfm{width:min(440px,92vw);background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    box-shadow:var(--shadow);overflow:hidden}
+  .cfm-b{padding:20px 22px 14px}
+  .cfm-b .m{font-size:14px;color:var(--ink);line-height:1.6}
+  .cfm-b .s{font-size:12.5px;color:var(--faint);margin-top:6px}
+  .cfm-f{display:flex;gap:8px;justify-content:flex-end;padding:12px 18px;border-top:1px solid var(--line)}
   .flash{animation:flash .5s ease}
   @keyframes flash{from{border-color:rgba(78,201,176,.6)}to{border-color:var(--line)}}
 
@@ -290,6 +332,18 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="toasts" id="toasts"></div>
+
+<div class="overlay" id="cfmOverlay">
+  <div class="cfm">
+    <div class="cfm-b"><div class="m" id="cfmMsg"></div><div class="s" id="cfmSub"></div></div>
+    <div class="cfm-f">
+      <button class="btn-ghost sm" id="cfmCancel">Cancel</button>
+      <button class="btn sm" id="cfmOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
 <script>
@@ -300,6 +354,31 @@ let repos = [], machines = [], captures = [];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const statusColor = (s) => 'var(--s-' + (s||'pending') + ', var(--muted))';
+
+/* ── custom toast / confirm (시스템 alert·confirm 대체) ── */
+function toast(msg, kind){
+  const el = document.createElement('div');
+  el.className = 'toast ' + (kind==='error'?'err':kind==='ok'?'ok':'');
+  el.innerHTML = '<span class="tk">'+(kind==='error'?'✕':kind==='ok'?'✓':'·')+'</span><span>'+esc(msg)+'</span>';
+  $('toasts').appendChild(el);
+  setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .25s'; setTimeout(()=>el.remove(),260); }, 4200);
+}
+let cfmResolve = null;
+function confirmUI(message, opts){
+  opts = opts || {};
+  $('cfmMsg').textContent = message;
+  $('cfmSub').textContent = opts.sub || '';
+  $('cfmSub').style.display = opts.sub ? '' : 'none';
+  const ok = $('cfmOk');
+  ok.textContent = opts.okLabel || 'Confirm';
+  ok.className = (opts.danger ? 'btn-danger sm' : 'btn sm');
+  $('cfmOverlay').classList.add('open');
+  return new Promise((resolve)=>{ cfmResolve = resolve; });
+}
+function cfmClose(v){ $('cfmOverlay').classList.remove('open'); if(cfmResolve){ cfmResolve(v); cfmResolve=null; } }
+$('cfmOk').addEventListener('click', ()=>cfmClose(true));
+$('cfmCancel').addEventListener('click', ()=>cfmClose(false));
+$('cfmOverlay').addEventListener('click',(e)=>{ if(e.target===$('cfmOverlay')) cfmClose(false); });
 
 function summarize(kind, payload){
   try{
@@ -336,7 +415,54 @@ function chipHTML(status){
 function render(){
   const list = [...runs.values()].sort((a,b)=>b.id-a.id);
   $('empty').style.display = list.length ? 'none' : 'flex';
+  if (!list.length) paintOnboarding();
   $('grid').innerHTML = list.map(cardHTML).join('');
+}
+
+/* ── first-run onboarding (빈 보드 = 준비 상태 점검 + 시작 안내) ── */
+let readiness = null, probing = false;
+async function probeFirstMachine(){
+  if (probing || !machines.length) return;
+  probing = true;
+  try{
+    readiness = await fetch('/api/machines/'+encodeURIComponent(machines[0].slug)+'/probe',{method:'POST'}).then(x=>x.json());
+  }catch{ readiness = { reachable:false }; }
+  probing = false;
+  if (![...runs.values()].length) paintOnboarding();
+}
+function chkRow(name, ok, val){
+  const cls = ok===null ? 'wait' : ok ? 'ok' : 'bad';
+  const st = ok===null ? '…' : ok ? '✓' : '✕';
+  return '<div class="chk '+cls+'"><span class="st">'+st+'</span><span class="nm">'+esc(name)+'</span>'
+    + '<span class="v">'+esc(val||'')+'</span></div>';
+}
+function paintOnboarding(){
+  const r = readiness;
+  const agentBin = r && r.agent ? r.agent.bin : 'claude';
+  let checks;
+  if (!r){
+    checks = chkRow('machine', null, 'checking…') ;
+    probeFirstMachine();
+  } else {
+    checks = chkRow('connection', !!r.reachable, machines.length ? machines[0].slug : '')
+      + chkRow('git', r.git ? r.git.ok : false, r.git ? r.git.version : '')
+      + chkRow('tmux', r.tmux ? r.tmux.ok : false, r.tmux ? r.tmux.version : '')
+      + chkRow('agent', r.agent ? r.agent.ok : false, r.agent ? (r.agent.ok ? agentBin+' '+r.agent.version : 'not found on PATH') : '');
+  }
+  const agentMissing = r && r.agent && !r.agent.ok;
+  $('empty').innerHTML = '<div class="setup">'
+    + '<div class="setup-h"><div class="t">Welcome to coxpit</div>'
+    + '<div class="d">Run a fleet of coding agents on this machine — each in its own git worktree.</div></div>'
+    + '<div class="setup-sec"><p class="setup-label">This machine</p>' + checks
+    + (agentMissing
+        ? '<div class="setup-fix"># install the agent CLI, then sign in once:\\nnpm i -g @anthropic-ai/claude-code\\n'+esc(agentBin)+'   # first run opens browser login</div>'
+        : '<div class="setup-fix" style="white-space:normal">Agent CLI found. If real runs fail with an auth error, run <b>'+esc(agentBin)+'</b> once in a terminal to sign in.</div>')
+    + '</div>'
+    + '<div class="setup-sec"><p class="setup-label">Get started</p><ol class="setup-steps">'
+    + '<li><b>Register a repo</b> — absolute path, in the left sidebar</li>'
+    + '<li><b>Write a task</b> — title + a prompt that names the target files</li>'
+    + '<li><b>Run fleet</b> — try <b>Dry run</b> first (free rehearsal), then <b>Real agent</b></li>'
+    + '</ol></div></div>';
 }
 function cardHTML(r){
   const task = tasks.get(r.taskId);
@@ -465,15 +591,15 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ cfmClose(false); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
 async function sendSteer(){
   if (openRunId==null) return;
   const msg = $('steerInput').value.trim(); if(!msg) return;
   const res = await fetch('/api/runs/'+openRunId+'/steer',{method:'POST',
     headers:{'content-type':'application/json'}, body:JSON.stringify({message:msg})});
-  if (res.ok){ $('steerInput').value=''; }
-  else { const j = await res.json().catch(()=>({})); alert('steer: '+(j.detail||res.status)); }
+  if (res.ok){ $('steerInput').value=''; toast('steering — the agent resumes in its worktree', 'ok'); }
+  else { const j = await res.json().catch(()=>({})); toast('steer: '+(j.detail||res.status), 'error'); }
 }
 $('steerSend').addEventListener('click', sendSteer);
 $('steerInput').addEventListener('keydown',(e)=>{ if(e.key==='Enter') sendSteer(); });
@@ -483,15 +609,21 @@ $('mStop').addEventListener('click', async ()=>{
 });
 $('mCleanup').addEventListener('click', async ()=>{
   if (openRunId==null) return;
-  if (!confirm('Remove worktree + branch for r'+openRunId+'?')) return;
+  const yes = await confirmUI('Remove the worktree and branch for r'+openRunId+'?',
+    { sub: 'Unmerged changes in this run will be lost. This cannot be undone.', danger: true, okLabel: 'Cleanup' });
+  if (!yes) return;
   await fetch('/api/runs/'+openRunId+'/cleanup',{method:'POST'});
+  toast('r'+openRunId+' cleaned up', 'ok');
   closeModal(); hydrate();
 });
 $('mCloseTask').addEventListener('click', async ()=>{
   if (openRunId==null) return;
   const r = runs.get(openRunId); if(!r) return;
-  if (!confirm('Close task — stop + cleanup ALL its runs?')) return;
+  const yes = await confirmUI('Close this task?',
+    { sub: 'Stops any live runs and removes every worktree and branch of the task.', danger: true, okLabel: 'Close task' });
+  if (!yes) return;
   await fetch('/api/tasks/'+r.taskId+'/close',{method:'POST'});
+  toast('task closed — all runs cleaned', 'ok');
   closeModal(); hydrate();
 });
 
@@ -530,13 +662,16 @@ async function paintCompare(){
 $('cmpBody').addEventListener('click', async (e)=>{
   const btn = e.target.closest('button[data-merge]'); if(!btn) return;
   const rid = Number(btn.dataset.merge);
-  if (!confirm('Merge r'+rid+' into the base branch?')) return;
+  const yes = await confirmUI('Merge r'+rid+' into the base branch?',
+    { sub: 'Uncommitted worktree changes are committed first. Conflicts abort automatically.', okLabel: 'Merge' });
+  if (!yes) return;
   btn.disabled = true;
   const res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});
   const j = await res.json().catch(()=>({detail:'merge failed'}));
   const msg = $('cmpMsg-'+rid);
   if (msg) msg.textContent = j.detail || (res.ok?'merged':'failed');
-  if (res.ok){ await paintCompare(); hydrate(); } else { btn.disabled = false; }
+  if (res.ok){ toast('r'+rid+' merged to base', 'ok'); await paintCompare(); hydrate(); }
+  else { toast('merge: '+(j.detail||res.status), 'error'); btn.disabled = false; }
 });
 $('cmpClose').addEventListener('click', ()=>{ cmpTaskId=null; $('cmpOverlay').classList.remove('open'); });
 $('cmpOverlay').addEventListener('click',(e)=>{ if(e.target===$('cmpOverlay')){ cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
@@ -607,7 +742,8 @@ $('repoForm').addEventListener('submit', async (e)=>{
   const body = { machineSlug: $('repoMachine').value, path: $('repoPath').value.trim() };
   if (!body.path) return;
   const res = await fetch('/api/repos',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-  if (res.ok){ $('repoPath').value=''; await hydrate(); } else { alert('repo: '+(await res.text())); }
+  if (res.ok){ $('repoPath').value=''; toast('repo registered', 'ok'); await hydrate(); }
+  else { const j = await res.json().catch(()=>({})); toast('repo: '+(j.detail||j.error||res.status), 'error'); }
 });
 $('taskForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
@@ -617,7 +753,7 @@ $('taskForm').addEventListener('submit', async (e)=>{
   const capId = Number($('taskCapture').value) || undefined;
   const t = await fetch('/api/tasks',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({repoId,title,prompt:$('taskPrompt').value,designCaptureId:capId})}).then(x=>x.json());
-  if (!t.ok){ alert('task failed'); return; }
+  if (!t.ok){ toast('task create failed', 'error'); return; }
   tasks.set(t.task.id, t.task);
   await fetch('/api/tasks/'+t.task.id+'/run',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked})});
