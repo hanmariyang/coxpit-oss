@@ -1,4 +1,7 @@
 import 'dotenv/config';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 // GUI 앱(Finder/데스크톱)에서 뜨면 PATH 가 최소(/usr/bin:/bin...)라 brew 로 설치한
 // 도구(claude·tmux·git)를 못 찾는다 — 표준 설치 경로를 부팅 시 1회 보강한다.
@@ -24,13 +27,30 @@ import 'dotenv/config';
   if (process.env.LC_ALL && !/utf-?8/i.test(process.env.LC_ALL)) delete process.env.LC_ALL;
 }
 
+// 기본 DB 경로 — npm/dmg 어느 설치든 같은 상태를 보도록 ~/.coxpit 로 통일한다.
+// 구버전(cwd 상대 ./coxpit.db)로 쌓아온 사용자는 그 파일이 존재하는 한 그대로 존중.
+function defaultDbPath(): string {
+  const legacy = path.resolve('./coxpit.db');
+  if (fs.existsSync(legacy)) {
+    console.log(`[coxpit] using legacy database at ${legacy} (move it to ~/.coxpit/coxpit.db to adopt the shared default)`);
+    return legacy;
+  }
+  const dir = path.join(os.homedir(), '.coxpit');
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, 'coxpit.db');
+}
+
+const dbPath = process.env.COXPIT_DB || defaultDbPath();
+
 /** 런타임 설정. 시크릿은 전부 env 주입(번들 0). */
 export const config = {
   // UTF-8 보장된 로케일 — PTY/원격 셸에 명시 전달용
   lang: process.env.LANG!,
   host: process.env.COXPIT_HOST ?? '127.0.0.1',
   port: Number(process.env.COXPIT_PORT ?? 8210),
-  dbPath: process.env.COXPIT_DB ?? './coxpit.db',
+  dbPath,
+  // 단일 데몬 락 파일 — DB 와 같은 폴더(그 DB 를 지키는 락이므로)
+  lockPath: path.join(path.dirname(path.resolve(dbPath)), 'daemon.lock.json'),
   // 원격 머신 SSH 개인키 경로(선택). 없으면 ssh 기본 키/에이전트 사용.
   sshKey: process.env.COXPIT_SSH_KEY ?? '',
   // run 정착 시 POST 할 웹훅(선택) — 텔레그램 브릿지 등 사용자 연결용.

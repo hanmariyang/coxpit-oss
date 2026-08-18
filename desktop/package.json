@@ -1,6 +1,6 @@
 {
   "name": "coxpit-desktop",
-  "version": "3.2.2",
+  "version": "3.3.0",
   "description": "Coxpit desktop app — embeds the coxpit daemon and opens the fleet board.",
   "main": "main.cjs",
   "private": true,
@@ -17,7 +17,8 @@
     "appId": "dev.coxpit.app",
     "productName": "Coxpit",
     "files": [
-      "main.cjs"
+      "main.cjs",
+      "preload-auth.cjs"
     ],
     "extraResources": [
       {
