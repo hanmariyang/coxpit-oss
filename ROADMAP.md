@@ -84,6 +84,21 @@ What a run produced should outlive its worktree, and you should choose who produ
 - [ ] Per-repo base branch override: repos on a develop-flow reject main-targeted
       merges today — let the repo say where Merge this / Sync base / PR mode point
 
+### v4.2 — the board knows its groups
+Five runs born from one goal look like five strangers today. Grouping is recorded
+for agent-spawned subtasks (`parentRunId`) but not for plan fan-out — and the board
+shows neither.
+
+- [ ] Group model: stamp plan-fan-out tasks with a shared group (goal) id;
+      agent-spawned subtasks join their parent's group
+- [ ] Group bands on the board: cards stay first-class, but siblings cluster under
+      a thin header ("⌁ Goal: … · 5 tasks · 3 done") with a shared accent tint —
+      not nested cards (single-run tasks are the common case; the fleet view stays flat)
+- [ ] Attempt counter on multi-run tasks: "run 2/3" chip so same-title cards
+      read as attempts, not duplicates
+- [ ] Group actions on the band: select-all → Integrate, review the group,
+      close the group — the whole goal wrap-up in one place
+
 ## Non-goals
 
 - Vendoring or wrapping agent CLIs — external tools stay external (`git`, `tmux`, the agent)
