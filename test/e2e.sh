@@ -56,7 +56,9 @@ BOARD_HTML=$(curl -s "$B/")
 case "$BOARD_HTML" in *'<title>coxpit'*) : ;; *) fail "board not served";; esac
 case "$BOARD_HTML" in *'id="menuBtn"'*) : ;; *) fail "mobile drawer button missing";; esac
 case "$BOARD_HTML" in *'openFromURL'*) : ;; *) fail "deep-link handler missing";; esac
-pass "board served (with mobile drawer + deep-link)"
+case "$BOARD_HTML" in *'id="mDocsTgl"'*) : ;; *) fail "doc-mode toggle missing";; esac
+case "$BOARD_HTML" in *'dl-line'*) : ;; *) fail "clickable diff lines missing";; esac
+pass "board served (mobile drawer + deep-link + doc mode + diff comments)"
 
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
@@ -153,6 +155,14 @@ pass "integrate: conflict spawns integration agent task (run settles)"
 curl -sf -X POST "$B/api/runs/2/export" -H 'content-type: application/json' -d "{\"dest\":\"$WORK/exp\"}" | grep -q '"ok":true' || fail "export"
 [ -f "$WORK/exp/COXPIT_DRYRUN.txt" ] || fail "exported file missing"
 pass "export files without merge"
+
+# doc 모드: worktree 의 변경 md 를 내용째 회수 (렌더 비교용)
+printf '# Hello Doc\n\nrendered *output*\n' > "$WT2/REPORT.md"
+DOCS=$(curl -sf "$B/api/runs/2/docs")
+echo "$DOCS" | grep -q '"path":"REPORT.md"' || fail "docs missing REPORT.md: $DOCS"
+echo "$DOCS" | grep -q '"kind":"md"' || fail "docs kind should be md"
+echo "$DOCS" | grep -q 'Hello Doc' || fail "docs content missing"
+pass "doc mode: changed md returned with content"
 
 # PR 가드: origin 리모트 없는 repo -> 409
 expect_code 409 -X POST "$B/api/runs/2/pr"

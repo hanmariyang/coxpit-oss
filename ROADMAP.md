@@ -52,9 +52,11 @@ Steer the fleet from a phone, for real. No native app — the board itself earns
 - [x] Terminal opens full-screen on a phone (view/scroll); a dedicated mobile
       input pass remains below
 
-### v3.7 — richer review
-- [ ] Doc mode: side-by-side rendered output (Markdown/HTML) for non-code runs
-- [ ] Diff comments: annotate a diff line, send the annotation back as a steer
+### v3.7 — richer review *(shipped)*
+- [x] Doc mode: a Rendered toggle on the run view and compare columns shows
+      changed Markdown (inline) and HTML (sandboxed) instead of the diff
+- [x] Diff comments: click any changed line and it lands in the steer input,
+      quoted with its file — annotate, add your instruction, Send
 - [ ] Design Mode captures with screenshots (element crop, not just HTML/CSS)
 - [ ] Mobile terminal input pass (software keyboard, IME)
 

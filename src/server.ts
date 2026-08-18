@@ -12,7 +12,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, getRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -507,6 +507,14 @@ export async function buildServer(): Promise<FastifyInstance> {
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     return getRunDiff(id);
+  });
+
+  // Doc 모드 — 변경된 문서(md/html)를 내용째 (렌더 비교용, 읽기 전용)
+  app.get('/api/runs/:id/docs', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    return getRunDocs(id);
   });
 
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.

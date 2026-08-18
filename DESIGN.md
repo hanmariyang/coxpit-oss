@@ -54,6 +54,8 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Mobile drawer | `.menu-btn` + `aside.open` + `.scrim` (≤860px) | the fleet is the first screen; the launcher slides in from the left and closes itself on launch — never a stacked sidebar above the cards |
 | Mobile modals | full-bleed at ≤860px | run modal stacks Timeline over Diff (1fr/1fr rows); compare columns stack vertically; footers wrap; inputs go 16px (iOS focus-zoom guard) |
 | Deep link | `/?run=N` + notification `onclick` | any surface (webhook message, browser notification) can land directly on a run modal; the param is consumed then stripped from the URL |
+| Doc mode | `#mDocsTgl` / `#cmpDocsTgl` → `docsHTML()` | Rendered ↔ Diff toggle; changed `.md` renders via mdLite, `.html` in a fully sandboxed iframe (no scripts); toggle only appears when the changeset contains docs |
+| Diff comments | `.dl-line` (run modal only) | every +/- line is a click target that quotes `file: "line" — ` into the steer input; hover = brand tint; hidden runs (not settled) ignore clicks |
 
 ## Interaction rules
 

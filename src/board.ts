@@ -290,6 +290,23 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .cmp-review code{font-family:var(--mono);font-size:.9em;background:#0e1118;padding:1px 5px;border-radius:4px;color:var(--brand)}
   .cmp-review p{margin:0 0 8px}
 
+  /* ── doc mode (rendered output) ─────────── */
+  .doc-h{font-family:var(--mono);font-size:10.5px;color:var(--brand);padding:8px 0 4px;
+    border-bottom:1px solid var(--line);margin-bottom:8px;word-break:break-all}
+  .doc-md{font-size:13px;line-height:1.65;color:var(--muted);margin-bottom:16px;font-family:var(--sans)}
+  .doc-md h1,.doc-md h2{font-size:14px;color:var(--ink);margin:12px 0 6px}
+  .doc-md h3{font-size:12.5px;color:var(--ink);margin:10px 0 4px}
+  .doc-md ul{margin:4px 0 8px;padding-left:18px}
+  .doc-md li{margin-bottom:3px}
+  .doc-md strong{color:var(--ink)}
+  .doc-md code{font-family:var(--mono);font-size:.9em;background:#0e1118;padding:1px 5px;border-radius:4px;color:var(--brand)}
+  .doc-md p{margin:0 0 8px}
+  .doc-frame{width:100%;height:420px;border:1px solid var(--line);border-radius:8px;background:#fff;margin-bottom:16px}
+  .pane-tgl{margin-left:auto;font-size:10px;padding:2px 9px;text-transform:none;letter-spacing:0}
+  /* run 모달의 diff 라인 = steer 참조 클릭 타깃 */
+  #mDiffWrap .dl-line{cursor:pointer;border-radius:3px}
+  #mDiffWrap .dl-line:hover{background:rgba(78,201,176,.09)}
+
   /* ── terminal ───────────────────────────── */
   .term-body{flex:1;min-height:0;background:#0b0d12;padding:8px 4px 4px 10px}
   #xterm{width:100%;height:100%}
@@ -432,8 +449,9 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <div class="pane-c tl" id="mTimeline"></div>
       </div>
       <div class="pane">
-        <div class="pane-h">Diff <span id="mStat" style="text-transform:none;letter-spacing:0"></span></div>
-        <div class="pane-c"><pre class="diff" id="mDiff">loading…</pre></div>
+        <div class="pane-h" style="display:flex;align-items:center;gap:8px">Diff <span id="mStat" style="text-transform:none;letter-spacing:0"></span>
+          <button class="btn-ghost sm pane-tgl" id="mDocsTgl" hidden>Rendered</button></div>
+        <div class="pane-c" id="mDiffWrap"><pre class="diff" id="mDiff">loading…</pre></div>
       </div>
     </div>
     <div class="modal-f" id="steerRow" style="border-top:1px solid var(--line)">
@@ -463,6 +481,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     <div class="modal-h">
       <span class="title" id="cmpTitle">Compare</span>
       <button class="btn sm" id="cmpAI">AI review</button>
+      <button class="btn-ghost sm" id="cmpDocsTgl">Rendered</button>
       <button class="btn-ghost sm" id="cmpRefresh">Refresh</button>
       <button class="x" id="cmpClose" aria-label="close">×</button>
     </div>
@@ -544,6 +563,7 @@ let repos = [], machines = [], captures = [];
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const escA = (s) => esc(s).replace(/"/g, '&quot;');
 const statusColor = (s) => 'var(--s-' + (s||'pending') + ', var(--muted))';
 
 /* ── custom toast / confirm (시스템 alert·confirm 대체) ── */
@@ -716,12 +736,23 @@ function summarize(kind, payload){
 }
 function diffHTML(text){
   if (!text.trim()) return '<span style="color:var(--faint)">no changes</span>';
+  let file = '';
   return text.split('\\n').map(l=>{
     const e = esc(l);
-    if (l.startsWith('diff --git')||l.startsWith('+++')||l.startsWith('---')) return '<span class="dl-file">'+e+'</span>';
+    if (l.startsWith('+++')){
+      const f = l.replace(/^\\+\\+\\+ [ab]\\//,'').trim();
+      if (f && f !== '/dev/null') file = f;
+      return '<span class="dl-file">'+e+'</span>';
+    }
+    if (l.startsWith('---')){
+      const f = l.replace(/^--- [ab]\\//,'').trim();
+      if (f && f !== '/dev/null') file = f;
+      return '<span class="dl-file">'+e+'</span>';
+    }
+    if (l.startsWith('diff --git')) return '<span class="dl-file">'+e+'</span>';
     if (l.startsWith('@@')) return '<span class="dl-hunk">'+e+'</span>';
-    if (l.startsWith('+')) return '<span class="dl-add">'+e+'</span>';
-    if (l.startsWith('-')) return '<span class="dl-del">'+e+'</span>';
+    if (l.startsWith('+')) return '<span class="dl-add dl-line" data-f="'+escA(file)+'" title="click to reference in a steer">'+e+'</span>';
+    if (l.startsWith('-')) return '<span class="dl-del dl-line" data-f="'+escA(file)+'" title="click to reference in a steer">'+e+'</span>';
     return e;
   }).join('\\n');
 }
@@ -956,17 +987,59 @@ function paintModal(){
   ).join('') || '<span style="color:var(--faint)">no events yet</span>';
 }
 async function loadDiff(){
-  if (openRunId==null) return;
-  $('mDiff').textContent = 'loading…'; $('mStat').textContent='';
+  if (openRunId==null || docMode) return;
+  const pre = $('mDiff'); if (!pre) return;
+  pre.textContent = 'loading…'; $('mStat').textContent='';
   try{
     const d = await fetch('/api/runs/'+openRunId+'/diff').then(x=>x.json());
-    if (!d.ok){ $('mDiff').textContent = d.stat||'no worktree'; return; }
+    if (!d.ok){ pre.textContent = d.stat||'no worktree'; return; }
     const files = d.stat ? d.stat.split('\\n').filter(Boolean).length : 0;
     $('mStat').textContent = files ? '· '+files+' file'+(files>1?'s':'') : '· clean';
-    $('mDiff').innerHTML = diffHTML(d.diff||'');
-  }catch{ $('mDiff').textContent = 'diff failed'; }
+    // 변경분에 문서(md/html)가 있으면 Rendered 토글 노출
+    $('mDocsTgl').hidden = !/\\.(md|markdown|html?|htm)$/im.test(d.stat||'');
+    pre.innerHTML = diffHTML(d.diff||'');
+  }catch{ pre.textContent = 'diff failed'; }
 }
-function openModal(id){ openRunId = id; paintModal(); $('overlay').classList.add('open'); loadDiff(); }
+/* ── doc 모드 — diff 대신 렌더된 문서 산출물 ── */
+let docMode = false;
+function docsHTML(docs){
+  if (!docs.length) return '<span style="color:var(--faint)">no changed docs (md/html) in this worktree</span>';
+  return docs.map(d=>'<div class="doc-h">'+esc(d.path)+'</div>'
+    + (d.kind==='md'
+        ? '<div class="doc-md">'+mdLite(d.content)+'</div>'
+        : '<iframe class="doc-frame" sandbox="" srcdoc="'+escA(d.content)+'"></iframe>')).join('');
+}
+async function paintDocs(){
+  if (openRunId==null) return;
+  $('mDiffWrap').innerHTML = '<span style="color:var(--faint)">rendering…</span>';
+  try{
+    const d = await fetch('/api/runs/'+openRunId+'/docs').then(x=>x.json());
+    $('mDiffWrap').innerHTML = docsHTML(d.docs||[]);
+  }catch{ $('mDiffWrap').textContent = 'docs failed'; }
+}
+function setDocMode(on){
+  docMode = on;
+  $('mDocsTgl').textContent = on ? 'Diff' : 'Rendered';
+  if (on) paintDocs();
+  else { $('mDiffWrap').innerHTML = '<pre class="diff" id="mDiff">loading…</pre>'; loadDiff(); }
+}
+$('mDocsTgl').addEventListener('click', ()=>setDocMode(!docMode));
+/* diff 라인 클릭 → steer 입력에 참조 인용 (정착 run 에서만 — steerRow 표시 중일 때) */
+$('mDiffWrap').addEventListener('click', (e)=>{
+  const t = e.target.closest ? e.target.closest('.dl-line') : null;
+  if (!t) return;
+  if ($('steerRow').style.display === 'none') return;
+  const line = (t.textContent||'').slice(1).trim().slice(0,120);
+  const f = t.dataset.f || '';
+  $('steerInput').value = (f ? f+': ' : '') + '"'+line+'" — ';
+  $('steerInput').focus();
+});
+function openModal(id){
+  openRunId = id;
+  if (docMode){ docMode=false; $('mDocsTgl').textContent='Rendered'; $('mDiffWrap').innerHTML='<pre class="diff" id="mDiff">loading…</pre>'; }
+  $('mDocsTgl').hidden = true;
+  paintModal(); $('overlay').classList.add('open'); loadDiff();
+}
 function closeModal(){ openRunId=null; $('overlay').classList.remove('open'); }
 /* ── select mode (integrate) ── */
 let selectMode = false;
@@ -1090,13 +1163,20 @@ $('mCloseTask').addEventListener('click', async ()=>{
 
 /* ── compare view ── */
 let cmpTaskId = null;
+let cmpDocMode = false;
 async function openCompare(taskId){
   cmpTaskId = taskId;
+  cmpDocMode = false; $('cmpDocsTgl').textContent = 'Rendered';
   $('cmpReview').hidden = true; $('cmpReview').innerHTML = '';
   $('cmpOverlay').classList.add('open');
   $('cmpBody').innerHTML = '<div class="empty" style="flex:1">loading…</div>';
   await paintCompare();
 }
+$('cmpDocsTgl').addEventListener('click', async ()=>{
+  cmpDocMode = !cmpDocMode;
+  $('cmpDocsTgl').textContent = cmpDocMode ? 'Diff' : 'Rendered';
+  await paintCompare();
+});
 async function paintCompare(){
   if (cmpTaskId==null) return;
   let d;
@@ -1123,6 +1203,15 @@ async function paintCompare(){
           + '<button class="btn sm" data-merge="'+r.id+'"'+(mergeable?'':' disabled')+'>Merge this</button>')
       + '</div></div>';
   }).join('');
+  // doc 모드 — 각 열의 diff 를 렌더된 문서로 치환 (열별 비동기, 도착 순)
+  if (cmpDocMode){
+    for (const r of d.runs){
+      fetch('/api/runs/'+r.id+'/docs').then(x=>x.json()).then(j=>{
+        const col = document.querySelector('.cmp-col[data-run="'+r.id+'"] .cmp-diff');
+        if (col && cmpDocMode) col.innerHTML = docsHTML(j.docs||[]);
+      }).catch(()=>{});
+    }
+  }
 }
 $('cmpBody').addEventListener('click', async (e)=>{
   const prBtn = e.target.closest('button[data-pr]');

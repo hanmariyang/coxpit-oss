@@ -328,6 +328,35 @@ export async function getRunDiff(runId: number): Promise<{ ok: boolean; diff: st
 }
 
 /**
+ * Doc 모드 — run worktree 의 변경 파일 중 문서(md/html)만 내용째 회수.
+ * 보드가 diff 대신 "렌더된 산출물"을 보여줄 때 사용 (읽기 전용).
+ */
+export async function getRunDocs(runId: number): Promise<{
+  ok: boolean; docs: Array<{ path: string; kind: 'md' | 'html'; content: string }>; detail?: string;
+}> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.worktreePath) return { ok: false, docs: [], detail: 'no worktree' };
+  const wt = run.worktreePath;
+  // 변경 파일 목록 = tracked 수정 + untracked (status --porcelain 경로 필드)
+  const ls = await runShellOn(ctx.machine, `git -C ${shq(wt)} status --porcelain`, 15000);
+  if (!ls.ok) return { ok: false, docs: [], detail: 'status failed' };
+  const kindOf = (p: string): 'md' | 'html' | null =>
+    /\.(md|markdown)$/i.test(p) ? 'md' : /\.(html?|htm)$/i.test(p) ? 'html' : null;
+  const paths = ls.stdout.split('\n')
+    .map((l) => l.slice(3).trim().replace(/^"|"$/g, ''))
+    .filter((p) => p && kindOf(p) !== null)
+    .slice(0, 6); // 문서 비교 용도 — 상한
+  const docs: Array<{ path: string; kind: 'md' | 'html'; content: string }> = [];
+  for (const p of paths) {
+    const cat = await runShellOn(ctx.machine, `head -c 200000 ${shq(ppath.join(wt, p))}`, 15000);
+    if (cat.ok) docs.push({ path: p, kind: kindOf(p)!, content: cat.stdout });
+  }
+  return { ok: true, docs };
+}
+
+/**
  * base 동기화 — 오래 사는 세션의 worktree 에 base 브랜치 최신을 머지한다.
  * 충돌 시 자동 abort — 그땐 steer 로 에이전트에게 머지를 맡기라고 안내.
  */
