@@ -50,6 +50,7 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Workbench | launcher tab + `--s-open` status | worktree+tmux, no agent: humans (and their interactive claude) work inside; the card keeps the diff/merge/PR/export rails |
 | Terminal | full-screen view, xterm themed with tokens | not a modal — `#termOverlay` fills the viewport (padding 0, no radius); background `--bg`, cursor `--brand`; CJK-safe font stack + unicode11 widths; Esc or × closes |
 | Terminal tabs | `.term-tabs` / `.ttab` in the terminal header | every live session (`running`·`open`) is a tab — switch sessions without leaving the terminal; active tab = `--brand` border; re-rendered on every board update |
+| Provider seg | `#provSeg` in the Task panel | Claude/Codex per launch (persisted in localStorage); Task tab only — the Goal planner and Workbench are provider-neutral; cards already carry the agent name as the badge |
 
 ## Interaction rules
 

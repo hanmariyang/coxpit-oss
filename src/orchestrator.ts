@@ -10,15 +10,13 @@ import { db } from './db';
 import { agentRuns, agentEvents, tasks, repos, machines, designCaptures } from './db/schema';
 import { runShellOn, spawnShellOn, shq, type MachineTarget } from './exec';
 import { broadcast } from './hub';
+import { getProvider, type Provider } from './providers';
 
 /** 에이전트 실행 커맨드. 드라이런=모의 stream-json + 실제 파일 1건 변경. */
-function agentCommand(prompt: string, real: boolean): string {
-  if (real) {
-    // claude-code headless. stream-json 라인이 stdout 으로 흐른다.
-    return `${config.agent.bin} -p ${shq(prompt)} --output-format stream-json --verbose` +
-      ` --permission-mode ${config.agent.perm}`;
-  }
-  // 모의: init → assistant → (파일 변경) → result. 진짜 stream-json 라인 형태.
+function agentCommand(provider: Provider, prompt: string, real: boolean): string {
+  if (real) return provider.launchCmd(prompt);
+  // 모의: init → assistant → (파일 변경) → result. claude stream-json 라인 형태
+  // (드라이런은 프로바이더 불문 배관 리허설 — claude 파서가 처리한다).
   return [
     `printf '%s\\n' '{"type":"system","subtype":"init","session":"dryrun"}'`,
     `printf '%s\\n' '{"type":"assistant","text":"planning: '"$(printf %s ${shq(prompt)} | cut -c1-40)"'"}'`,
@@ -70,6 +68,7 @@ interface RunContext {
   baseBranch: string;
   prompt: string;
   real: boolean;
+  agent: string;
 }
 
 async function loadContext(runId: number): Promise<RunContext | null> {
@@ -107,7 +106,8 @@ async function loadContext(runId: number): Promise<RunContext | null> {
     repoPath: repo.path,
     baseBranch: repo.defaultBranch,
     prompt,
-    real: run.agent === 'claude-code' ? config.agent.real : config.agent.real,
+    real: config.agent.real,
+    agent: run.agent,
   };
 }
 
@@ -153,8 +153,10 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     // 원격은 ssh 채널이 죽어도 프로세스가 남을 수 있어 pid 파일을 남긴다(stop 시 원격 kill).
     const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
     const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
-    const cmd = `cd ${shq(wtPath)} && ${pidPrefix}{ ${agentCommand(ctx.prompt, useReal)}; }`;
-    await runAgentChild(runId, ctx.machine, wtPath, cmd);
+    // 드라이런 모의 스트림은 claude 형태 — 파서도 claude 로 (배관 리허설은 프로바이더 불문)
+    const provider = useReal ? getProvider(ctx.agent) : getProvider('claude-code');
+    const cmd = `cd ${shq(wtPath)} && ${pidPrefix}{ ${agentCommand(provider, ctx.prompt, useReal)}; }`;
+    await runAgentChild(runId, ctx.machine, wtPath, cmd, provider);
   } catch (e) {
     await recordEvent(runId, 'error', String(e).slice(0, 500));
     await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'orchestrator error' });
@@ -162,10 +164,10 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
 }
 
 /**
- * 에이전트 자식 프로세스 배선(공용) — stream-json 파싱→이벤트, session 캡처,
- * 종료 시 files_changed 집계 + 상태 전이. launchRun/steerRun 이 공유.
+ * 에이전트 자식 프로세스 배선(공용) — 프로바이더가 stdout 라인을 정규화 이벤트로
+ * 파싱, session 캡처, 종료 시 files_changed 집계 + 상태 전이. launchRun/steerRun 공유.
  */
-async function runAgentChild(runId: number, machine: MachineTarget, wtPath: string, cmd: string): Promise<void> {
+async function runAgentChild(runId: number, machine: MachineTarget, wtPath: string, cmd: string, provider: Provider): Promise<void> {
   const child = spawnShellOn(machine, cmd);
   liveChildren.set(runId, child);
 
@@ -173,44 +175,11 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
   if (child.stdout) {
     const rl = createInterface({ input: child.stdout });
     rl.on('line', (line: string) => {
-      const s = line.trim();
-      if (!s) return;
-      let kind = 'log';
-      let stored = s;
-      try {
-        const obj = JSON.parse(s) as {
-          type?: string; subtype?: string; model?: string; result?: string; session_id?: string;
-          message?: { content?: Array<{ type?: string; text?: string; name?: string; input?: Record<string, unknown> }> };
-        };
-        if (obj.type) kind = obj.type;
-        // steer(--resume) 용 세션 키 캡처
-        if (obj.type === 'system' && typeof obj.session_id === 'string') {
-          void setRun(runId, { sessionId: obj.session_id });
-        }
-        // result 이벤트의 사람이 읽는 요약만 뽑아 둔다(없으면 원본 라인).
-        if (obj.type === 'result') lastResult = typeof obj.result === 'string' ? obj.result : s;
-        // 2000자 초과 이벤트는 자르면 JSON 이 깨져 잔해가 화면에 노출된다 —
-        // 저장 전에 "요지만 남긴" 유효 JSON 으로 압축한다.
-        if (s.length > 2000) {
-          if (obj.type === 'assistant' && obj.message) {
-            const content = (obj.message.content ?? [])
-              .filter((c) => c.type === 'text' || c.type === 'tool_use')
-              .map((c) => c.type === 'text'
-                ? { type: 'text', text: (c.text ?? '').slice(0, 600) }
-                : { type: 'tool_use', name: c.name, input: compactInput(c.input) });
-            stored = JSON.stringify({ type: 'assistant', message: { content } }).slice(0, 2000);
-          } else if (obj.type === 'user') {
-            stored = JSON.stringify({ type: 'user' }); // tool 결과 회신 — 표시 안 함
-          } else if (obj.type === 'system') {
-            stored = JSON.stringify({ type: 'system', subtype: obj.subtype, model: obj.model });
-          } else if (obj.type === 'result') {
-            stored = JSON.stringify({ type: 'result', result: (obj.result ?? '').slice(0, 1500) });
-          } else {
-            stored = s.slice(0, 2000);
-          }
-        }
-      } catch { stored = s.slice(0, 2000); /* 비-JSON 로그 라인 */ }
-      void recordEvent(runId, kind, stored.slice(0, 2000));
+      const p = provider.parseLine(line);
+      if (!p) return;
+      if (p.sessionId) void setRun(runId, { sessionId: p.sessionId }); // steer(resume)용 세션 키
+      if (p.resultText != null) lastResult = p.resultText;
+      void recordEvent(runId, p.kind, p.stored.slice(0, 2000));
     });
   }
   if (child.stderr) {
@@ -235,16 +204,6 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
   const exitSummary = wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`;
   await setRun(runId, { status, endedAt: new Date(), filesChanged, exitSummary });
   void notifySettle(runId, status, filesChanged, exitSummary);
-}
-
-/** tool_use input 을 표시용 핵심 필드만 남긴다(이벤트 압축용). */
-function compactInput(input?: Record<string, unknown>): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!input) return out;
-  for (const k of ['file_path', 'command', 'path', 'pattern', 'url']) {
-    if (typeof input[k] === 'string') out[k] = (input[k] as string).slice(0, 200);
-  }
-  return out;
 }
 
 /** run 정착 웹훅(선택) — COXPIT_WEBHOOK_URL 로 JSON POST. 실패는 무해. */
@@ -293,10 +252,10 @@ export async function steerRun(runId: number, message: string, mode: 'work' | 'a
 
   const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
   const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
-  const resume = `${config.agent.bin} -p --resume ${shq(run.sessionId)} ${shq(finalMessage)}` +
-    ` --output-format stream-json --verbose --permission-mode ${config.agent.perm}`;
+  const provider = getProvider(ctx.agent);
+  const resume = provider.resumeCmd(run.sessionId, finalMessage);
   const cmd = `cd ${shq(wt)} && ${pidPrefix}{ ${resume}; }`;
-  void runAgentChild(runId, ctx.machine, wt, cmd);
+  void runAgentChild(runId, ctx.machine, wt, cmd, provider);
   return { ok: true, detail: 'steering' };
 }
 

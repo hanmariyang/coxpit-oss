@@ -343,6 +343,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <div id="panelTask" style="display:flex;flex-direction:column;gap:8px">
           <input id="taskTitle" placeholder="Task title" />
           <textarea id="taskPrompt" placeholder="Prompt — target files, constraints, how to verify"></textarea>
+          <div class="seg" id="provSeg" role="group" aria-label="agent provider">
+            <button type="button" class="seg-opt on" data-agent="claude-code">Claude</button>
+            <button type="button" class="seg-opt" data-agent="codex">Codex</button>
+          </div>
           <p class="flabel">design capture · optional</p>
           <select id="taskCapture"><option value="">no design capture</option></select>
         </div>
@@ -734,7 +738,8 @@ function paintOnboarding(){
     checks = chkRow('connection', !!r.reachable, machines.length ? machines[0].slug : '')
       + chkRow('git', r.git ? r.git.ok : false, r.git ? r.git.version : '')
       + chkRow('tmux', r.tmux ? r.tmux.ok : false, r.tmux ? r.tmux.version : '')
-      + chkRow('agent', r.agent ? r.agent.ok : false, r.agent ? (r.agent.ok ? agentBin+' '+r.agent.version : 'not found on PATH') : '');
+      + chkRow('agent', r.agent ? r.agent.ok : false, r.agent ? (r.agent.ok ? agentBin+' '+r.agent.version : 'not found on PATH') : '')
+      + (r.codex && r.codex.ok ? chkRow('codex', true, r.codex.bin+' '+r.codex.version+' · optional 2nd provider') : '');
   }
   const agentMissing = r && r.agent && !r.agent.ok;
   $('empty').innerHTML = '<div class="setup">'
@@ -1329,7 +1334,7 @@ $('taskForm').addEventListener('submit', async (e)=>{
   if (!t.ok){ toast('task create failed', 'error'); return; }
   tasks.set(t.task.id, t.task);
   await fetch('/api/tasks/'+t.task.id+'/run',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked})});
+    body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked, agent: selAgent})});
   $('taskTitle').value=''; $('taskPrompt').value='';
 });
 
@@ -1348,6 +1353,23 @@ for (const b of segOpts) b.addEventListener('click', ()=>setMode(b.dataset.real 
 let savedMode = null;
 try { savedMode = localStorage.getItem('coxpit.real'); } catch {}
 setMode(savedMode === '1', false);
+
+/* ── provider segmented control — Task 탭 전용(Goal 플래너·Workbench 는 무관) ── */
+let selAgent = 'claude-code';
+const provOpts = Array.from(document.querySelectorAll('#provSeg .seg-opt'));
+function setProvider(id, persist){
+  selAgent = id;
+  for (const b of provOpts){
+    const on = b.dataset.agent === id;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  if (persist) try { localStorage.setItem('coxpit.agent', id); } catch {}
+}
+for (const b of provOpts) b.addEventListener('click', ()=>setProvider(b.dataset.agent, true));
+let savedAgent = null;
+try { savedAgent = localStorage.getItem('coxpit.agent'); } catch {}
+if (savedAgent === 'codex') setProvider('codex', false);
 
 hydrate().then(connectWS);
 </script>

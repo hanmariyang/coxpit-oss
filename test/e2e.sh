@@ -232,6 +232,46 @@ for TID in $(echo "$PLAN" | python3 -c 'import sys,json;[print(t["id"]) for t in
 done
 pass "plan fan-out launches planned tasks (mock planner)"
 
+# provider seam — codex 파서 정규화 + 커맨드 시임 (unit, codex CLI 불필요)
+cat > "$WORK/prov.test.ts" <<EOF
+import { getProvider } from '$ROOT/src/providers.ts';
+const p = getProvider('codex');
+const a = p.parseLine(JSON.stringify({ type: 'thread.started', thread_id: 'th_123' }));
+if (!a || a.sessionId !== 'th_123') throw new Error('thread_id not captured');
+const b = p.parseLine(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'hi there' } }));
+if (!b || b.resultText !== 'hi there' || !b.stored.includes('assistant')) throw new Error('agent_message not normalized');
+const c = p.parseLine(JSON.stringify({ type: 'item.completed', item: { type: 'command_execution', command: 'ls -la' } }));
+if (!c || !c.stored.includes('tool_use')) throw new Error('command_execution not normalized');
+if (p.parseLine(JSON.stringify({ type: 'turn.completed' })) !== null) throw new Error('noise not dropped');
+const lc = p.launchCmd('do it');
+if (!lc.includes('exec --json') || !lc.includes('--sandbox')) throw new Error('launchCmd: ' + lc);
+// --sandbox 는 resume 서브커맨드 앞(exec 플래그) — 실 CLI(0.146) 실측 순서
+const rc = p.resumeCmd('th_123', 'next');
+if (!/exec --json --sandbox \S+ resume /.test(rc)) throw new Error('resumeCmd: ' + rc);
+if (getProvider('nope').id !== 'claude-code') throw new Error('unknown agent should fall back to claude');
+console.log('PROVIDER_OK');
+EOF
+PROV_OUT=$(node --import tsx "$WORK/prov.test.ts" 2>&1) || fail "codex provider seam: $PROV_OUT"
+case "$PROV_OUT" in *PROVIDER_OK*) : ;; *) fail "codex provider seam: $PROV_OUT";; esac
+pass "provider seam: codex normalizes to board events + cmd shape"
+
+# codex run through the API (dry pipeline — agent recorded, run settles)
+CT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' \
+  -d '{"repoId":1,"title":"codex-e2e","prompt":"provider pipeline"}')
+CTID=$(printf '%s' "$CT" | { grep -o '"id":[0-9]*' || true; } | head -1 | cut -d: -f2)
+[ -n "$CTID" ] || fail "codex task create: $CT"
+curl -sf -X POST "$B/api/tasks/$CTID/run" -H 'content-type: application/json' \
+  -d '{"count":1,"agent":"codex"}' | grep -q '"ok":true' || fail "codex run launch"
+CD=""
+for i in $(seq 1 60); do
+  CD=$(curl -s "$B/api/tasks/$CTID" | { grep -o '"status":"done"' || true; } | head -1)
+  [ -n "$CD" ] && break; sleep 0.5
+done
+[ -n "$CD" ] || fail "codex run did not settle: $(curl -s "$B/api/tasks/$CTID")"
+curl -s "$B/api/tasks/$CTID" | grep -q '"agent":"codex"' || fail "run agent should be codex"
+curl -s -X POST "$B/api/tasks/$CTID/close" >/dev/null
+pass "codex run via API settles with agent recorded (dry rehearsal)"
+
 # auth gate (fresh daemon with pass)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
 rm -f "$DB"*

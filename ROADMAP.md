@@ -32,14 +32,14 @@ Where the big players (Orca's desktop ADE, Paseo's multi-client daemon) go wide,
 
 ## Next
 
-### v3.5 — the provider seam
-The architectural milestone: Coxpit should orchestrate *agents*, not *an agent*.
+### v3.5 — the provider seam *(shipped)*
+The architectural milestone: Coxpit orchestrates *agents*, not *an agent*.
 
-- [ ] Provider interface: launch command, stream parser, resume/steer semantics,
-      permission flags — as a seam, not a plugin marketplace
-- [ ] Second provider: Codex CLI end to end (run, stream, stop, steer, review)
-- [ ] Mixed fleets: same task fanned across different providers, compared and integrated
-- [ ] Per-run provider choice in the launcher; provider badge on cards
+- [x] Provider interface: launch command, resume command, stream normalization —
+      a seam (`src/providers.ts`), not a plugin marketplace
+- [x] Second provider: Codex CLI end to end (run, stream, stop, steer/resume)
+- [x] Mixed fleets: same task fanned across both providers, compared side by side
+- [x] Per-launch provider choice in the launcher; the card badge is the agent name
 
 ### v3.6 — the pocket pass
 Steer the fleet from a phone, for real. No native app — the board itself earns it.

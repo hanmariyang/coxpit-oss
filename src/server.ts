@@ -15,6 +15,7 @@ import { runShellOn, shq } from './exec';
 import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
+import { getProvider, listProviders } from './providers';
 import { BOARD_HTML } from './board';
 
 const require_ = createRequire(import.meta.url);
@@ -59,6 +60,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       runs: rns.map((r) => ({ ...r, events: byRun.get(r.id) ?? [] })),
       // 보드 헤더 "어느 데몬에 붙어 있나" 표시용 (인증 뒤라 dbPath 노출 가능)
       daemon: { version: config.version, pid: process.pid, port: config.port, dbPath: config.dbPath },
+      providers: listProviders(),
     };
   });
 
@@ -103,10 +105,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!m) return reply.code(404).send({ error: 'not found' });
 
     const agentBin = config.agent.bin;
+    const codexBin = config.codex.bin;
     const cmd = [
       'echo GIT:$(git --version 2>&1)',
       'echo TMUX:$(tmux -V 2>&1)',
       `echo AGENT:$(command -v ${shq(agentBin)} >/dev/null 2>&1 && ${shq(agentBin)} --version 2>/dev/null | head -1 || echo missing)`,
+      `echo CODEX:$(command -v ${shq(codexBin)} >/dev/null 2>&1 && ${shq(codexBin)} --version 2>/dev/null | head -1 || echo missing)`,
       'echo OS:$(uname -sr 2>&1)',
     ].join('; ');
     const r = await runShellOn(m, cmd, 20000);
@@ -118,11 +122,14 @@ export async function buildServer(): Promise<FastifyInstance> {
     const gitStr = pick('GIT');
     const tmuxStr = pick('TMUX');
     const agentStr = pick('AGENT');
+    const codexStr = pick('CODEX');
     const reachable = r.ok;
     const git = { ok: /git version/i.test(gitStr), version: gitStr };
     const tmux = { ok: /tmux \d/i.test(tmuxStr), version: tmuxStr };
     // 에이전트 CLI 존재 여부(인증까지는 여기서 알 수 없음 — 첫 real run 이 판정)
     const agent = { ok: agentStr !== '' && agentStr !== 'missing', version: agentStr, bin: agentBin };
+    // 두 번째 프로바이더(선택) — 없어도 ready 판정엔 영향 없음
+    const codex = { ok: codexStr !== '' && codexStr !== 'missing', version: codexStr, bin: codexBin };
 
     await db.update(machines)
       .set({ online: reachable, lastSeen: new Date() })
@@ -130,7 +137,7 @@ export async function buildServer(): Promise<FastifyInstance> {
 
     return {
       slug, reachable,
-      git, tmux, agent, os: pick('OS'),
+      git, tmux, agent, codex, os: pick('OS'),
       ready: reachable && git.ok && tmux.ok,
       error: reachable ? undefined : (r.stderr.trim() || `ssh exit ${r.code}`),
     };
@@ -312,7 +319,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!rp[0]) return reply.code(404).send({ error: 'repo missing' });
 
     const count = Math.max(1, Math.min(8, Number(b.count) || 1));
-    const agent = b.agent ?? 'claude-code';
+    // 미지의 값은 기본 프로바이더로 정규화(런처 조작·API 오타 방어)
+    const agent = getProvider(b.agent).id;
     const created: Array<typeof agentRuns.$inferSelect> = [];
     for (let i = 0; i < count; i++) {
       const ins = await db.insert(agentRuns)

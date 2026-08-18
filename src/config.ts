@@ -73,6 +73,13 @@ export const config = {
     // 완전 자율은 bypassPermissions.
     perm: process.env.COXPIT_AGENT_PERM ?? 'acceptEdits',
   },
+  codex: {
+    // 두 번째 프로바이더 — OpenAI Codex CLI (선택 설치). providers.ts 의 시임.
+    bin: process.env.COXPIT_CODEX_BIN ?? 'codex',
+    // workspace-write = acceptEdits 상응(워크스페이스 안 편집 자동허용).
+    // 완전 자율은 danger-full-access.
+    sandbox: process.env.COXPIT_CODEX_SANDBOX ?? 'workspace-write',
+  },
   auth: {
     disabled: process.env.COXPIT_AUTH_DISABLED === '1',
     user: process.env.COXPIT_AUTH_USER ?? 'admin',

@@ -13,6 +13,7 @@ Your machines. Your auth. Your code never leaves your network.
 ## What it does
 
 - **Fleet runs** — one task, N agents. Each run = worktree + branch + tmux window. No agent ever touches your checkout.
+- **Two providers** — Claude Code and OpenAI Codex CLI, selectable per launch. Fan the same task across both and compare; steering resumes each agent's own session. The provider seam (`src/providers.ts`) is ~100 lines per provider — adding a third is a PR, not a fork.
 - **Live board** — WebSocket-driven console: status, event timeline (parsed from the agent's stream-json), per-run diff.
 - **Compare & merge** — all runs of a task side by side; pick the winner, merge to the base branch (auto-commits the worktree, guards a clean base, aborts on conflict).
 - **Real terminal** — attach to any run's tmux session in the browser (xterm.js over a server-side PTY; resize propagates, `Ctrl-b d` detaches).
@@ -53,7 +54,7 @@ Coxpit has no accounts of its own — it drives the agent CLI already on your ma
    npm i -g @anthropic-ai/claude-code
    claude        # first run opens browser login
    ```
-   Prefer another CLI? Set `COXPIT_AGENT_BIN`.
+   For the Codex provider, also: `npm i -g @openai/codex && codex` (sign in once). Other binaries: `COXPIT_AGENT_BIN` / `COXPIT_CODEX_BIN`.
 2. **Open the board** — the first-run panel checks this machine (git · tmux · agent CLI) and tells you what's missing.
 3. **Rehearse with Dry run**, then flip to Real agent. Real runs spend your CLI account's credits — nothing is billed through coxpit.
 
@@ -69,8 +70,10 @@ Your keys and login never touch coxpit's config or database.
 | `COXPIT_AUTH_DISABLED` | — | `1` disables auth (local dev only) |
 | `COXPIT_SSH_KEY` | — | private key for remote machines (else ssh defaults/agent) |
 | `COXPIT_AGENT_REAL` | — | `1` = real agent CLI by default (credits!) |
-| `COXPIT_AGENT_BIN` | `claude` | agent command |
-| `COXPIT_AGENT_PERM` | `acceptEdits` | headless permission mode passed to the agent |
+| `COXPIT_AGENT_BIN` | `claude` | Claude Code command |
+| `COXPIT_AGENT_PERM` | `acceptEdits` | Claude Code headless permission mode |
+| `COXPIT_CODEX_BIN` | `codex` | Codex CLI command (optional second provider) |
+| `COXPIT_CODEX_SANDBOX` | `workspace-write` | Codex sandbox policy (`danger-full-access` for full autonomy) |
 | `COXPIT_WEBHOOK_URL` | — | POSTs `{event:"run.settled",run:{...}}` when a run finishes — wire it to Telegram, Slack, anything |
 
 Running on the open internet? Put it behind your own front door (Tailscale, Cloudflare Access, a reverse proxy with TLS) and keep basic auth on — it exposes shells.
