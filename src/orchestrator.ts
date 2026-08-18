@@ -333,6 +333,73 @@ export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: st
   return { ok: true, detail: mg.stdout.trim().slice(0, 300) };
 }
 
+/**
+ * Plan fan-out — 스웜의 입구. 목표 하나를 받아 플래너 에이전트가 repo 를 읽고
+ * 독립 실행 가능한 하위 태스크들로 분해 → 각 태스크를 count 1 로 자동 발사한다.
+ * (수렴은 Integrate 가 담당. real=false 는 배관 리허설용 모의 2분할.)
+ */
+export async function planFanout(repoId: number, goal: string, real: boolean): Promise<{
+  ok: boolean; detail: string; tasks?: Array<{ id: number; title: string; runId: number }>;
+}> {
+  const rp = await db.select().from(repos).where(eq(repos.id, repoId)).limit(1);
+  const repo = rp[0];
+  if (!repo) return { ok: false, detail: 'repo not found' };
+  const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
+  const m = mr[0];
+  if (!m) return { ok: false, detail: 'machine not found' };
+  const machine: MachineTarget = { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser };
+
+  let plan: Array<{ title: string; prompt: string }>;
+  if (!real) {
+    // 드라이런: 파이프라인 리허설용 고정 2분할
+    plan = [
+      { title: `[plan] ${goal.slice(0, 40)} — part 1`, prompt: `${goal}\n(rehearsal plan, part 1)` },
+      { title: `[plan] ${goal.slice(0, 40)} — part 2`, prompt: `${goal}\n(rehearsal plan, part 2)` },
+    ];
+  } else {
+    const plannerPrompt =
+      `You are planning work for this repository. Goal:\n${goal}\n\n` +
+      `Read the repository as needed, then respond with ONLY a JSON object (no prose, no code fences):\n` +
+      `{"tasks":[{"title":"short imperative title","prompt":"full agent prompt"}]}\n` +
+      `Rules: 2-6 tasks. Each must be independently executable in an isolated git worktree by a coding agent ` +
+      `that knows nothing about the other tasks. Each prompt must name the target files, the constraints, and how to verify. ` +
+      `Minimize file overlap between tasks to reduce merge conflicts. Do not include setup/integration tasks.`;
+    // 플래너는 읽기만 하면 되므로 repo 본체에서 default 권한(편집 자동거부)으로 실행
+    const cmd = `cd ${shq(repo.path)} && ${config.agent.bin} -p ${shq(plannerPrompt)} --output-format json`;
+    const r = await runShellOn(machine, cmd, 300000);
+    if (!r.ok) return { ok: false, detail: 'planner failed: ' + (r.stderr || r.stdout).trim().slice(0, 300) };
+    try {
+      const envelope = JSON.parse(r.stdout.trim()) as { result?: string };
+      let body = (envelope.result ?? '').trim();
+      const fence = body.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fence?.[1] != null) body = fence[1].trim();
+      const first = body.indexOf('{');
+      const last = body.lastIndexOf('}');
+      if (first === -1 || last === -1) throw new Error('no JSON in planner output');
+      const parsed = JSON.parse(body.slice(first, last + 1)) as { tasks?: Array<{ title?: string; prompt?: string }> };
+      plan = (parsed.tasks ?? [])
+        .filter((t) => typeof t.title === 'string' && typeof t.prompt === 'string' && t.title && t.prompt)
+        .slice(0, 8)
+        .map((t) => ({ title: t.title as string, prompt: t.prompt as string }));
+    } catch (e) {
+      return { ok: false, detail: 'could not parse the plan: ' + String(e).slice(0, 200) };
+    }
+    if (plan.length < 1) return { ok: false, detail: 'planner returned no tasks' };
+  }
+
+  const created: Array<{ id: number; title: string; runId: number }> = [];
+  for (const t of plan) {
+    const tIns = await db.insert(tasks).values({ repoId, title: t.title, prompt: t.prompt }).returning();
+    const task = tIns[0]!;
+    const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent: 'claude-code', status: 'pending' }).returning();
+    const run = rIns[0]!;
+    broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, branch: '', filesChanged: 0 });
+    void launchRun(run.id, real);
+    created.push({ id: task.id, title: t.title, runId: run.id });
+  }
+  return { ok: true, detail: `${created.length} task(s) launched`, tasks: created };
+}
+
 export interface IntegrateResult {
   runId: number;
   status: 'merged' | 'conflict' | 'skipped';

@@ -321,6 +321,17 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       </form>
     </div>
     <div class="sect">
+      <p class="sect-label">Plan a goal · swarm</p>
+      <form id="planForm">
+        <p class="flabel">repository</p>
+        <select id="planRepo"></select>
+        <p class="flabel">goal</p>
+        <textarea id="planGoal" placeholder="One goal — a planner agent reads the repo, splits it into independent tasks, and launches them all. Converge later with Select runs → Integrate."></textarea>
+        <button class="btn" type="submit" id="planGo">Plan &amp; fan out</button>
+        <span style="font-size:11px;color:var(--faint);font-family:var(--mono)">follows the Dry/Real mode above · planner reads only</span>
+      </form>
+    </div>
+    <div class="sect">
       <p class="sect-label">Design captures</p>
       <div id="captures" style="display:flex;flex-direction:column;gap:6px"></div>
       <a id="bmk" class="btn-ghost sm" style="text-decoration:none;text-align:center;display:block;padding:6px"
@@ -706,7 +717,8 @@ function paintSidebar(){
   capSel.innerHTML = '<option value="">no design capture</option>' + captures.map(c=>
     '<option value="'+c.id+'">#'+c.id+' '+esc((c.selector||'').slice(0,40))+'</option>').join('');
   capSel.value = cur;
-  ['repoMachine','taskRepo','taskCapture'].forEach(id => { dressSelect(id); syncSelect(id); });
+  $('planRepo').innerHTML = $('taskRepo').innerHTML;
+  ['repoMachine','taskRepo','taskCapture','planRepo'].forEach(id => { dressSelect(id); syncSelect(id); });
   $('captures').innerHTML = captures.map(c=>
     '<div class="repo"><span class="nm">'+esc((c.selector||'?').slice(0,46))+'</span>'
     + '<button class="x" data-delcap="'+c.id+'" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button>'
@@ -1018,6 +1030,29 @@ $('mTerm').addEventListener('click', ()=>{
 });
 
 /* ── forms ── */
+$('planForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const repoId = Number($('planRepo').value);
+  const goal = $('planGoal').value.trim();
+  if (!repoId){ toast('register a repo first', 'error'); return; }
+  if (!goal){ toast('write a goal first', 'error'); return; }
+  const real = $('taskReal').checked;
+  const btn = $('planGo');
+  btn.disabled = true; btn.textContent = real ? 'Planning… (1–3 min)' : 'Planning…';
+  try{
+    const res = await fetch('/api/plan',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({repoId, goal, real})});
+    const j = await res.json().catch(()=>({}));
+    if (res.ok){
+      toast(j.tasks.length+' task(s) planned & launched', 'ok');
+      $('planGoal').value='';
+      hydrate();
+    } else toast('plan: '+(j.detail||j.error||res.status), 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Plan & fan out';
+  }
+});
+
 $('repoForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   const body = { machineSlug: $('repoMachine').value, path: $('repoPath').value.trim() };

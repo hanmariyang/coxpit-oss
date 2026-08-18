@@ -12,7 +12,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
@@ -32,7 +32,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.7.0' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.8.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -401,6 +401,19 @@ export async function buildServer(): Promise<FastifyInstance> {
     return reply.code(202).send(res);
   });
 
+  // Plan fan-out — 목표 하나 → 플래너가 태스크 분해 → 전부 자동 발사.
+  // (real 플래너는 repo 를 읽고 계획하느라 1~3분 걸릴 수 있음 — 클라이언트는 대기)
+  app.post('/api/plan', async (req, reply) => {
+    const b = (req.body ?? {}) as { repoId?: number; goal?: string; real?: boolean };
+    const repoId = Number(b.repoId);
+    const goal = (b.goal ?? '').trim();
+    if (!repoId || !goal) return reply.code(400).send({ error: 'repoId and goal required' });
+    if (goal.length > 4000) return reply.code(400).send({ error: 'goal too long' });
+    const res = await planFanout(repoId, goal, b.real === true);
+    if (!res.ok) return reply.code(422).send(res);
+    return reply.code(202).send(res);
+  });
+
   // 통합 — 여러 run(태스크 무관)을 base 에 순차 머지, 충돌은 통합 에이전트 자동 발사.
   app.post('/api/integrate', async (req, reply) => {
     const b = (req.body ?? {}) as { runIds?: number[]; real?: boolean };
@@ -457,7 +470,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.7.0' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.8.0' }));
     socket.on('close', () => removeSink(socket));
   });
 

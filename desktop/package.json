@@ -1,6 +1,6 @@
 {
   "name": "coxpit-desktop",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "Coxpit desktop app — embeds the coxpit daemon and opens the fleet board.",
   "main": "main.cjs",
   "private": true,

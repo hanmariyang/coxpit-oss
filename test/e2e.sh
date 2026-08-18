@@ -175,6 +175,24 @@ grep -q 'DESIGN CONTEXT' "$WT/AGENT_ARGS.txt" && grep -q 'nav.bar' "$WT/AGENT_AR
 curl -s -X POST "$B/api/tasks/1/close" >/dev/null
 pass "design context injected into agent argv"
 
+# plan fan-out (mock planner): 목표 1 → 태스크 2 자동 생성·발사
+PLAN=$(curl -sf -X POST "$B/api/plan" -H 'content-type: application/json' -d '{"repoId":1,"goal":"improve the docs","real":false}')
+echo "$PLAN" | grep -q '"ok":true' || fail "plan fan-out: $PLAN"
+NPLAN=$(echo "$PLAN" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["tasks"]))')
+[ "$NPLAN" = "2" ] || fail "mock plan should create 2 tasks, got $NPLAN"
+PR1=$(echo "$PLAN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["tasks"][0]["runId"])')
+S=''
+for i in $(seq 1 40); do
+  S=$(curl -s "$B/api/runs/$PR1" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$S" ] && break; sleep 0.5
+done
+[ "$S" = '"status":"done"' ] || fail "planned run did not settle: $S"
+expect_code 400 -X POST "$B/api/plan" -H 'content-type: application/json' -d '{"repoId":1}'
+for TID in $(echo "$PLAN" | python3 -c 'import sys,json;[print(t["id"]) for t in json.load(sys.stdin)["tasks"]]'); do
+  curl -s -X POST "$B/api/tasks/$TID/close" >/dev/null
+done
+pass "plan fan-out launches planned tasks (mock planner)"
+
 # auth gate (fresh daemon with pass)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
 rm -f "$DB"*

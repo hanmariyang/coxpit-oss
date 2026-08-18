@@ -16,6 +16,7 @@ Coxpit's goal is simple: prove that a self-hosted, owner-first agent-fleet cockp
 
 - [x] Steering: follow-up instructions to a settled run (same session + worktree)
 - PR mode: open a pull request from a winning run instead of direct merge
+- [x] Plan fan-out: one goal -> planner splits -> auto-launch -> Integrate converges
 - Provider interface + a second agent CLI (prove the seam)
 - Mobile pass on the board (steer from a phone, for real)
 - Generic webhook notifications on run settle
