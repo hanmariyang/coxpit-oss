@@ -89,7 +89,7 @@ One daemon, one SQLite file, zero external services. Machines are reached over S
 
 ## Status
 
-`v2.0` — agent fleet (P1), compare/review + terminal (P2), and Design Mode (P3) are implemented and tested. Roadmap: richer review tooling, more agent providers, packaging (Docker/npm).
+`v3.0` — fleet, compare/merge, terminal, Design Mode, run destinations (merge · export · PR), swarm (plan fan-out + integrate with conflict-resolving agents), AI review, and sessions (work/ask + notifications) — all shipped and e2e-tested. Roadmap: ROADMAP.md.
 
 ## License
 
