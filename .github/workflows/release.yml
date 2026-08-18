@@ -45,10 +45,10 @@ jobs:
       # 데스크톱 셸 빌드 + Release 업로드
       - run: npm ci
         working-directory: desktop
-      # 미설정 시크릿은 GH Actions 가 빈 문자열로 주입 → electron-builder 가 서명 시도하다
-      # 실패하므로, 비어있으면 unset 하고 실행(=unsigned 빌드).
+      # 서명 시크릿은 macOS 에서만 사용 — 다른 OS 는 Apple p12 로 서명을 시도하다 깨진다.
+      # 미설정 시크릿도 빈 문자열로 주입되므로 함께 unset(=unsigned 빌드).
       - run: |
-          if [ -z "${CSC_LINK:-}" ]; then
+          if [ "$RUNNER_OS" != "macOS" ] || [ -z "${CSC_LINK:-}" ]; then
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
           fi
           npx electron-builder --publish always
