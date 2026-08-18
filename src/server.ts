@@ -33,7 +33,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.2.2' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.3.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));

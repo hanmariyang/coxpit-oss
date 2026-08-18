@@ -1,6 +1,6 @@
 {
   "name": "coxpit",
-  "version": "3.2.2",
+  "version": "3.3.0",
   "description": "Self-hosted cockpit for running a fleet of AI coding agents across your own machines — parallel worktree runs, live board, compare & merge, web terminal, design capture.",
   "type": "module",
   "license": "MIT",

@@ -64,7 +64,7 @@ Your keys and login never touch coxpit's config or database.
 | env | default | what |
 |---|---|---|
 | `COXPIT_HOST` / `COXPIT_PORT` | `127.0.0.1` / `8210` | daemon bind |
-| `COXPIT_DB` | `./coxpit.db` | SQLite (libSQL) file |
+| `COXPIT_DB` | `~/.coxpit/coxpit.db` | SQLite (libSQL) file (a legacy `./coxpit.db` in the cwd is still honored) |
 | `COXPIT_AUTH_PASS` / `COXPIT_AUTH_USER` | — / `admin` | basic auth (empty pass = open; set it) |
 | `COXPIT_AUTH_DISABLED` | — | `1` disables auth (local dev only) |
 | `COXPIT_SSH_KEY` | — | private key for remote machines (else ssh defaults/agent) |
@@ -86,6 +86,8 @@ machines — git worktrees · tmux sessions · agent CLIs
 ```
 
 One daemon, one SQLite file, zero external services. Machines are reached over SSH; the local machine is just `sh`.
+
+**One daemon per machine.** Every install method shares `~/.coxpit/` — the daemon takes a lock there (`daemon.lock.json`) and refuses to start if another daemon already owns the database (running two would corrupt each other's live runs). The desktop app checks for a running daemon first and attaches to it (prompting for its basic auth if set); it only spawns its own embedded daemon when none is running. So npm CLI, launchd/systemd service, and the desktop app all see the same machines, tasks, and run history.
 
 ## Status
 

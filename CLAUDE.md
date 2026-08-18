@@ -43,6 +43,7 @@ Agents default to **dry-run** (mock stream-json + a real file change — exercis
 - TypeScript strict; no native deps beyond node-pty (prebuilds) and libSQL (NAPI prebuilds — chosen over better-sqlite3 which fails node-gyp on new Node majors).
 - node-pty's prebuilt `spawn-helper` can lose its exec bit through npm packaging (`posix_spawnp failed`) — `term.ts` chmods it before load; keep that guard.
 - Stop semantics: local spawns are `detached` and stopped by killing the **process group** (the sh grandchild agent must die too).
+- One daemon per machine: the default data dir is `~/.coxpit/` and the daemon takes `daemon.lock.json` there (src/lock.ts) — two daemons on one DB would settle each other's live runs as orphans at boot. The desktop app attaches to a running daemon instead of spawning a second one; keep that invariant.
 - Merge safety: worktree auto-commit → base repo must be on its default branch and clean → `merge --no-ff`; conflicts abort automatically.
 - License hygiene: no GPL/AGPL/LGPL dependencies (audit `npm ls --omit=dev --all`). Do not copy code from AGPL projects.
 - No secrets, tokens, or user-specific paths in the repo — configuration is env-only (`.env.example` keys, README table).
