@@ -72,6 +72,28 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
   .check input{width:auto;accent-color:var(--brand)}
 
+  .flabel{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em;
+    color:var(--faint);margin:2px 0 -2px}
+  .btn[disabled]{opacity:.4;cursor:not-allowed;filter:none}
+
+  /* ── repo browser ── */
+  .brw{width:min(560px,94vw);max-height:78vh;background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
+  .brw-h{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}
+  .brw-path{flex:1;font-family:var(--mono);font-size:11.5px;color:var(--muted);overflow:hidden;
+    white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left}
+  .brw-list{overflow:auto;flex:1;min-height:200px;padding:6px}
+  .brw-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:7px;cursor:pointer;
+    font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+  .brw-row:hover{background:var(--surface2);color:var(--ink)}
+  .brw-row .ico{color:var(--faint);flex:none}
+  .brw-row .nm{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .brw-row .gitchip{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--brand);
+    border:1px solid rgba(78,201,176,.4);border-radius:999px;padding:1px 7px;flex:none}
+  .brw-row .btn{flex:none}
+  .brw-f{display:flex;gap:8px;padding:11px 16px;border-top:1px solid var(--line);align-items:center}
+  .brw-f .hint{font-family:var(--mono);font-size:11px;color:var(--faint);flex:1}
+
   /* ── custom dropdown (native select 대체) ── */
   .dd{position:relative}
   .dd-btn{width:100%;display:flex;align-items:center;gap:8px;background:#0e1118;color:var(--ink);
@@ -251,20 +273,27 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <p class="sect-label">Repositories</p>
       <div id="repos" style="display:flex;flex-direction:column;gap:6px"></div>
       <form id="repoForm">
+        <p class="flabel">machine</p>
+        <select id="repoMachine"></select>
+        <p class="flabel">add a repository</p>
+        <button class="btn sm" type="button" id="repoBrowse">Browse this machine…</button>
         <div class="row">
-          <select id="repoMachine" class="narrow" style="flex:0 0 96px"></select>
-          <input id="repoPath" placeholder="/abs/path/to/repo" />
+          <input id="repoPath" placeholder="or type an absolute path" />
+          <button class="btn-ghost sm" type="submit" style="flex:0 0 auto">Register</button>
         </div>
-        <button class="btn-ghost sm" type="submit">Register repo</button>
       </form>
     </div>
     <div class="sect">
       <p class="sect-label">Launch agents</p>
       <form id="taskForm">
+        <p class="flabel">repository</p>
         <select id="taskRepo"></select>
+        <p class="flabel">task</p>
         <input id="taskTitle" placeholder="Task title" />
-        <textarea id="taskPrompt" placeholder="Prompt for the agents…"></textarea>
+        <textarea id="taskPrompt" placeholder="Prompt — name the target files, constraints, and how to verify"></textarea>
+        <p class="flabel">design capture · optional</p>
         <select id="taskCapture"><option value="">no design capture</option></select>
+        <p class="flabel">mode</p>
         <div class="seg" id="modeSeg" role="group" aria-label="agent mode">
           <button type="button" class="seg-opt" data-real="0">Dry run</button>
           <button type="button" class="seg-opt" data-real="1">Real agent<span class="seg-hint">spends credits</span></button>
@@ -272,7 +301,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <input type="checkbox" id="taskReal" hidden />
         <div class="row">
           <input id="taskCount" class="narrow" type="number" min="1" max="8" value="2" title="number of agents" />
-          <button class="btn" type="submit">Run fleet</button>
+          <button class="btn" type="submit" id="runFleetBtn">Run fleet</button>
         </div>
       </form>
     </div>
@@ -352,6 +381,22 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="overlay" id="brwOverlay">
+  <div class="brw">
+    <div class="brw-h">
+      <button class="btn-ghost sm" id="brwUp">↑ Up</button>
+      <button class="btn-ghost sm" id="brwHome">Home</button>
+      <span class="brw-path" id="brwPath"></span>
+      <button class="x" id="brwClose" aria-label="close">×</button>
+    </div>
+    <div class="brw-list" id="brwList"></div>
+    <div class="brw-f">
+      <span class="hint">folders with a <span style="color:var(--brand)">git</span> badge are repositories — hit Register</span>
+      <button class="btn sm" id="brwRegHere" style="display:none">Register this folder</button>
+    </div>
+  </div>
+</div>
+
 <div class="toasts" id="toasts"></div>
 
 <div class="overlay" id="cfmOverlay">
@@ -416,6 +461,55 @@ function syncSelect(id){
 }
 function closeDropdowns(){ document.querySelectorAll('.dd.open').forEach(d=>d.classList.remove('open')); }
 document.addEventListener('click', closeDropdowns);
+
+/* ── repo browser — 경로 타이핑 없이 클릭으로 등록 ── */
+let brwCur = '';
+async function brwGo(p){
+  let d;
+  try{ d = await fetch('/api/browse'+(p?('?path='+encodeURIComponent(p)):'')).then(x=>x.json()); }
+  catch{ toast('browse failed', 'error'); return; }
+  brwCur = d.path;
+  $('brwPath').textContent = d.path;
+  $('brwUp').dataset.p = d.parent;
+  $('brwHome').dataset.p = d.home;
+  $('brwRegHere').style.display = d.isRepo ? '' : 'none';
+  $('brwList').innerHTML =
+    (d.error ? '<div class="brw-row"><span class="nm" style="color:var(--s-failed)">'+esc(d.error)+'</span></div>' : '')
+    + (d.dirs.map(x =>
+        '<div class="brw-row" data-n="'+esc(x.name)+'"><span class="ico">▸</span><span class="nm">'+esc(x.name)+'</span>'
+        + (x.isRepo ? '<span class="gitchip">git</span><button type="button" class="btn sm" data-reg="'+esc(x.name)+'">Register</button>' : '')
+        + '</div>').join('')
+      || '<div class="brw-row"><span class="nm" style="color:var(--faint)">no folders here</span></div>');
+}
+async function brwRegister(fullPath){
+  const res = await fetch('/api/repos',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({machineSlug:$('repoMachine').value, path:fullPath})});
+  if (res.ok){
+    toast('repo registered — pick it under Launch agents', 'ok');
+    $('brwOverlay').classList.remove('open');
+    await hydrate();
+  } else {
+    const j = await res.json().catch(()=>({}));
+    toast('register: '+(j.detail||j.error||res.status), 'error');
+  }
+}
+$('repoBrowse').addEventListener('click', ()=>{
+  const m = machines.find(x=>x.slug===$('repoMachine').value);
+  if (m && m.address){ toast('remote machine — type the path manually for now', 'error'); return; }
+  $('brwOverlay').classList.add('open');
+  brwGo(brwCur || '');
+});
+$('brwList').addEventListener('click',(e)=>{
+  const reg = e.target.closest('button[data-reg]');
+  if (reg){ brwRegister(brwCur.replace(/\\/$/,'')+'/'+reg.dataset.reg); return; }
+  const row = e.target.closest('.brw-row[data-n]');
+  if (row) brwGo(brwCur.replace(/\\/$/,'')+'/'+row.dataset.n);
+});
+$('brwUp').addEventListener('click',(e)=>brwGo(e.currentTarget.dataset.p));
+$('brwHome').addEventListener('click',(e)=>brwGo(e.currentTarget.dataset.p));
+$('brwRegHere').addEventListener('click',()=>brwRegister(brwCur));
+$('brwClose').addEventListener('click',()=>$('brwOverlay').classList.remove('open'));
+$('brwOverlay').addEventListener('click',(e)=>{ if(e.target===$('brwOverlay')) $('brwOverlay').classList.remove('open'); });
 
 let cfmResolve = null;
 function confirmUI(message, opts){
@@ -559,7 +653,10 @@ function paintSidebar(){
     + '<div class="path">'+esc(r.path)+'</div></div>').join('')
     || '<div class="repo" style="color:var(--faint)">none registered</div>';
   $('repoMachine').innerHTML = machines.map(m=>'<option value="'+esc(m.slug)+'">'+esc(m.slug)+'</option>').join('');
-  $('taskRepo').innerHTML = repos.map(r=>'<option value="'+r.id+'">'+esc(r.name)+'</option>').join('');
+  $('taskRepo').innerHTML = repos.length
+    ? repos.map(r=>'<option value="'+r.id+'">'+esc(r.name)+'</option>').join('')
+    : '<option value="">register a repo first ↑</option>';
+  $('runFleetBtn').disabled = !repos.length;
   const capSel = $('taskCapture');
   const cur = capSel.value;
   capSel.innerHTML = '<option value="">no design capture</option>' + captures.map(c=>
@@ -646,7 +743,7 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
 async function sendSteer(){
   if (openRunId==null) return;

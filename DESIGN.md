@@ -36,6 +36,8 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Confirm | `confirmUI(msg, {sub, danger, okLabel})` | promise-based dialog; every destructive action goes through it with a consequence line in `sub` |
 | Modal | `.overlay` + `.modal` (+`.wide`, `.term`) | backdrop blur, Esc/backdrop closes; header = id · title · chip · × |
 | Empty state | onboarding `.setup` panel | never a bare "no data" — show machine readiness + next steps |
+| Field label | `.flabel` | 10px mono uppercase over every form control — placeholder-only fields are not allowed |
+| Repo browser | `.brw` modal + `GET /api/browse` | pick-don't-type: navigate folders, git repos get a badge + inline Register; local machine only (remote = manual path) |
 | Terminal | xterm themed with tokens | background `--bg`, cursor `--brand` |
 
 ## Interaction rules

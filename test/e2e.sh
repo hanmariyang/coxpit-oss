@@ -50,6 +50,10 @@ pass "board served"
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
 pass "local machine probe ready"
 
+# directory browser (repo picker)
+curl -sf "$B/api/browse" | grep -q '"dirs"' || fail "browse endpoint"
+pass "directory browser lists folders"
+
 # repo registry + validation
 curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' \
   -d "{\"machineSlug\":\"local\",\"path\":\"$REPO\"}" | grep -q '"ok":true' || fail "repo register"
@@ -145,6 +149,7 @@ COXPIT_AUTH_USER=admin COXPIT_AUTH_PASS=pw-e2e COXPIT_DB="$DB" COXPIT_PORT="$POR
 DPID=$!
 for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
 expect_code 401 "$B/api/machines"
+expect_code 401 "$B/api/browse"
 expect_code 200 -u admin:pw-e2e "$B/api/machines"
 expect_code 200 "$B/design/bookmarklet.js"
 expect_code 201 -X POST "$B/api/design/capture?k=pw-e2e" -H 'content-type: application/json' -d '{"selector":"x"}' 

@@ -1,4 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { resolve as presolve, dirname as pdirname, join as pjoin } from 'node:path';
 import { createRequire } from 'node:module';
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
@@ -29,7 +32,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.4.0' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.5.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -172,6 +175,28 @@ export async function buildServer(): Promise<FastifyInstance> {
     }).returning();
 
     return reply.code(201).send({ ok: true, repo: ins[0] });
+  });
+
+  // 디렉토리 브라우저 — repo 등록용 파일 피커(로컬 머신 전용, 인증 게이트 뒤).
+  app.get('/api/browse', async (req) => {
+    const q = (req.query ?? {}) as { path?: string };
+    const start = q.path && q.path.startsWith('/') ? q.path : homedir();
+    const p = presolve(start);
+    let dirs: Array<{ name: string; isRepo: boolean }> = [];
+    let error: string | undefined;
+    try {
+      const entries = await readdir(p, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isDirectory() || e.name.startsWith('.')) continue;
+        dirs.push({ name: e.name, isRepo: existsSync(pjoin(p, e.name, '.git')) });
+        if (dirs.length >= 300) break;
+      }
+      dirs.sort((a, b) => (b.isRepo ? 1 : 0) - (a.isRepo ? 1 : 0) || a.name.localeCompare(b.name));
+    } catch {
+      error = 'cannot read directory';
+      dirs = [];
+    }
+    return { path: p, parent: pdirname(p), home: homedir(), isRepo: existsSync(pjoin(p, '.git')), dirs, error };
   });
 
   // ─── Design Mode ───────────────────────────────────────────────
@@ -372,7 +397,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.4.0' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.5.0' }));
     socket.on('close', () => removeSink(socket));
   });
 
