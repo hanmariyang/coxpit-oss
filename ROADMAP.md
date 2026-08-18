@@ -81,6 +81,8 @@ What a run produced should outlive its worktree, and you should choose who produ
       codex `-m`) — cheap models for exploration fleets, a strong one for the final run
 - [ ] Close-task guard: warn when closing a task whose runs have unmerged, unexported
       changes (done-but-not-merged output is deleted with the worktree)
+- [ ] Per-repo base branch override: repos on a develop-flow reject main-targeted
+      merges today — let the repo say where Merge this / Sync base / PR mode point
 
 ## Non-goals
 
