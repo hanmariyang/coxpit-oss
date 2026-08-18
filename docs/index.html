@@ -112,13 +112,13 @@
 
   <div class="hero">
     <h1>Own your <span class="b">agent fleet</span>.</h1>
-    <p class="sub">Run parallel AI coding agents across your own machines — each in an isolated git worktree.
-    Watch them live, compare their diffs, attach a terminal, merge the winner. Self-hosted. Your code never leaves your network.</p>
+    <p class="sub">Run parallel AI coding agents — Claude Code and Codex — across your own machines, each in an isolated git worktree.
+    Watch them live, compare their diffs, attach a terminal, merge the winner. Agents can even spawn their own sub-agents. Self-hosted. Your code never leaves your network.</p>
     <div class="cta-row">
       <a class="btn primary" href="#download">Download</a>
       <a class="btn ghost" href="https://github.com/hanmariyang/coxpit-oss">Source on GitHub</a>
     </div>
-    <span class="fine">MIT · Node 20+ · macOS / Linux / Windows(WSL)</span>
+    <span class="fine">MIT · Node 20+ · Claude Code &amp; Codex · macOS / Linux / Windows(WSL)</span>
 
     <div class="mock">
       <div class="mock-bar"><i></i><i></i><i></i><span class="t">coxpit · fleet console</span><span class="live">live</span></div>
@@ -155,20 +155,68 @@
     <p class="lead">Every run is isolated — its own git worktree, its own branch, its own tmux session. Agents can't touch your checkout, and you can watch or interrupt any of them.</p>
     <div class="feat">
       <div class="fcard"><h3><span class="g">×N</span> Fleet runs</h3><p>Launch the same task on multiple agents in parallel. Each run streams its progress to the board in real time over WebSocket.</p></div>
-      <div class="fcard"><h3><span class="g">⇄</span> Compare &amp; merge</h3><p>All runs side by side with colorized diffs. Merge the winner to your base branch — auto-commit, clean-base guard, conflict auto-abort.</p></div>
-      <div class="fcard"><h3><span class="g">&gt;_</span> Real terminal</h3><p>Attach to any run's tmux session right in the browser. Type, interrupt, steer. Resize propagates — even over SSH.</p></div>
+      <div class="fcard"><h3><span class="g">⑂</span> Two providers</h3><p>Claude Code and OpenAI Codex, selectable per launch. Fan the same task across both and compare — steering resumes each agent's own session.</p></div>
+      <div class="fcard"><h3><span class="g">⟳</span> Self-orchestrating</h3><p>A run can spawn its own sub-agents by writing <code>.coxpit/spawn.json</code> — the daemon launches isolated sub-runs and feeds live status back. Orchestration inside the agent's loop.</p></div>
+      <div class="fcard"><h3><span class="g">⇄</span> Compare &amp; merge</h3><p>All runs side by side with colorized diffs, plus an AI review judge that digests every approach. Merge the winner — clean-base guard, conflict auto-abort.</p></div>
+      <div class="fcard"><h3><span class="g">▤</span> Doc mode</h3><p>When a run changes documents, a Rendered toggle shows the actual Markdown/HTML output instead of the diff — judge the result, not the patch.</p></div>
+      <div class="fcard"><h3><span class="g">&gt;_</span> Real terminal</h3><p>Full-screen terminal with session tabs over tmux. On phones, an IME-safe input bar composes 한글/かな natively and ships whole lines.</p></div>
+      <div class="fcard"><h3><span class="g">◫</span> Pocket board</h3><p>The launcher folds into a drawer, modals go full-bleed, and <code>/?run=N</code> deep links land straight on a run — steer the fleet from your sofa.</p></div>
+      <div class="fcard"><h3><span class="g">⇩</span> From GitHub</h3><p>Paste an issue or PR URL — the task drafts itself from its title and body. You review, pick a provider, hit Run fleet.</p></div>
+      <div class="fcard"><h3><span class="g">⤴</span> Share a run</h3><p>One click mints a read-only snapshot link — timeline and diff, server-rendered, no auth, no actions. Show the work without opening your cockpit.</p></div>
       <div class="fcard"><h3><span class="g">⌖</span> Design Mode</h3><p>Click an element in your running app with the inspect bookmarklet — its selector, HTML and computed styles are injected into the agents' prompt.</p></div>
       <div class="fcard"><h3><span class="g">⌂</span> Multi-machine</h3><p>Register remote machines over SSH (Tailscale/LAN). Probe reachability, run fleets on your desktop from your laptop — or your phone.</p></div>
       <div class="fcard"><h3><span class="g">◼</span> Safe by default</h3><p>Dry-run mode exercises the whole pipeline without spending credits. Stops kill entire process groups. Task close cleans every worktree.</p></div>
     </div>
   </section>
 
+  <section id="swarm">
+    <p class="sect-label">The swarm</p>
+    <h2>Agents that spawn agents.</h2>
+    <p class="lead">Default agent sandboxes block network calls — so the orchestration protocol is a file. The agent writes a spawn request into its own worktree; the daemon does the rest. No permission escalation, works with both providers.</p>
+    <pre class="code">task ─► <span class="p">r1</span> (agent, isolated worktree)
+             │ writes <span class="p">.coxpit/spawn.json</span>   <span class="c">{"title":"…","prompt":"…","count":1}</span>
+             ▼
+        daemon picks it up (~2s) ─► launches <span class="p">r2 · r3</span> as isolated sub-runs
+             │
+             ▼
+        keeps <span class="p">.coxpit/subtasks.json</span> fresh — the agent reads it for live status</pre>
+    <figure style="margin:22px 0 0">
+      <img src="shot-swarm.png" alt="fleet board — sub-run r2 'create SUB.md' carrying the '↳ by r1' lineage badge next to its parent run"
+           style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
+      <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:10px">A real capture: r1 wrote a spawn file mid-run — r2 appeared, did the work, settled. Note the <span style="color:var(--brand)">↳ by r1</span> lineage badge.</figcaption>
+    </figure>
+  </section>
+
   <section id="shots">
     <p class="sect-label">In action</p>
-    <h2>Compare, then merge the winner.</h2>
-    <p class="lead">Every run of a task, side by side — colorized diffs, exit summaries, one-click merge with a clean-base guard.</p>
+    <h2>Compare, review, share.</h2>
+    <p class="lead">Every run of a task side by side · rendered document review instead of raw diffs · a read-only share page for anyone you choose.</p>
     <img src="shot-compare.png" alt="compare view — three runs side by side with diffs and merge buttons"
          style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:14px">
+      <figure style="margin:0">
+        <img src="shot-docmode.png" alt="run view with the Rendered toggle showing the changed Markdown as formatted output"
+             style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
+        <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px">Doc mode — judge the rendered output, not the patch.</figcaption>
+      </figure>
+      <figure style="margin:0">
+        <img src="shot-share.png" alt="read-only share page — timeline and diff snapshot of a run"
+             style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
+        <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px">Share a run — a snapshot link with zero actions.</figcaption>
+      </figure>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-top:14px;align-items:start">
+      <figure style="margin:0">
+        <img src="shot-board.png" alt="fleet board with live run cards"
+             style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
+        <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px">The fleet board — every run live, whole card clickable.</figcaption>
+      </figure>
+      <figure style="margin:0">
+        <img src="shot-mobile.png" alt="mobile board — the launcher drawer with provider choice, open over the fleet"
+             style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
+        <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px">The pocket pass — same board, one thumb.</figcaption>
+      </figure>
+    </div>
   </section>
 
   <section id="quickstart">
