@@ -42,6 +42,25 @@ async function setRun(runId: number, patch: Partial<typeof agentRuns.$inferInser
 const liveChildren = new Map<number, ChildProcess>();
 const stoppedRuns = new Set<number>();
 
+/**
+ * 원격 에이전트 kill 스크립트 — pid 파일 기준.
+ * $$ 가 그룹 리더가 아닐 수 있어 ps 로 실제 pgid 를 조회해 그룹째 죽인다
+ * (pkill -P 폴백은 직계 자식만 잡아 에이전트가 띄운 손자 프로세스가 잔존했음).
+ * TERM 후에도 살아 있으면 KILL 로 에스컬레이션, 끝나면 pid 파일 제거.
+ */
+function remoteKillScript(worktreePath: string): string {
+  const pidFile = shq(`${worktreePath}/.coxpit-agent.pid`);
+  return (
+    `P=$(cat ${pidFile} 2>/dev/null); [ -n "$P" ] && {` +
+    ` PG=$(ps -o pgid= -p "$P" 2>/dev/null | tr -d ' ');` +
+    ` kill -TERM -"\${PG:-$P}" 2>/dev/null || { pkill -TERM -P "$P" 2>/dev/null; kill -TERM "$P" 2>/dev/null; };` +
+    ` sleep 2;` +
+    ` kill -0 "$P" 2>/dev/null && { kill -KILL -"\${PG:-$P}" 2>/dev/null || { pkill -KILL -P "$P" 2>/dev/null; kill -KILL "$P" 2>/dev/null; }; };` +
+    ` rm -f ${pidFile};` +
+    ` } ; true`
+  );
+}
+
 interface RunContext {
   runId: number;
   machine: MachineTarget;
@@ -313,13 +332,8 @@ export async function stopRun(runId: number): Promise<{ ok: boolean; detail: str
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
   if (ctx && run && ctx.machine.kind !== 'local' && ctx.machine.address !== '' && run.worktreePath) {
-    const pidFile = shq(`${run.worktreePath}/.coxpit-agent.pid`);
-    // 그룹 kill(-P, sshd 는 커맨드 셸을 세션리더로 띄워 성립) → 실패 시 자식(pkill -P)+본체 순.
-    await runShellOn(
-      ctx.machine,
-      `P=$(cat ${pidFile} 2>/dev/null) && { kill -TERM -"$P" 2>/dev/null || { pkill -TERM -P "$P" 2>/dev/null; kill -TERM "$P" 2>/dev/null; }; } || true`,
-      8000,
-    );
+    // pgid 조회 그룹 kill + TERM→KILL 에스컬레이션(스크립트 내 sleep 2 포함 — 타임아웃 여유).
+    await runShellOn(ctx.machine, remoteKillScript(run.worktreePath), 15000);
   }
 
   // 로컬(또는 ssh 채널) 프로세스 그룹 종료 — sh 손자(실제 에이전트) 포함.
@@ -749,6 +763,10 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
   if (!ctx || !run || !run.worktreePath) return { ok: false, detail: 'no worktree' };
+  // 원격에 잔존 에이전트가 있으면 worktree 제거 전에 죽인다(파일 잠금·좀비 방지).
+  if (ctx.machine.kind !== 'local' && ctx.machine.address !== '') {
+    await runShellOn(ctx.machine, remoteKillScript(run.worktreePath), 15000);
+  }
   await runShellOn(ctx.machine, `tmux kill-session -t ${shq(`=coxpit-r${runId}`)} 2>/dev/null || true`, 8000);
   const rm = await runShellOn(
     ctx.machine,

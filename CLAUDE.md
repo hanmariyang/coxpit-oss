@@ -42,7 +42,7 @@ Agents default to **dry-run** (mock stream-json + a real file change — exercis
 
 - TypeScript strict; no native deps beyond node-pty (prebuilds) and libSQL (NAPI prebuilds — chosen over better-sqlite3 which fails node-gyp on new Node majors).
 - node-pty's prebuilt `spawn-helper` can lose its exec bit through npm packaging (`posix_spawnp failed`) — `term.ts` chmods it before load; keep that guard.
-- Stop semantics: local spawns are `detached` and stopped by killing the **process group** (the sh grandchild agent must die too).
+- Stop semantics: local spawns are `detached` and stopped by killing the **process group** (the sh grandchild agent must die too). Remote stops kill via the worktree's `.coxpit-agent.pid`: pgid lookup → group TERM → KILL escalation (`remoteKillScript` in orchestrator.ts); `cleanupRun` runs it too before removing the worktree.
 - One daemon per machine: the default data dir is `~/.coxpit/` and the daemon takes `daemon.lock.json` there (src/lock.ts) — two daemons on one DB would settle each other's live runs as orphans at boot. The desktop app attaches to a running daemon instead of spawning a second one; keep that invariant.
 - Merge safety: worktree auto-commit → base repo must be on its default branch and clean → `merge --no-ff`; conflicts abort automatically.
 - License hygiene: no GPL/AGPL/LGPL dependencies (audit `npm ls --omit=dev --all`). Do not copy code from AGPL projects.
@@ -50,6 +50,6 @@ Agents default to **dry-run** (mock stream-json + a real file change — exercis
 
 ## 6. Caveats
 
-- Remote run stop closes the ssh channel; the remote process may linger (kill via tmux on the remote as a follow-up improvement).
+- Windows native can serve the board and drive remote (ssh) machines, but local agent runs need a POSIX shell + tmux — point Windows users at WSL2 (README "Platform support").
 - The board is intentionally a single self-contained HTML string (`board.ts`) — no bundler; keep it framework-free.
 - Exposing the daemon publicly exposes shells: front it with your own access layer (Tailscale/Cloudflare Access/reverse proxy + TLS) and keep auth on.
