@@ -12,7 +12,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
@@ -32,7 +32,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.0.1' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.1.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -422,6 +422,16 @@ export async function buildServer(): Promise<FastifyInstance> {
     return res;
   });
 
+  // Workbench — 인터랙티브 작업방(worktree+tmux, 에이전트 없음).
+  app.post('/api/workbench', async (req, reply) => {
+    const b = (req.body ?? {}) as { repoId?: number; title?: string };
+    const repoId = Number(b.repoId);
+    if (!repoId) return reply.code(400).send({ error: 'repoId required' });
+    const res = await openWorkbench(repoId, (b.title ?? '').trim());
+    if (!res.ok) return reply.code(422).send(res);
+    return reply.code(201).send(res);
+  });
+
   // Plan fan-out — 목표 하나 → 플래너가 태스크 분해 → 전부 자동 발사.
   // (real 플래너는 repo 를 읽고 계획하느라 1~3분 걸릴 수 있음 — 클라이언트는 대기)
   app.post('/api/plan', async (req, reply) => {
@@ -491,7 +501,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '3.0.1' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '3.1.0' }));
     socket.on('close', () => removeSink(socket));
   });
 

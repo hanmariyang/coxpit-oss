@@ -170,6 +170,22 @@ curl -sf -X POST "$B/api/tasks/$ITID/close" | grep -q '"ok":true' || fail "close
 [ -z "$(git -C "$REPO" branch --list 'coxpit/*')" ] || fail "branches not cleaned"
 pass "task close cleans worktrees + branches"
 
+# workbench: worktree+tmux 만들고 에이전트 없음 — 수동 변경 후 merge 레일 동작
+WB=$(curl -sf -X POST "$B/api/workbench" -H 'content-type: application/json' -d '{"repoId":1,"title":"wb test"}')
+echo "$WB" | grep -q '"ok":true' || fail "workbench open: $WB"
+WBRUN=$(echo "$WB" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
+WBTASK=$(echo "$WB" | python3 -c 'import sys,json;print(json.load(sys.stdin)["taskId"])')
+WBS=$(curl -s "$B/api/runs/$WBRUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["status"])')
+[ "$WBS" = "open" ] || fail "workbench status should be open, got $WBS"
+tmux has-session -t "coxpit-r$WBRUN" 2>/dev/null || fail "workbench tmux session missing"
+WBWT=$(curl -s "$B/api/runs/$WBRUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["worktreePath"])')
+printf 'made by hand\n' > "$WBWT/HANDMADE.txt"
+curl -sf -X POST "$B/api/runs/$WBRUN/merge" | grep -q '"ok":true' || fail "workbench merge"
+[ -f "$REPO/HANDMADE.txt" ] || fail "workbench merge did not land on base"
+curl -s -X POST "$B/api/tasks/$WBTASK/close" >/dev/null
+tmux has-session -t "coxpit-r$WBRUN" 2>/dev/null && fail "workbench tmux not cleaned" || true
+pass "workbench: open -> hand edit -> merge -> close"
+
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
 cat > "$WORK/dump-agent.sh" <<'EOS'

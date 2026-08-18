@@ -13,12 +13,13 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     --ink:#dee4ec; --muted:#8792a2; --faint:#5c6675;
     --brand:#4ec9b0; --brand-ink:#062822; --brand-dim:rgba(78,201,176,.13);
     --s-pending:#8792a2; --s-preparing:#d6a249; --s-running:#55a7e0;
-    --s-done:#58b368; --s-failed:#e25b67; --s-error:#e25b67; --s-stopped:#b58be0; --s-merged:#4ec9b0;
+    --s-done:#58b368; --s-failed:#e25b67; --s-error:#e25b67; --s-stopped:#b58be0; --s-merged:#4ec9b0; --s-open:#7f9cf5;
     --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;
     --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,Roboto,sans-serif;
     --r-card:10px; --r-ctl:8px; --shadow:0 8px 28px rgba(0,0,0,.35);
   }
   *{box-sizing:border-box}
+  [hidden]{display:none !important}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;
     -webkit-font-smoothing:antialiased}
@@ -298,60 +299,65 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 <div class="layout">
   <aside>
     <div class="sect">
-      <p class="sect-label">Repositories</p>
-      <div id="repos" style="display:flex;flex-direction:column;gap:6px"></div>
-      <form id="repoForm">
-        <p class="flabel">machine</p>
-        <select id="repoMachine"></select>
-        <p class="flabel">add a repository</p>
-        <button class="btn sm" type="button" id="repoBrowse">Browse this machine…</button>
+      <p class="sect-label">Context</p>
+      <p class="flabel">machine</p>
+      <select id="repoMachine"></select>
+      <p class="flabel">repository</p>
+      <select id="taskRepo"></select>
+      <div class="row">
+        <button type="button" class="btn-ghost sm" id="repoBrowse" style="flex:1">Browse…</button>
+        <button type="button" class="btn-ghost sm" id="repoManual" style="flex:0 0 auto" title="type an absolute path">Path</button>
+        <button type="button" class="btn-ghost sm" id="repoRemove" style="flex:0 0 auto" title="remove selected repository from coxpit">×</button>
+      </div>
+      <form id="repoForm" hidden>
         <div class="row">
-          <input id="repoPath" placeholder="or type an absolute path" />
+          <input id="repoPath" placeholder="/abs/path/to/repo" />
           <button class="btn-ghost sm" type="submit" style="flex:0 0 auto">Register</button>
         </div>
       </form>
     </div>
+
     <div class="sect">
-      <p class="sect-label">Launch agents</p>
+      <p class="sect-label">Start</p>
+      <div class="seg" id="launchTabs">
+        <button type="button" class="seg-opt on" data-tab="task">Task</button>
+        <button type="button" class="seg-opt" data-tab="goal">Goal</button>
+        <button type="button" class="seg-opt" data-tab="bench">Workbench</button>
+      </div>
       <form id="taskForm">
-        <p class="flabel">repository</p>
-        <select id="taskRepo"></select>
-        <p class="flabel">task</p>
-        <input id="taskTitle" placeholder="Task title" />
-        <textarea id="taskPrompt" placeholder="Prompt — name the target files, constraints, and how to verify"></textarea>
-        <p class="flabel">design capture · optional</p>
-        <select id="taskCapture"><option value="">no design capture</option></select>
-        <p class="flabel">mode</p>
+        <div id="panelTask" style="display:flex;flex-direction:column;gap:8px">
+          <input id="taskTitle" placeholder="Task title" />
+          <textarea id="taskPrompt" placeholder="Prompt — target files, constraints, how to verify"></textarea>
+          <p class="flabel">design capture · optional</p>
+          <select id="taskCapture"><option value="">no design capture</option></select>
+        </div>
+        <div id="panelGoal" hidden style="flex-direction:column;gap:8px">
+          <textarea id="planGoal" placeholder="One goal — a planner agent reads the repo, splits it into independent tasks, and launches them all. Converge with Select runs → Integrate."></textarea>
+        </div>
+        <div id="panelBench" hidden style="flex-direction:column;gap:8px">
+          <input id="benchTitle" placeholder="Workbench name · optional" />
+          <p style="font-size:11.5px;color:var(--faint);margin:0;line-height:1.55">Isolated worktree + terminal. Work interactively — run <span style="color:var(--brand);font-family:var(--mono)">claude</span> inside, take hours — then decide the merge from the card.</p>
+        </div>
         <div class="seg" id="modeSeg" role="group" aria-label="agent mode">
           <button type="button" class="seg-opt" data-real="0">Dry run</button>
           <button type="button" class="seg-opt" data-real="1">Real agent<span class="seg-hint">spends credits</span></button>
         </div>
         <input type="checkbox" id="taskReal" hidden />
         <div class="row">
-          <input id="taskCount" class="narrow" type="number" min="1" max="8" value="1" title="number of agents — 1 for a job, N to explore variants" />
+          <input id="taskCount" class="narrow" type="number" min="1" max="8" value="1" title="agents — 1 for a job, N to explore variants" />
           <button class="btn" type="submit" id="runFleetBtn">Run fleet</button>
         </div>
       </form>
     </div>
-    <div class="sect">
-      <p class="sect-label">Plan a goal · swarm</p>
-      <form id="planForm">
-        <p class="flabel">repository</p>
-        <select id="planRepo"></select>
-        <p class="flabel">goal</p>
-        <textarea id="planGoal" placeholder="One goal — a planner agent reads the repo, splits it into independent tasks, and launches them all. Converge later with Select runs → Integrate."></textarea>
-        <button class="btn" type="submit" id="planGo">Plan &amp; fan out</button>
-        <span style="font-size:11px;color:var(--faint);font-family:var(--mono)">follows the Dry/Real mode above · planner reads only</span>
-      </form>
-    </div>
-    <div class="sect">
-      <p class="sect-label">Design captures</p>
-      <div id="captures" style="display:flex;flex-direction:column;gap:6px"></div>
-      <a id="bmk" class="btn-ghost sm" style="text-decoration:none;text-align:center;display:block;padding:6px"
+
+    <details class="sect" id="libraryBox">
+      <summary class="sect-label" style="cursor:pointer;list-style:none">Library · design captures ▾</summary>
+      <div id="captures" style="display:flex;flex-direction:column;gap:6px;margin-top:10px"></div>
+      <a id="bmk" class="btn-ghost sm" style="text-decoration:none;text-align:center;display:block;padding:6px;margin-top:6px"
          title="drag me to your bookmarks bar, then click it on your running app">⌖ coxpit inspect</a>
       <span style="font-size:11px;color:var(--faint)">Drag to bookmarks. Click it on your app, then click an element.
       With auth on, append ?k=&lt;pass&gt; to the script URL.</span>
-    </div>
+    </details>
   </aside>
   <main>
     <div class="toolbar"><button class="btn-ghost sm" id="selToggle">Select runs</button></div>
@@ -767,23 +773,19 @@ async function hydrate(){
 function paintSidebar(){
   $('machines').innerHTML = machines.map(m =>
     '<span class="mchip"><span class="mdot '+(m.online?'on':'')+'"></span><b>'+esc(m.slug)+'</b></span>').join('');
-  $('repos').innerHTML = repos.map(r =>
-    '<div class="repo"><span class="nm">'+esc(r.name)+'</span><span class="br">'+esc(r.defaultBranch)+'</span>'
-    + '<button class="x" data-delrepo="'+r.id+'" title="remove repo" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button>'
-    + '<div class="path">'+esc(r.path)+'</div></div>').join('')
-    || '<div class="repo" style="color:var(--faint)">none registered</div>';
   $('repoMachine').innerHTML = machines.map(m=>'<option value="'+esc(m.slug)+'">'+esc(m.slug)+'</option>').join('');
+  const prevRepo = $('taskRepo').value;
   $('taskRepo').innerHTML = repos.length
-    ? repos.map(r=>'<option value="'+r.id+'">'+esc(r.name)+'</option>').join('')
-    : '<option value="">register a repo first ↑</option>';
+    ? repos.map(r=>'<option value="'+r.id+'">'+esc(r.name)+' · '+esc(r.defaultBranch)+'</option>').join('')
+    : '<option value="">register a repo — Browse… ↓</option>';
+  if (prevRepo && repos.some(r=>String(r.id)===prevRepo)) $('taskRepo').value = prevRepo;
   $('runFleetBtn').disabled = !repos.length;
   const capSel = $('taskCapture');
   const cur = capSel.value;
   capSel.innerHTML = '<option value="">no design capture</option>' + captures.map(c=>
     '<option value="'+c.id+'">#'+c.id+' '+esc((c.selector||'').slice(0,40))+'</option>').join('');
   capSel.value = cur;
-  $('planRepo').innerHTML = $('taskRepo').innerHTML;
-  ['repoMachine','taskRepo','taskCapture','planRepo'].forEach(id => { dressSelect(id); syncSelect(id); });
+  ['repoMachine','taskRepo','taskCapture'].forEach(id => { dressSelect(id); syncSelect(id); });
   $('captures').innerHTML = captures.map(c=>
     '<div class="repo"><span class="nm">'+esc((c.selector||'?').slice(0,46))+'</span>'
     + '<button class="x" data-delcap="'+c.id+'" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button>'
@@ -797,15 +799,20 @@ $('captures').addEventListener('click', async (e)=>{
   await fetch('/api/design/'+b.dataset.delcap,{method:'DELETE'});
   hydrate();
 });
-$('repos').addEventListener('click', async (e)=>{
-  const b = e.target.closest('button[data-delrepo]'); if(!b) return;
-  const yes = await confirmUI('Remove this repository from coxpit?',
+$('repoRemove').addEventListener('click', async ()=>{
+  const rid = $('taskRepo').value;
+  if (!rid){ toast('no repository selected', 'error'); return; }
+  const yes = await confirmUI('Remove the selected repository from coxpit?',
     { sub: 'The repo itself is untouched — only the registration is removed. Refused while it has open tasks.', danger: true, okLabel: 'Remove' });
   if (!yes) return;
-  const res = await fetch('/api/repos/'+b.dataset.delrepo,{method:'DELETE'});
+  const res = await fetch('/api/repos/'+rid,{method:'DELETE'});
   const j = await res.json().catch(()=>({}));
   if (res.ok){ toast('repo removed', 'ok'); hydrate(); }
   else toast('remove: '+(j.detail||res.status), 'error');
+});
+$('repoManual').addEventListener('click', ()=>{
+  const f = $('repoForm'); f.hidden = !f.hidden;
+  if (!f.hidden) $('repoPath').focus();
 });
 
 /* ── 완료 알림(브라우저) — 벨 토글, run 정착 시 통지 ── */
@@ -1172,28 +1179,53 @@ $('mTerm').addEventListener('click', ()=>{
 });
 
 /* ── forms ── */
-$('planForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const repoId = Number($('planRepo').value);
+/* ── 런처 탭 — 하나의 시작점: Task | Goal | Workbench ── */
+let lTab = 'task';
+const L_LABEL = { task: 'Run fleet', goal: 'Plan & fan out', bench: 'Open workbench' };
+document.querySelectorAll('#launchTabs .seg-opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    lTab = b.dataset.tab;
+    document.querySelectorAll('#launchTabs .seg-opt').forEach(x=>x.classList.toggle('on', x===b));
+    $('panelTask').style.display = lTab==='task' ? 'flex' : 'none';
+    $('panelGoal').hidden = lTab!=='goal';
+    $('panelGoal').style.display = lTab==='goal' ? 'flex' : 'none';
+    $('panelBench').hidden = lTab!=='bench';
+    $('panelBench').style.display = lTab==='bench' ? 'flex' : 'none';
+    $('modeSeg').style.display = lTab==='bench' ? 'none' : 'flex';   // workbench 는 에이전트 없음
+    $('taskCount').style.display = lTab==='task' ? '' : 'none';
+    $('runFleetBtn').textContent = L_LABEL[lTab];
+  });
+});
+
+async function submitGoal(){
+  const repoId = Number($('taskRepo').value);
   const goal = $('planGoal').value.trim();
   if (!repoId){ toast('register a repo first', 'error'); return; }
   if (!goal){ toast('write a goal first', 'error'); return; }
   const real = $('taskReal').checked;
-  const btn = $('planGo');
+  const btn = $('runFleetBtn');
   btn.disabled = true; btn.textContent = real ? 'Planning… (1–3 min)' : 'Planning…';
   try{
     const res = await fetch('/api/plan',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({repoId, goal, real})});
     const j = await res.json().catch(()=>({}));
-    if (res.ok){
-      toast(j.tasks.length+' task(s) planned & launched', 'ok');
-      $('planGoal').value='';
-      hydrate();
-    } else toast('plan: '+(j.detail||j.error||res.status), 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Plan & fan out';
-  }
-});
+    if (res.ok){ toast(j.tasks.length+' task(s) planned & launched', 'ok'); $('planGoal').value=''; hydrate(); }
+    else toast('plan: '+(j.detail||j.error||res.status), 'error');
+  } finally { btn.disabled = false; btn.textContent = L_LABEL[lTab]; }
+}
+
+async function submitBench(){
+  const repoId = Number($('taskRepo').value);
+  if (!repoId){ toast('register a repo first', 'error'); return; }
+  const res = await fetch('/api/workbench',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({repoId, title: $('benchTitle').value.trim()})});
+  const j = await res.json().catch(()=>({}));
+  if (!res.ok){ toast('workbench: '+(j.detail||j.error||res.status), 'error'); return; }
+  toast('workbench open — terminal attached', 'ok');
+  $('benchTitle').value='';
+  await hydrate();
+  openTerm(j.runId);   // 바로 터미널로
+}
 
 $('repoForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
@@ -1205,9 +1237,11 @@ $('repoForm').addEventListener('submit', async (e)=>{
 });
 $('taskForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
+  if (lTab === 'goal') return submitGoal();
+  if (lTab === 'bench') return submitBench();
   const repoId = Number($('taskRepo').value);
   const title = $('taskTitle').value.trim();
-  if (!repoId || !title) return;
+  if (!repoId || !title){ toast(!repoId?'register a repo first':'task title required', 'error'); return; }
   const capId = Number($('taskCapture').value) || undefined;
   const t = await fetch('/api/tasks',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({repoId,title,prompt:$('taskPrompt').value,designCaptureId:capId})}).then(x=>x.json());

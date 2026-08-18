@@ -414,6 +414,49 @@ export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: st
 }
 
 /**
+ * Workbench — 인터랙티브 작업방: 격리 worktree + tmux 만 만들고 에이전트는
+ * 띄우지 않는다. 사람이 터미널로 들어가(원하면 claude TUI 로) 오래 작업하고,
+ * coxpit 은 diff·merge·PR·export 레일만 제공한다. status='open'.
+ */
+export async function openWorkbench(repoId: number, title: string): Promise<{
+  ok: boolean; detail: string; taskId?: number; runId?: number;
+}> {
+  const rp = await db.select().from(repos).where(eq(repos.id, repoId)).limit(1);
+  const repo = rp[0];
+  if (!repo) return { ok: false, detail: 'repo not found' };
+  const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
+  const m = mr[0];
+  if (!m) return { ok: false, detail: 'machine not found' };
+  const machine: MachineTarget = { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser };
+
+  const tIns = await db.insert(tasks).values({ repoId, title: title || 'Workbench', prompt: '(interactive workbench)' }).returning();
+  const task = tIns[0]!;
+  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent: 'workbench', status: 'pending' }).returning();
+  const run = rIns[0]!;
+  const runId = run.id;
+  broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent: 'workbench', branch: '', filesChanged: 0 });
+
+  const branch = `coxpit/r${runId}`;
+  const wtParent = ppath.join(ppath.dirname(repo.path), '.coxpit-worktrees');
+  const wtPath = ppath.join(wtParent, `r${runId}`);
+  const session = `coxpit-r${runId}`;
+
+  const prep = await runShellOn(
+    machine,
+    `mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
+    ` && tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)}`,
+    20000,
+  );
+  if (!prep.ok) {
+    await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'workbench prep failed' });
+    return { ok: false, detail: (prep.stderr || prep.stdout).trim().slice(0, 300) };
+  }
+  await setRun(runId, { status: 'open', branch, worktreePath: wtPath, tmuxWindow: session, startedAt: new Date() });
+  await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, workbench: true }));
+  return { ok: true, detail: 'workbench open', taskId: task.id, runId };
+}
+
+/**
  * Plan fan-out — 스웜의 입구. 목표 하나를 받아 플래너 에이전트가 repo 를 읽고
  * 독립 실행 가능한 하위 태스크들로 분해 → 각 태스크를 count 1 로 자동 발사한다.
  * (수렴은 Integrate 가 담당. real=false 는 배관 리허설용 모의 2분할.)
@@ -635,7 +678,7 @@ export async function prRun(runId: number): Promise<{ ok: boolean; detail: strin
   const run = rr[0];
   if (!ctx || !run || !run.worktreePath || !run.branch) return { ok: false, detail: 'no worktree/branch' };
   if (liveChildren.has(runId)) return { ok: false, detail: 'still running — stop it first' };
-  if (!['done', 'failed', 'stopped'].includes(run.status)) return { ok: false, detail: `cannot open a PR from a '${run.status}' run` };
+  if (!['done', 'failed', 'stopped', 'open'].includes(run.status)) return { ok: false, detail: `cannot open a PR from a '${run.status}' run` };
   const wt = shq(run.worktreePath);
 
   // 0) 사전 조건: origin 리모트 + gh CLI
