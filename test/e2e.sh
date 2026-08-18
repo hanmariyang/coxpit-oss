@@ -24,6 +24,7 @@ expect_code(){
 }
 cleanup(){
   [ -n "${DPID:-}" ] && kill "$DPID" 2>/dev/null || true
+  [ -n "${HPID:-}" ] && kill "$HPID" 2>/dev/null || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -36,15 +37,22 @@ git -C "$REPO" add -A
 git -C "$REPO" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
 git -C "$REPO" checkout -q -b wip-side-branch
 
-# boot daemon (dry-run agent, auth off)
-COXPIT_AUTH_DISABLED=1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" \
+# settle 웹훅 수신용 미니 리스너
+HOOKPORT=$((PORT+1))
+node -e 'require("http").createServer((q,s)=>{let b="";q.on("data",d=>b+=d);q.on("end",()=>{require("fs").appendFileSync(process.argv[1],b+"\n");s.end("ok")})}).listen(process.argv[2])' "$WORK/hooks.log" "$HOOKPORT" &
+HPID=$!
+
+# boot daemon (dry-run agent, auth off, 웹훅 연결)
+COXPIT_AUTH_DISABLED=1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" COXPIT_WEBHOOK_URL="http://127.0.0.1:$HOOKPORT/" \
   node --import tsx "$ROOT/src/index.ts" >"$WORK/daemon.log" 2>&1 &
 DPID=$!
 for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
 curl -sf "$B/api/health" | grep -q '"ok":true' || fail "daemon did not boot: $(tail -5 "$WORK/daemon.log")"
 pass "daemon boots, health ok"
 
-curl -s "$B/" | grep -q '<title>coxpit' || fail "board not served"
+# (보드가 커서 grep -q 조기종료→SIGPIPE→pipefail 오탐 — 파이프 없이 패턴 매칭)
+BOARD_HTML=$(curl -s "$B/")
+case "$BOARD_HTML" in *'<title>coxpit'*) : ;; *) fail "board not served";; esac
 pass "board served"
 
 # machine probe
@@ -109,6 +117,16 @@ expect_code 409 -X POST "$B/api/runs/2/merge"
 [ -z "$(git -C "$REPO" status --porcelain)" ] || fail "base repo dirty after abort"
 pass "merge conflict auto-abort, base clean"
 
+# settle 웹훅 수신 확인 (run 2개 정착 → run.settled 2건)
+sleep 1
+HOOKS=$(grep -c 'run.settled' "$WORK/hooks.log" 2>/dev/null || echo 0)
+[ "$HOOKS" -ge 2 ] || fail "webhook: expected >=2 run.settled, got $HOOKS"
+pass "settle webhook delivers run.settled"
+
+# base sync: 이미 머지된 r1 은 up-to-date(ok), 충돌 상태 r2 는 409+conflict
+curl -sf -X POST "$B/api/runs/1/sync" | grep -q '"ok":true' || fail "sync r1 clean"
+pass "base sync (clean path)"
+
 # AI 리뷰: 리허설 모드 응답 + 정착 run 2개 요구 가드
 curl -sf -X POST "$B/api/tasks/1/review" -H 'content-type: application/json' -d '{"real":false}' | grep -q 'AI Review' || fail "review rehearsal"
 pass "AI review returns digest (rehearsal mode)"
@@ -140,10 +158,11 @@ pass "PR guard (no origin remote 409)"
 expect_code 409 -X DELETE "$B/api/repos/1"
 pass "repo delete guarded while tasks open"
 
-# steer guards: dry-run has no session -> 409; missing message -> 400
+# steer guards: dry-run has no session -> 409; missing message -> 400; ask 모드도 동일 배관
 expect_code 409 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json' -d '{"message":"do more"}'
+expect_code 409 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json' -d '{"message":"status?","mode":"ask"}'
 expect_code 400 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json' -d '{}'
-pass "steer guards (no session 409, empty 400)"
+pass "steer guards (no session 409, ask mode plumbed, empty 400)"
 
 # task close cleans everything (통합 태스크까지 닫아야 브랜치 0)
 curl -sf -X POST "$B/api/tasks/1/close" | grep -q '"ok":true' || fail "close"

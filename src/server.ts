@@ -12,7 +12,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
@@ -32,7 +32,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.9.0' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.0.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -402,14 +402,24 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 후속 지시(steer) — 정착한 run 을 같은 세션(--resume)·같은 worktree 로 계속.
   app.post('/api/runs/:id/steer', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const b = (req.body ?? {}) as { message?: string };
+    const b = (req.body ?? {}) as { message?: string; mode?: string };
     const message = (b.message ?? '').trim();
     if (!message) return reply.code(400).send({ error: 'message required' });
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
-    const res = await steerRun(id, message);
+    const res = await steerRun(id, message, b.mode === 'ask' ? 'ask' : 'work');
     if (!res.ok) return reply.code(409).send(res);
     return reply.code(202).send(res);
+  });
+
+  // base 동기화 — 오래 사는 세션 worktree 에 base 최신 머지.
+  app.post('/api/runs/:id/sync', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const res = await syncRun(id);
+    if (!res.ok) return reply.code(409).send(res);
+    return res;
   });
 
   // Plan fan-out — 목표 하나 → 플래너가 태스크 분해 → 전부 자동 발사.
@@ -481,7 +491,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.9.0' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '3.0.0' }));
     socket.on('close', () => removeSink(socket));
   });
 

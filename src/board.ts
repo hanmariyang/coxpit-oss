@@ -292,6 +292,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 <header>
   <div class="brand"><span class="mark">coxpit</span><span class="sub">fleet console</span></div>
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
+  <button class="btn-ghost sm" id="bell" title="notify when a run settles">🔕</button>
   <div class="machines" id="machines"></div>
 </header>
 <div class="layout">
@@ -382,14 +383,19 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       </div>
     </div>
     <div class="modal-f" id="steerRow" style="border-top:1px solid var(--line)">
-      <input id="steerInput" placeholder="Send follow-up instructions — continues in the same session &amp; worktree…" style="flex:1" />
-      <button class="btn sm" id="steerSend">Steer</button>
+      <div class="seg" style="flex:0 0 132px" id="steerModeSeg">
+        <button type="button" class="seg-opt on" data-mode="work">Work</button>
+        <button type="button" class="seg-opt" data-mode="ask">Ask</button>
+      </div>
+      <input id="steerInput" placeholder="Next instruction — same session &amp; worktree…" style="flex:1" />
+      <button class="btn sm" id="steerSend">Send</button>
     </div>
     <div class="modal-f">
       <button class="btn-ghost sm" id="mTerm">Terminal</button>
       <button class="btn-ghost sm" id="mRefreshDiff">Refresh diff</button>
       <button class="btn-ghost sm" id="mCompare">Compare runs</button>
       <button class="btn-ghost sm" id="mExport">Export files…</button>
+      <button class="btn-ghost sm" id="mSync">Sync base</button>
       <span class="spacer"></span>
       <button class="btn-danger sm" id="mStop">Stop</button>
       <button class="btn-ghost sm" id="mCleanup">Cleanup</button>
@@ -597,6 +603,8 @@ function humanize(e){
   const kind = e.kind, payload = e.payload;
   if (kind === 'rate_limit_event') return null;
   if (kind === 'steer') return { k:'steer', t:'→ '+payload };
+  if (kind === 'ask') return { k:'ask', t:'? '+payload };
+  if (kind === 'sync') return { k:'sync', t:payload };
   if (kind === 'export'){ try{ const o=JSON.parse(payload); return { k:'export', t:o.copied+' file(s) → '+o.dest }; }catch{ return { k:'export', t:payload }; } }
   if (kind === 'pr') return { k:'pr', t:payload };
   if (kind === 'stderr') return { k:'stderr', t:payload };
@@ -786,6 +794,33 @@ $('repos').addEventListener('click', async (e)=>{
   else toast('remove: '+(j.detail||res.status), 'error');
 });
 
+/* ── 완료 알림(브라우저) — 벨 토글, run 정착 시 통지 ── */
+let notifyOn = false;
+try { notifyOn = localStorage.getItem('coxpit.notify') === '1' && Notification.permission === 'granted'; } catch {}
+function paintBell(){ $('bell').textContent = notifyOn ? '🔔' : '🔕'; }
+$('bell').addEventListener('click', async ()=>{
+  if (!('Notification' in window)){ toast('this browser has no notification support', 'error'); return; }
+  if (!notifyOn){
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted'){ toast('notification permission denied', 'error'); return; }
+    notifyOn = true;
+  } else notifyOn = false;
+  try { localStorage.setItem('coxpit.notify', notifyOn ? '1' : '0'); } catch {}
+  paintBell();
+  toast(notifyOn ? 'will notify when runs settle' : 'notifications off', 'ok');
+});
+paintBell();
+function notifySettleUI(ev){
+  if (!notifyOn) return;
+  const t = tasks.get(ev.taskId ?? (runs.get(ev.runId)||{}).taskId);
+  try {
+    new Notification('coxpit · r'+ev.runId+' '+ev.status, {
+      body: (t ? t.title+' — ' : '') + (ev.filesChanged??0)+' file(s) changed',
+      tag: 'coxpit-r'+ev.runId,
+    });
+  } catch {}
+}
+
 function connectWS(){
   const proto = location.protocol==='https:'?'wss':'ws';
   const ws = new WebSocket(proto+'://'+location.host+'/ws');
@@ -801,6 +836,7 @@ function connectWS(){
       render(); flash(ev.runId ?? ev.id); paintModal();
       if (openRunId===(ev.runId??ev.id) && ['done','failed','error','stopped'].includes(ev.status)) loadDiff();
       if (cmpTaskId!=null && ['done','failed','error','stopped','merged'].includes(ev.status)) paintCompare();
+      if (['done','failed','error','stopped'].includes(ev.status)) notifySettleUI(ev);
     } else if (ev.type==='event'){
       const r = runs.get(ev.runId); if(!r){ hydrate(); return; }
       r.events = r.events||[]; r.events.push({ kind:ev.kind, payload:ev.payload });
@@ -913,14 +949,34 @@ $('expOk').addEventListener('click', doExport);
 $('expDest').addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefault(); doExport(); } });
 $('expCancel').addEventListener('click', ()=>$('expOverlay').classList.remove('open'));
 $('expOverlay').addEventListener('click',(e)=>{ if(e.target===$('expOverlay')) $('expOverlay').classList.remove('open'); });
+let steerMode = 'work';
+document.querySelectorAll('#steerModeSeg .seg-opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    steerMode = b.dataset.mode;
+    document.querySelectorAll('#steerModeSeg .seg-opt').forEach(x=>x.classList.toggle('on', x===b));
+    $('steerInput').placeholder = steerMode==='ask'
+      ? 'Ask the session — status, decisions, anything (no file changes)…'
+      : 'Next instruction — same session & worktree…';
+  });
+});
 async function sendSteer(){
   if (openRunId==null) return;
   const msg = $('steerInput').value.trim(); if(!msg) return;
   const res = await fetch('/api/runs/'+openRunId+'/steer',{method:'POST',
-    headers:{'content-type':'application/json'}, body:JSON.stringify({message:msg})});
-  if (res.ok){ $('steerInput').value=''; toast('steering — the agent resumes in its worktree', 'ok'); }
+    headers:{'content-type':'application/json'}, body:JSON.stringify({message:msg, mode:steerMode})});
+  if (res.ok){
+    $('steerInput').value='';
+    toast(steerMode==='ask' ? 'asking — answer lands in the timeline' : 'working — same session & worktree', 'ok');
+  }
   else { const j = await res.json().catch(()=>({})); toast('steer: '+(j.detail||res.status), 'error'); }
 }
+$('mSync').addEventListener('click', async ()=>{
+  if (openRunId==null) return;
+  const res = await fetch('/api/runs/'+openRunId+'/sync',{method:'POST'});
+  const j = await res.json().catch(()=>({}));
+  if (res.ok){ toast('base merged into session worktree', 'ok'); loadDiff(); }
+  else toast('sync: '+(j.detail||res.status), 'error');
+});
 $('steerSend').addEventListener('click', sendSteer);
 $('steerInput').addEventListener('keydown',(e)=>{ if(e.key==='Enter') sendSteer(); });
 $('mStop').addEventListener('click', async ()=>{

@@ -186,19 +186,35 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
   const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
 
   const wasStopped = stoppedRuns.delete(runId);
-  await setRun(runId, {
-    status: wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed',
-    endedAt: new Date(),
-    filesChanged,
-    exitSummary: wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`,
-  });
+  const status = wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed';
+  const exitSummary = wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`;
+  await setRun(runId, { status, endedAt: new Date(), filesChanged, exitSummary });
+  void notifySettle(runId, status, filesChanged, exitSummary);
+}
+
+/** run 정착 웹훅(선택) — COXPIT_WEBHOOK_URL 로 JSON POST. 실패는 무해. */
+async function notifySettle(runId: number, status: string, filesChanged: number, exitSummary: string): Promise<void> {
+  if (!config.webhookUrl) return;
+  try {
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+    const tr = rr[0] ? await db.select().from(tasks).where(eq(tasks.id, rr[0].taskId)).limit(1) : [];
+    await fetch(config.webhookUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        event: 'run.settled',
+        run: { id: runId, status, filesChanged, exitSummary: exitSummary.slice(0, 300), task: tr[0]?.title ?? '' },
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch { /* 웹훅 실패는 조용히 */ }
 }
 
 /**
  * 후속 지시(steer) — 정착한 run 의 세션을 --resume 으로 이어 같은 worktree 에서 계속.
  * fire-and-forget. 진행 중 run 은 거부(개입은 터미널로).
  */
-export async function steerRun(runId: number, message: string): Promise<{ ok: boolean; detail: string }> {
+export async function steerRun(runId: number, message: string, mode: 'work' | 'ask' = 'work'): Promise<{ ok: boolean; detail: string }> {
   const ctx = await loadContext(runId);
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
@@ -213,11 +229,16 @@ export async function steerRun(runId: number, message: string): Promise<{ ok: bo
   if (!exists.stdout.includes('yes')) return { ok: false, detail: 'worktree missing on machine' };
 
   await setRun(runId, { status: 'running', endedAt: null });
-  await recordEvent(runId, 'steer', message.slice(0, 2000));
+  await recordEvent(runId, mode === 'ask' ? 'ask' : 'steer', message.slice(0, 2000));
+
+  // Ask 모드 — 세션에 질문만: 파일 수정 없이 답변만 하도록 래핑
+  const finalMessage = mode === 'ask'
+    ? `Question about your work in this session (do NOT modify any files, do NOT run write commands — answer concisely):\n${message}`
+    : message;
 
   const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
   const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
-  const resume = `${config.agent.bin} -p --resume ${shq(run.sessionId)} ${shq(message)}` +
+  const resume = `${config.agent.bin} -p --resume ${shq(run.sessionId)} ${shq(finalMessage)}` +
     ` --output-format stream-json --verbose --permission-mode ${config.agent.perm}`;
   const cmd = `cd ${shq(wt)} && ${pidPrefix}{ ${resume}; }`;
   void runAgentChild(runId, ctx.machine, wt, cmd);
@@ -283,6 +304,31 @@ export async function getRunDiff(runId: number): Promise<{ ok: boolean; diff: st
   const r = await runShellOn(ctx.machine, cmd, 20000);
   const [stat = '', diff = ''] = r.stdout.split('---DIFF---\n');
   return { ok: true, stat: stat.trim(), diff: diff.slice(0, 200_000) };
+}
+
+/**
+ * base 동기화 — 오래 사는 세션의 worktree 에 base 브랜치 최신을 머지한다.
+ * 충돌 시 자동 abort — 그땐 steer 로 에이전트에게 머지를 맡기라고 안내.
+ */
+export async function syncRun(runId: number): Promise<{ ok: boolean; detail: string; conflict?: boolean }> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.worktreePath) return { ok: false, detail: 'no worktree' };
+  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — wait for it to settle' };
+  const wt = shq(run.worktreePath);
+  const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
+  // 미커밋 변경 먼저 커밋(머지 가능 상태로)
+  const c1 = await runShellOn(ctx.machine,
+    `cd ${wt} && git add -A && (git diff --cached --quiet || git ${ident} -c commit.gpgsign=false commit -m ${shq(`coxpit r${runId}: checkpoint before base sync`)})`, 20000);
+  if (!c1.ok) return { ok: false, detail: 'checkpoint commit failed' };
+  const mg = await runShellOn(ctx.machine,
+    `cd ${wt} && git ${ident} -c commit.gpgsign=false merge --no-edit ${shq(ctx.baseBranch)} 2>&1 || (git merge --abort 2>/dev/null; echo COXPIT_SYNC_CONFLICT)`, 30000);
+  if (mg.stdout.includes('COXPIT_SYNC_CONFLICT')) {
+    return { ok: false, conflict: true, detail: `conflict with ${ctx.baseBranch} — steer the agent: "merge ${ctx.baseBranch} and resolve conflicts"` };
+  }
+  await recordEvent(runId, 'sync', `merged ${ctx.baseBranch} into session worktree`);
+  return { ok: true, detail: mg.stdout.trim().split('\n').slice(-1)[0] ?? 'synced' };
 }
 
 /**

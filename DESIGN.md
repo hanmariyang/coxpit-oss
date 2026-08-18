@@ -43,7 +43,9 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Select mode | `Select runs` toolbar toggle + `.selbar` | cards grow a ✓ circle; click toggles instead of opening; the floating bar states the consequence ("merges in selection order · conflicts spawn an integration agent") |
 | Plan form | `#planForm` sidebar section | one goal → planner splits → auto-launch; button narrates its long wait ("Planning… (1–3 min)"); follows the global Dry/Real mode |
 | AI review panel | `#cmpReview` above compare columns | reviewer digests every diff into approach/pros/cons/recommendation (mdLite-rendered) — the human judges, not reads |
-| Timeline lines | `humanize()` | never raw JSON: `said`/`tool ▸ Name — file`/`done`/`steer`; rate-limit and tool-result echoes are dropped as noise |
+| Timeline lines | `humanize()` | never raw JSON: `said`/`tool ▸ Name — file`/`done`/`steer`/`ask ?`/`sync`; rate-limit and tool-result echoes are dropped as noise |
+| Session bar | Work/Ask mini-seg + input in run modal | the run IS a session: Work = next instruction, Ask = question only (no file changes); Sync base refreshes a long-lived worktree |
+| Notify bell | `#bell` header toggle (🔕/🔔) | browser notification on run settle; server-side twin is `COXPIT_WEBHOOK_URL` (JSON `run.settled` POST) |
 | Terminal | xterm themed with tokens | background `--bg`, cursor `--brand` |
 
 ## Interaction rules
