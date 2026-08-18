@@ -75,6 +75,16 @@ Your keys and login never touch coxpit's config or database.
 
 Running on the open internet? Put it behind your own front door (Tailscale, Cloudflare Access, a reverse proxy with TLS) and keep basic auth on — it exposes shells.
 
+## Platform support
+
+| platform | daemon | agent runs |
+|---|---|---|
+| macOS / Linux | ✅ first-class | ✅ |
+| Windows (WSL2) | ✅ run the daemon inside WSL | ✅ |
+| Windows (native) | ⚠️ board + remote machines only | ❌ needs a POSIX shell + tmux |
+
+On Windows, install the daemon inside WSL2 (`npm i -g coxpit`) — WSL2 forwards `localhost`, so the Windows desktop app detects the WSL daemon and attaches to it automatically. A native Windows daemon still serves the board and can drive **remote** (ssh) machines, but the local machine will fail its readiness checks (no tmux).
+
 ## Architecture
 
 ```

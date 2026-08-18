@@ -42,8 +42,18 @@ function defaultDbPath(): string {
 
 const dbPath = process.env.COXPIT_DB || defaultDbPath();
 
+// 버전 SSOT = package.json (하드코딩 문자열 이중화 방지)
+const pkgVersion: string = (() => {
+  try {
+    return JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
+
 /** 런타임 설정. 시크릿은 전부 env 주입(번들 0). */
 export const config = {
+  version: pkgVersion,
   // UTF-8 보장된 로케일 — PTY/원격 셸에 명시 전달용
   lang: process.env.LANG!,
   host: process.env.COXPIT_HOST ?? '127.0.0.1',

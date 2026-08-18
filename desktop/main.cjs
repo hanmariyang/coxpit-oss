@@ -129,9 +129,39 @@ function startDaemon() {
   });
   daemon.on('exit', (code) => {
     daemon = null;
+    if (restarting) return; // 의도된 재시작 — 에러 페이지 대신 respawn 이 이어진다
     if (win && !win.isDestroyed()) {
       win.loadURL('data:text/html,<body style="background:%230b0d12;color:%23e25b67;font-family:monospace;padding:40px">coxpit daemon exited (code ' + code + '). Restart the app.</body>');
     }
+  });
+}
+
+let restarting = false;
+function restartEmbeddedDaemon() {
+  if (!daemon) {
+    dialog.showMessageBox({
+      type: 'info', message: 'Attached to an external daemon',
+      detail: 'This window is attached to the daemon at http://' + boardOrigin.host + ':' + boardOrigin.port + '/ — restart it where it runs (service manager / CLI).',
+    });
+    return;
+  }
+  restarting = true;
+  try { daemon.kill(); } catch { /* gone */ }
+  setTimeout(async () => {
+    startDaemon();
+    try {
+      await waitHealth();
+      if (win && !win.isDestroyed()) win.reload();
+    } catch { /* error page will show via exit handler on next failure */ }
+    restarting = false;
+  }, 600);
+}
+
+function showDaemonInfo() {
+  dialog.showMessageBox({
+    type: 'info', message: 'Coxpit daemon',
+    detail: (daemon ? 'mode: embedded (runs inside this app)\ndata: ~/.coxpit' : 'mode: attached (external daemon on this machine)')
+      + '\nurl: http://' + boardOrigin.host + ':' + boardOrigin.port + '/',
   });
 }
 
@@ -160,6 +190,10 @@ async function createWindow() {
   });
   // 외부 링크는 시스템 브라우저로
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  // 페이지 <title> 대신 attach 상태를 창 제목으로 유지
+  const winTitle = daemon ? 'Coxpit' : 'Coxpit — attached to :' + boardOrigin.port;
+  win.webContents.on('page-title-updated', (e) => { e.preventDefault(); win.setTitle(winTitle); });
+  win.setTitle(winTitle);
   try {
     await waitHealth();
     await win.loadURL('http://' + boardOrigin.host + ':' + boardOrigin.port + '/');
@@ -233,6 +267,9 @@ function buildMenu() {
         { role: 'about' },
         { label: 'Check for Updates…', click: checkForUpdatesManually },
         { type: 'separator' },
+        { label: 'Daemon Info…', click: showDaemonInfo },
+        { label: 'Restart Daemon', click: restartEmbeddedDaemon },
+        { type: 'separator' },
         { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
         { type: 'separator' },
         { role: 'quit' },
@@ -243,7 +280,11 @@ function buildMenu() {
     { role: 'windowMenu' },
     ...(!isMac ? [{
       label: 'Help',
-      submenu: [{ label: 'Check for Updates…', click: checkForUpdatesManually }],
+      submenu: [
+        { label: 'Check for Updates…', click: checkForUpdatesManually },
+        { label: 'Daemon Info…', click: showDaemonInfo },
+        { label: 'Restart Daemon', click: restartEmbeddedDaemon },
+      ],
     }] : []),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
