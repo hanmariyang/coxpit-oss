@@ -61,11 +61,13 @@ Steer the fleet from a phone, for real. No native app — the board itself earns
 - [x] Mobile terminal input pass — an IME-safe input bar (composes 한글/かな natively,
       sends whole lines) plus esc·tab·^C·arrow keys, shown on touch/narrow screens
 
-### v4.0 — reach
-- [ ] Open a run from a GitHub issue/PR reference (paste a URL, get a worktree)
-- [ ] Agent-callable orchestration: expose task/run creation so an agent can
-      request its own sub-runs through the daemon (orchestration inside the loop)
-- [ ] Read-only share views (still owner-first — but a run should be showable)
+### v4.0 — reach *(code shipped)*
+- [x] Start a task from a GitHub issue/PR URL — fetched into the form, human reviews, Run fleet
+- [x] Agent self-orchestration: a run spawns sub-runs by writing `.coxpit/spawn.json`
+      in its worktree (file protocol — works under default permissions, both providers);
+      the daemon maintains `.coxpit/subtasks.json` with live status
+- [x] Read-only share views — one click mints an unauthenticated snapshot link
+      (timeline + diff, zero actions, revocable)
 - [ ] Public write-up + demo video: the "one person, one daemon" build story
 
 ## Non-goals

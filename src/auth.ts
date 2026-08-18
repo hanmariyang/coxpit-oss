@@ -3,7 +3,9 @@ import { config } from './config';
 
 // /api/design/capture · /design/bookmarklet.js 는 외부 앱(북마클릿)에서 오므로
 // basic 헤더를 못 싣는다 — 라우트 자체가 캡처 키(?k=)를 검증한다.
-const EXEMPT = new Set(['/api/health', '/api/design/capture', '/design/bookmarklet.js']);
+// /api/agent/subtasks 는 에이전트 Bearer 토큰(라우트 자체 검증), /share/* 는 토큰 URL 이 곧 능력.
+const EXEMPT = new Set(['/api/health', '/api/design/capture', '/design/bookmarklet.js', '/api/agent/subtasks']);
+const EXEMPT_PREFIX = ['/share/'];
 
 /**
  * 인증 게이트 — 현재 basic. 플러그형 좌석: 배포 시 앞단에 Cloudflare Access / Tailscale 을
@@ -13,6 +15,7 @@ export async function authGate(req: FastifyRequest, reply: FastifyReply): Promis
   if (config.auth.disabled) return;
   const path = req.url.split('?')[0] ?? '';
   if (EXEMPT.has(path)) return;
+  if (EXEMPT_PREFIX.some((p) => path.startsWith(p))) return;
 
   const h = req.headers.authorization ?? '';
   if (h.startsWith('Basic ') && config.auth.pass !== '') {

@@ -20,6 +20,9 @@ Your machines. Your auth. Your code never leaves your network.
 - **Multi-machine** — register remote machines over SSH (Tailscale/LAN); probe reachability (git·tmux), run fleets there.
 - **Safe stops** — stop kills the whole process group; task close stops and cleans every worktree/branch.
 - **Design Mode** — drag the `⌖ coxpit inspect` bookmarklet to your bar, click it on your running app, click any element: its selector, HTML and computed styles are captured and injected into the agents' prompt as design context.
+- **Self-orchestrating agents** — every local run can spawn its own sub-agents by writing `.coxpit/spawn.json` in its worktree (works under default permissions — no network, no escalation). The daemon launches each subtask as an isolated sub-run and maintains `.coxpit/subtasks.json` with live status. Orchestration moves inside the agent's own reasoning loop.
+- **Start from GitHub** — paste an issue/PR URL and the task form drafts itself from its title and body (gh CLI for private repos, public API otherwise). You review, pick a provider, Run fleet.
+- **Share a run** — one click mints a read-only snapshot link (timeline + diff, no auth, no actions). Show your fleet's work without opening your cockpit.
 
 External tools are spawned, never vendored: `git`, `tmux`, your agent CLI. No editor bundled — terminal-first.
 
@@ -74,6 +77,7 @@ Your keys and login never touch coxpit's config or database.
 | `COXPIT_AGENT_PERM` | `acceptEdits` | Claude Code headless permission mode |
 | `COXPIT_CODEX_BIN` | `codex` | Codex CLI command (optional second provider) |
 | `COXPIT_CODEX_SANDBOX` | `workspace-write` | Codex sandbox policy (`danger-full-access` for full autonomy) |
+| `COXPIT_AGENT_ORCH` | on | `0` disables agent self-orchestration (the `.coxpit/spawn.json` protocol + prompt note) |
 | `COXPIT_WEBHOOK_URL` | — | POSTs `{event:"run.settled",run:{...}}` when a run finishes — wire it to Telegram, Slack, anything |
 | `COXPIT_PUBLIC_URL` | — | if set, the webhook payload adds `url: <base>/?run=<id>` — tap it on your phone and the board opens that run |
 
@@ -105,7 +109,7 @@ One daemon, one SQLite file, zero external services. Machines are reached over S
 
 ## Status
 
-`v3.0` — fleet, compare/merge, terminal, Design Mode, run destinations (merge · export · PR), swarm (plan fan-out + integrate with conflict-resolving agents), AI review, and sessions (work/ask + notifications) — all shipped and e2e-tested. Roadmap: ROADMAP.md.
+`v4.0` — fleet, two providers (Claude Code · Codex), compare/merge + AI review + doc mode, terminal (full-screen, session tabs, mobile input bar), swarm (plan fan-out · integrate · agent self-orchestration), sessions (steer/ask · resume), mobile board with deep links, GitHub import, read-only share links — all shipped and e2e-tested (30 checks). Roadmap: ROADMAP.md.
 
 ## License
 

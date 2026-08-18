@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import { posix as ppath } from 'node:path';
 import { createInterface } from 'node:readline';
 import { existsSync } from 'node:fs';
-import { mkdir, copyFile } from 'node:fs/promises';
+import { mkdir, copyFile, readFile, writeFile, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { ChildProcess } from 'node:child_process';
 import { eq } from 'drizzle-orm';
@@ -39,6 +40,134 @@ async function setRun(runId: number, patch: Partial<typeof agentRuns.$inferInser
 // 실행 중 run 의 자식 프로세스(stop 용). stoppedRuns = 사용자가 멈춘 run 표식.
 const liveChildren = new Map<number, ChildProcess>();
 const stoppedRuns = new Set<number>();
+
+// ── 에이전트 셀프 오케스트레이션 ──────────────────────────────
+// run 마다 1회용 토큰을 발급해 에이전트 env 로 준다. 에이전트는 그 토큰으로
+// /api/agent/subtasks 를 호출해 같은 repo 에 독립 서브런을 발사할 수 있다.
+// 인메모리 = 데몬 재시작 시 무효(고아 정산과 같은 수명 철학).
+const agentTokens = new Map<string, number>(); // token -> runId
+
+function issueAgentToken(runId: number): string {
+  for (const [t, r] of agentTokens) if (r === runId) return t; // steer 재사용
+  const tok = randomBytes(16).toString('hex');
+  agentTokens.set(tok, runId);
+  return tok;
+}
+
+/** Bearer 토큰 → runId (없으면 null). server 의 /api/agent/* 가 사용. */
+export function resolveAgentToken(token: string): number | null {
+  return agentTokens.get(token) ?? null;
+}
+
+/** 에이전트 프롬프트에 붙는 능력 고지 — 독립 하위작업을 병렬 서브런으로 뺄 수 있다.
+ * 파일 기반: 기본 권한(claude acceptEdits · codex workspace-write)이 네트워크를 막아도
+ * 파일 쓰기는 되므로, spawn 요청을 워크트리의 .coxpit/spawn.json 으로 받는다. */
+function orchestrationNote(): string {
+  return '\n\n--- COXPIT ORCHESTRATION (optional) ---\n' +
+    'You can parallelize genuinely independent subwork by spawning sub-agents. To spawn, write the file ' +
+    '`.coxpit/spawn.json` in your working directory:\n' +
+    '  {"title": "short title", "prompt": "full agent prompt", "count": 1}\n' +
+    '(or an array of such objects, max 4). The daemon consumes it within ~2s and launches each subtask ' +
+    'as an isolated sub-run of this repository. It keeps `.coxpit/subtasks.json` updated with their live ' +
+    'status — read it to check progress. Prefer doing work yourself; spawn only clearly separable, ' +
+    'file-disjoint tasks. Do not busy-wait on sub-agents.\n' +
+    '--- END COXPIT ORCHESTRATION ---';
+}
+
+/**
+ * 파일 기반 오케스트레이션 워처 — run 이 사는 동안 worktree 의 .coxpit/spawn.json 을
+ * 소비해 서브태스크를 발사하고, .coxpit/subtasks.json 에 현황을 유지한다.
+ * 로컬 run 전용(원격은 데몬이 파일에 못 닿음). 반환된 타이머는 run 종료 시 정리.
+ */
+export function startOrchWatch(runId: number, wtPath: string, real: boolean): NodeJS.Timeout {
+  const dir = ppath.join(wtPath, '.coxpit');
+  let last = '';
+  let busy = false;
+  return setInterval(() => {
+    if (busy) return;
+    busy = true;
+    void (async () => {
+      try {
+        const spawnPath = ppath.join(dir, 'spawn.json');
+        const txt = await readFile(spawnPath, 'utf8').catch(() => null);
+        if (txt !== null) {
+          await rm(spawnPath).catch(() => { /* consumed */ });
+          try {
+            const req = JSON.parse(txt) as unknown;
+            const items = (Array.isArray(req) ? req : [req]) as Array<{ title?: string; prompt?: string; count?: number }>;
+            for (const it of items.slice(0, 4)) {
+              if (typeof it?.title === 'string' && typeof it?.prompt === 'string' && it.title && it.prompt) {
+                await spawnSubtasks(runId, it.title, it.prompt, Number(it.count) || 1, real);
+              }
+            }
+          } catch {
+            await recordEvent(runId, 'error', 'spawn.json was not valid JSON — nothing spawned');
+          }
+        }
+        // 현황 파일 — 내용이 바뀔 때만 다시 쓴다
+        const subs = await listSubtasks(runId);
+        if (subs.length) {
+          const j = JSON.stringify(subs, null, 2);
+          if (j !== last) {
+            last = j;
+            await mkdir(dir, { recursive: true });
+            await writeFile(ppath.join(dir, 'subtasks.json'), j);
+          }
+        }
+      } catch { /* 워처 오류는 조용히 — 다음 틱에 재시도 */ }
+      busy = false;
+    })();
+  }, 1500);
+}
+
+/**
+ * 에이전트가 요청한 서브태스크 생성+발사. 부모 run 의 repo/머신/프로바이더 상속, real 고정
+ * (토큰은 real run 에만 발급되므로). 결과는 부모 타임라인에 meta 이벤트로 남는다.
+ */
+export async function spawnSubtasks(parentRunId: number, title: string, prompt: string, count: number, real = true): Promise<{
+  ok: boolean; detail: string; taskId?: number; runIds?: number[];
+}> {
+  const pr = (await db.select().from(agentRuns).where(eq(agentRuns.id, parentRunId)).limit(1))[0];
+  if (!pr) return { ok: false, detail: 'parent run not found' };
+  const pt = (await db.select().from(tasks).where(eq(tasks.id, pr.taskId)).limit(1))[0];
+  if (!pt) return { ok: false, detail: 'parent task not found' };
+  // 폭주 가드 — 한 부모가 만들 수 있는 하위 태스크 상한
+  const siblings = await db.select().from(tasks).where(eq(tasks.parentRunId, parentRunId));
+  if (siblings.length >= 8) return { ok: false, detail: 'subtask limit reached (8 per run)' };
+  const n = Math.max(1, Math.min(4, count || 1));
+  const tIns = await db.insert(tasks).values({
+    repoId: pt.repoId, title: title.slice(0, 140), prompt, parentRunId,
+  }).returning();
+  const task = tIns[0]!;
+  const runIds: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const rIns = await db.insert(agentRuns).values({
+      taskId: task.id, machineId: pr.machineId, agent: pr.agent, status: 'pending',
+    }).returning();
+    const run = rIns[0]!;
+    broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, branch: '', filesChanged: 0 });
+    void launchRun(run.id, real);
+    runIds.push(run.id);
+  }
+  await recordEvent(parentRunId, 'meta', JSON.stringify({ subtask: task.id, title: task.title, runs: runIds }));
+  return { ok: true, detail: `spawned task #${task.id} (${runIds.length} run(s))`, taskId: task.id, runIds };
+}
+
+/** 부모 run 이 발사한 서브태스크 현황 — 에이전트 폴링용. */
+export async function listSubtasks(parentRunId: number): Promise<Array<{
+  id: number; title: string; runs: Array<{ id: number; status: string; filesChanged: number; exitSummary: string }>;
+}>> {
+  const ts = await db.select().from(tasks).where(eq(tasks.parentRunId, parentRunId));
+  const out = [];
+  for (const t of ts) {
+    const rs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, t.id));
+    out.push({
+      id: t.id, title: t.title,
+      runs: rs.map((r) => ({ id: r.id, status: r.status, filesChanged: r.filesChanged, exitSummary: r.exitSummary.slice(0, 200) })),
+    });
+  }
+  return out;
+}
 
 /**
  * 원격 에이전트 kill 스크립트 — pid 파일 기준.
@@ -155,8 +284,29 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
     // 드라이런 모의 스트림은 claude 형태 — 파서도 claude 로 (배관 리허설은 프로바이더 불문)
     const provider = useReal ? getProvider(ctx.agent) : getProvider('claude-code');
-    const cmd = `cd ${shq(wtPath)} && ${pidPrefix}{ ${agentCommand(provider, ctx.prompt, useReal)}; }`;
-    await runAgentChild(runId, ctx.machine, wtPath, cmd, provider);
+    // 셀프 오케스트레이션 — real+로컬 run 에만 토큰/API env 와 능력 고지를 준다
+    // (원격은 127.0.0.1 이 데몬에 닿지 않음). COXPIT_AGENT_ORCH=0 으로 끌 수 있음.
+    let prompt = ctx.prompt;
+    let envPrefix = '';
+    if (useReal && !isRemote && config.agentOrch) {
+      const tok = issueAgentToken(runId);
+      envPrefix = `export COXPIT_API=${shq(`http://127.0.0.1:${config.port}`)} COXPIT_TOKEN=${shq(tok)}; `;
+      prompt += orchestrationNote();
+    }
+    const cmd = `cd ${shq(wtPath)} && ${envPrefix}${pidPrefix}{ ${agentCommand(provider, prompt, useReal)}; }`;
+    // 파일 오케스트레이션 — 로컬 run 이 사는 동안 .coxpit/spawn.json 감시.
+    // .coxpit/ 는 repo exclude 에 넣어 diff/머지를 오염시키지 않는다(멱등).
+    let orchTimer: NodeJS.Timeout | null = null;
+    if (!isRemote && config.agentOrch) {
+      await runShellOn(ctx.machine,
+        `EX=$(git -C ${shq(wtPath)} rev-parse --git-path info/exclude) && { grep -qxF '.coxpit/' "$EX" 2>/dev/null || echo '.coxpit/' >> "$EX"; }`, 8000);
+      orchTimer = startOrchWatch(runId, wtPath, useReal);
+    }
+    try {
+      await runAgentChild(runId, ctx.machine, wtPath, cmd, provider);
+    } finally {
+      if (orchTimer) clearInterval(orchTimer);
+    }
   } catch (e) {
     await recordEvent(runId, 'error', String(e).slice(0, 500));
     await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'orchestrator error' });
@@ -255,9 +405,18 @@ export async function steerRun(runId: number, message: string, mode: 'work' | 'a
   const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
   const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
   const provider = getProvider(ctx.agent);
+  // steer 세션도 셀프 오케스트레이션 유지(데몬 재시작으로 무효화된 토큰 재발급)
+  const envPrefix = (!isRemote && config.agentOrch)
+    ? `export COXPIT_API=${shq(`http://127.0.0.1:${config.port}`)} COXPIT_TOKEN=${shq(issueAgentToken(runId))}; `
+    : '';
   const resume = provider.resumeCmd(run.sessionId, finalMessage);
-  const cmd = `cd ${shq(wt)} && ${pidPrefix}{ ${resume}; }`;
-  void runAgentChild(runId, ctx.machine, wt, cmd, provider);
+  const cmd = `cd ${shq(wt)} && ${envPrefix}${pidPrefix}{ ${resume}; }`;
+  if (!isRemote && config.agentOrch) {
+    const orchTimer = startOrchWatch(runId, wt, true);
+    void runAgentChild(runId, ctx.machine, wt, cmd, provider).finally(() => clearInterval(orchTimer));
+  } else {
+    void runAgentChild(runId, ctx.machine, wt, cmd, provider);
+  }
   return { ok: true, detail: 'steering' };
 }
 

@@ -75,6 +75,9 @@ export const config = {
     // 완전 자율은 bypassPermissions.
     perm: process.env.COXPIT_AGENT_PERM ?? 'acceptEdits',
   },
+  // 에이전트 셀프 오케스트레이션 — real+로컬 run 에 COXPIT_API/COXPIT_TOKEN env 와
+  // 능력 고지를 준다(에이전트가 /api/agent/subtasks 로 서브런 발사). '0' 으로 끔.
+  agentOrch: process.env.COXPIT_AGENT_ORCH !== '0',
   codex: {
     // 두 번째 프로바이더 — OpenAI Codex CLI (선택 설치). providers.ts 의 시임.
     bin: process.env.COXPIT_CODEX_BIN ?? 'codex',

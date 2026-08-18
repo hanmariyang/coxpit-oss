@@ -40,6 +40,15 @@ export const tasks = sqliteTable('tasks', {
   prompt: text('prompt').notNull().default(''),
   status: text('status').notNull().default('open'), // open | done
   designCaptureId: integer('design_capture_id'), // 선택 — 프롬프트에 DESIGN CONTEXT 주입
+  parentRunId: integer('parent_run_id'), // 에이전트 셀프 오케스트레이션 — 이 태스크를 발사한 run
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
+/** 읽기 전용 공유 링크 — run 스냅샷을 무인증으로 보여준다(토큰 = capability). */
+export const shareLinks = sqliteTable('share_links', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  runId: integer('run_id').notNull(),
+  token: text('token').notNull().unique(),
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 

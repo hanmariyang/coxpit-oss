@@ -169,6 +169,23 @@ echo "$DOCS" | grep -q '"kind":"md"' || fail "docs kind should be md"
 echo "$DOCS" | grep -q 'Hello Doc' || fail "docs content missing"
 pass "doc mode: changed md returned with content"
 
+# v4.0 — 에이전트 오케스트레이션 토큰 가드 + GitHub 초안 검증 + 공유 링크
+expect_code 401 -X POST "$B/api/agent/subtasks" -H 'content-type: application/json' -d '{"title":"x","prompt":"y"}'
+expect_code 401 -X GET "$B/api/agent/subtasks" -H 'authorization: Bearer bogus'
+expect_code 400 -X POST "$B/api/tasks/from-github" -H 'content-type: application/json' -d '{"url":"https://gitlab.com/x/y/issues/1"}'
+pass "agent-orch token gate 401 + from-github url validation 400"
+
+SH=$(curl -sf -X POST "$B/api/runs/1/share")
+STOK=$(printf '%s' "$SH" | { grep -o '"url":"/share/[^"]*"' || true; } | cut -d'"' -f4)
+[ -n "$STOK" ] || fail "share create: $SH"
+SPAGE=$(curl -sf "$B$STOK")
+case "$SPAGE" in *'read-only snapshot'*) : ;; *) fail "share page missing";; esac
+case "$SPAGE" in *'e2e'*) : ;; *) fail "share page missing task title";; esac
+curl -sf -X POST "$B/api/runs/1/share" | grep -q '"existing":true' || fail "share should reuse existing token"
+curl -sf -X DELETE "$B/api/runs/1/share" >/dev/null
+expect_code 404 "$B$STOK"
+pass "share link: create -> page -> reuse -> revoke"
+
 # PR 가드: origin 리모트 없는 repo -> 409
 expect_code 409 -X POST "$B/api/runs/2/pr"
 pass "PR guard (no origin remote 409)"
@@ -302,6 +319,8 @@ expect_code 401 "$B/api/machines"
 expect_code 401 "$B/api/browse"
 expect_code 200 -u admin:pw-e2e "$B/api/machines"
 expect_code 200 "$B/design/bookmarklet.js"
+# /share/* 는 무인증 예외(없는 토큰이라도 401 이 아니라 404 여야 함)
+expect_code 404 "$B/share/no-such-token"
 expect_code 201 -X POST "$B/api/design/capture?k=pw-e2e" -H 'content-type: application/json' -d '{"selector":"x"}' 
 expect_code 401 -X POST "$B/api/design/capture?k=nope" -H 'content-type: application/json' -d '{}' 
 pass "auth gate + capture key"

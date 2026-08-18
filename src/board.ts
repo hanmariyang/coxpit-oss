@@ -399,6 +399,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <div id="panelTask" style="display:flex;flex-direction:column;gap:8px">
           <input id="taskTitle" placeholder="Task title" />
           <textarea id="taskPrompt" placeholder="Prompt — target files, constraints, how to verify"></textarea>
+          <button type="button" class="btn-ghost sm" id="ghImport">From GitHub issue / PR…</button>
           <div class="seg" id="provSeg" role="group" aria-label="agent provider">
             <button type="button" class="seg-opt on" data-agent="claude-code">Claude</button>
             <button type="button" class="seg-opt" data-agent="codex">Codex</button>
@@ -478,6 +479,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <button class="btn-ghost sm" id="mCompare">Compare runs</button>
       <button class="btn-ghost sm" id="mExport">Export files…</button>
       <button class="btn-ghost sm" id="mSync">Sync base</button>
+      <button class="btn-ghost sm" id="mShare" title="create a read-only share link (no auth, snapshot view)">Share</button>
       <span class="spacer"></span>
       <button class="btn-danger sm" id="mStop">Stop</button>
       <button class="btn-ghost sm" id="mCleanup">Cleanup</button>
@@ -546,6 +548,21 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   <span class="note">merges in selection order · conflicts spawn an integration agent</span>
   <button class="btn sm" id="selGo">Integrate → base</button>
   <button class="btn-ghost sm" id="selCancel">Cancel</button>
+</div>
+
+<div class="overlay" id="ghOverlay">
+  <div class="cfm">
+    <div class="cfm-b">
+      <div class="m">Start from a GitHub issue or pull request</div>
+      <div class="s">Fetches the title and body into the task form — you review, pick a provider, then Run fleet. Private repos need the gh CLI signed in on the daemon machine.</div>
+      <p class="flabel" style="margin-top:12px">issue / PR url</p>
+      <input id="ghUrl" placeholder="https://github.com/owner/repo/issues/123" />
+    </div>
+    <div class="cfm-f">
+      <button class="btn-ghost sm" id="ghCancel">Cancel</button>
+      <button class="btn sm" id="ghOk">Fetch</button>
+    </div>
+  </div>
 </div>
 
 <div class="overlay" id="expOverlay">
@@ -726,6 +743,7 @@ function humanize(e){
     }
     if (o.type === 'assistant' && o.text) return { k:'said', t:o.text };
     if (o.type === 'result') return { k:'done', t:o.result || 'finished' };
+    if (kind === 'meta' && o.subtask) return { k:'swarm', t:'↳ spawned task #'+o.subtask+' — '+String(o.title||'').slice(0,60)+' ('+((o.runs||[]).map(x=>'r'+x).join(' '))+')' };
     if (kind === 'meta') return { k:'start', t:'worktree '+String(o.worktree||'').split('/').slice(-2).join('/') };
     return { k:kind, t:payload.slice(0,140) };
   }catch{
@@ -851,6 +869,7 @@ function cardHTML(r){
     + '<div class="meta"><span>branch <b>'+esc(r.branch||'—')+'</b></span>'
     + '<span>files <b>'+(r.filesChanged??0)+'</b></span>'
     + '<span>'+esc(r.agent||'')+'</span>'
+    + (task && task.parentRunId ? '<span title="spawned by agent r'+task.parentRunId+'">↳ by r'+task.parentRunId+'</span>' : '')
     + (r.sessionId && ['done','failed','stopped'].includes(r.status)
         ? '<span class="resumable" title="agent session preserved — open the run and Send a next instruction to continue">↻ resumable</span>' : '')
     + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener" style="margin-left:auto">PR ↗</a>' : '')
@@ -1106,7 +1125,7 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
 $('mExport').addEventListener('click', ()=>{
   if (openRunId==null) return;
@@ -1529,6 +1548,38 @@ for (const b of provOpts) b.addEventListener('click', ()=>setProvider(b.dataset.
 let savedAgent = null;
 try { savedAgent = localStorage.getItem('coxpit.agent'); } catch {}
 if (savedAgent === 'codex') setProvider('codex', false);
+
+/* ── GitHub 이슈/PR → 태스크 초안 ── */
+$('ghImport').addEventListener('click', ()=>{ $('ghUrl').value=''; $('ghOverlay').classList.add('open'); $('ghUrl').focus(); });
+$('ghCancel').addEventListener('click', ()=>$('ghOverlay').classList.remove('open'));
+$('ghOverlay').addEventListener('click',(e)=>{ if(e.target===$('ghOverlay')) $('ghOverlay').classList.remove('open'); });
+async function ghFetch(){
+  const url = $('ghUrl').value.trim();
+  if (!url) return;
+  $('ghOk').disabled = true; $('ghOk').textContent = 'Fetching…';
+  try{
+    const res = await fetch('/api/tasks/from-github',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url})});
+    const j = await res.json().catch(()=>({}));
+    if (!res.ok){ toast('github: '+(j.error||res.status), 'error'); return; }
+    $('taskTitle').value = j.title; $('taskPrompt').value = j.prompt;
+    $('ghOverlay').classList.remove('open');
+    toast('drafted from GitHub — review, then Run fleet', 'ok');
+  } finally { $('ghOk').disabled = false; $('ghOk').textContent = 'Fetch'; }
+}
+$('ghOk').addEventListener('click', ghFetch);
+$('ghUrl').addEventListener('keydown',(e)=>{ if(e.key==='Enter') ghFetch(); });
+
+/* ── 읽기 전용 공유 링크 ── */
+$('mShare').addEventListener('click', async ()=>{
+  if (openRunId==null) return;
+  const res = await fetch('/api/runs/'+openRunId+'/share',{method:'POST'});
+  const j = await res.json().catch(()=>({}));
+  if (!res.ok){ toast('share: '+(j.error||res.status), 'error'); return; }
+  const url = location.origin + j.url;
+  let copied = false;
+  try{ await navigator.clipboard.writeText(url); copied = true; }catch{}
+  toast((j.existing?'share link (existing)':'share link created')+(copied?' — copied':'')+': '+url, 'ok');
+});
 
 /* ── mobile drawer ── */
 const asideEl = document.querySelector('aside');

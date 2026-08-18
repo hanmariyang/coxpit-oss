@@ -3,16 +3,17 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve as presolve, dirname as pdirname, join as pjoin } from 'node:path';
 import { createRequire } from 'node:module';
+import { randomBytes } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
 import { eq } from 'drizzle-orm';
 import { authGate } from './auth';
 import { config } from './config';
 import { db } from './db';
-import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
+import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, getRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, getRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -27,6 +28,99 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
   'addon-fit.js': { pkg: '@xterm/addon-fit/package.json', rel: 'lib/addon-fit.js', type: 'text/javascript' },
   'addon-unicode11.js': { pkg: '@xterm/addon-unicode11/package.json', rel: 'lib/addon-unicode11.js', type: 'text/javascript' },
 };
+
+// ─── 읽기 전용 공유 페이지 (서버 렌더 스냅샷 — 스크립트 0, 액션 0) ───────────
+const escH = (x: unknown): string =>
+  String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
+/** 보드 humanize 의 서버측 축약판 — 이벤트 한 줄을 {k, t} 로. null = 잡음. */
+function shareLine(kind: string, payload: string): { k: string; t: string } | null {
+  if (kind === 'steer') return { k: 'steer', t: '→ ' + payload };
+  if (kind === 'ask') return { k: 'ask', t: '? ' + payload };
+  if (kind === 'sync' || kind === 'pr' || kind === 'export') return { k: kind, t: payload };
+  if (kind === 'stderr' || kind === 'error') return { k: kind, t: payload };
+  try {
+    const o = JSON.parse(payload) as {
+      type?: string; subtype?: string; text?: string; result?: string; worktree?: string;
+      message?: { content?: Array<{ type?: string; text?: string; name?: string; input?: Record<string, string> }> };
+    };
+    if (o.type === 'system') return o.subtype === 'init' || !o.subtype ? { k: 'session', t: 'started' } : null;
+    if (o.type === 'user') return null;
+    if (o.type === 'assistant' && o.message) {
+      const parts: string[] = [];
+      for (const c of o.message.content ?? []) {
+        if (c.type === 'text' && c.text) parts.push(c.text);
+        else if (c.type === 'tool_use') {
+          const i = c.input ?? {};
+          const arg = i.file_path || i.command || i.path || i.pattern || '';
+          parts.push('▸ ' + (c.name ?? 'tool') + (arg ? ' — ' + String(arg).split('/').slice(-2).join('/').slice(0, 60) : ''));
+        }
+      }
+      return parts.length ? { k: 'agent', t: parts.join(' · ') } : null;
+    }
+    if (o.type === 'assistant' && o.text) return { k: 'said', t: o.text };
+    if (o.type === 'result') return { k: 'done', t: o.result || 'finished' };
+    if (kind === 'meta' && o.worktree) return { k: 'start', t: 'worktree ' + String(o.worktree).split('/').slice(-2).join('/') };
+    return null;
+  } catch { return payload.trim().startsWith('{') ? null : { k: kind, t: payload.slice(0, 160) }; }
+}
+
+function shareDiffHTML(text: string): string {
+  if (!text.trim()) return '<span style="color:#5c6675">no changes</span>';
+  return text.slice(0, 120_000).split('\n').map((l) => {
+    const e = escH(l);
+    if (l.startsWith('diff --git') || l.startsWith('+++') || l.startsWith('---')) return `<span class="f">${e}</span>`;
+    if (l.startsWith('@@')) return `<span class="h">${e}</span>`;
+    if (l.startsWith('+')) return `<span class="a">${e}</span>`;
+    if (l.startsWith('-')) return `<span class="d">${e}</span>`;
+    return e;
+  }).join('\n');
+}
+
+function sharePageHTML(
+  run: { id: number; status: string; branch: string; agent: string; filesChanged: number; exitSummary: string },
+  taskTitle: string,
+  events: Array<{ kind: string; payload: string }>,
+  diff: string,
+): string {
+  const lines = events.map((e) => shareLine(e.kind, e.payload)).filter((x): x is { k: string; t: string } => !!x);
+  const sc: Record<string, string> = { done: '#3fb970', merged: '#4ec9b0', failed: '#e5534b', error: '#e5534b', stopped: '#a371f7', running: '#4184e4', open: '#4ec9b0' };
+  const color = sc[run.status] ?? '#8792a2';
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>coxpit · r${run.id} — ${escH(taskTitle)}</title>
+<style>
+  body{margin:0;background:#0b0d12;color:#dee4ec;font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;line-height:1.55}
+  .wrap{max-width:960px;margin:0 auto;padding:28px 18px 60px}
+  .hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+  .mark{color:#4ec9b0;font-family:ui-monospace,monospace;font-weight:700}
+  .rid{color:#5c6675;font-family:ui-monospace,monospace}
+  h1{font-size:17px;margin:6px 0 2px}
+  .chip{display:inline-block;font-family:ui-monospace,monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+    padding:2px 10px;border:1px solid ${color};border-radius:999px;color:${color}}
+  .meta{color:#5c6675;font-family:ui-monospace,monospace;font-size:11.5px;margin:8px 0 22px}
+  .sec{font-family:ui-monospace,monospace;font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:#5c6675;
+    border-bottom:1px solid #222835;padding-bottom:6px;margin:26px 0 10px}
+  .tl{font-family:ui-monospace,monospace;font-size:12px;display:flex;flex-direction:column;gap:6px}
+  .tl .k{color:#4ec9b0;display:inline-block;min-width:64px}
+  .tl .t{color:#8792a2;word-break:break-word}
+  pre{background:#0e1118;border:1px solid #222835;border-radius:10px;padding:14px;overflow-x:auto;
+    font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
+  .f{color:#4ec9b0;font-weight:600}.h{color:#4184e4}.a{color:#3fb970}.d{color:#e5534b}
+  .sum{background:#12151c;border:1px solid #222835;border-radius:10px;padding:12px 14px;color:#8792a2;font-size:13px}
+  .ft{margin-top:40px;color:#3d4657;font-size:12px;font-family:ui-monospace,monospace}
+  .ft a{color:#4ec9b0;text-decoration:none}
+</style></head><body><div class="wrap">
+  <div class="hd"><span class="mark">coxpit</span><span class="rid">r${run.id}</span><span class="chip">${escH(run.status)}</span></div>
+  <h1>${escH(taskTitle)}</h1>
+  <div class="meta">branch ${escH(run.branch || '—')} · ${run.filesChanged} file(s) changed · agent ${escH(run.agent)}</div>
+  ${run.exitSummary ? `<div class="sum">${escH(run.exitSummary)}</div>` : ''}
+  <div class="sec">Timeline</div>
+  <div class="tl">${lines.map((l) => `<div><span class="k">${escH(l.k)}</span><span class="t">${escH(l.t.slice(0, 220))}</span></div>`).join('') || '<span style="color:#5c6675">no events</span>'}</div>
+  <div class="sec">Diff</div>
+  <pre>${shareDiffHTML(diff)}</pre>
+  <div class="ft">read-only snapshot shared via <a href="https://github.com/hanmariyang/coxpit-oss">coxpit</a></div>
+</div></body></html>`;
+}
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -515,6 +609,91 @@ export async function buildServer(): Promise<FastifyInstance> {
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     return getRunDocs(id);
+  });
+
+  // ─── 에이전트 셀프 오케스트레이션 (run 별 Bearer 토큰 — authGate 예외, 여기서 자체 검증) ──
+  const agentAuth = (req: { headers: { authorization?: string } }): number | null => {
+    const h = req.headers.authorization ?? '';
+    if (!h.startsWith('Bearer ')) return null;
+    return resolveAgentToken(h.slice(7).trim());
+  };
+
+  app.post('/api/agent/subtasks', async (req, reply) => {
+    const rid = agentAuth(req);
+    if (rid == null) return reply.code(401).send({ error: 'invalid agent token' });
+    const b = (req.body ?? {}) as { title?: string; prompt?: string; count?: number };
+    if (!b.title?.trim() || !b.prompt?.trim()) return reply.code(400).send({ error: 'title and prompt required' });
+    const r = await spawnSubtasks(rid, b.title.trim(), b.prompt, Number(b.count) || 1);
+    if (!r.ok) return reply.code(409).send({ error: r.detail });
+    return reply.code(201).send(r);
+  });
+
+  app.get('/api/agent/subtasks', async (req, reply) => {
+    const rid = agentAuth(req);
+    if (rid == null) return reply.code(401).send({ error: 'invalid agent token' });
+    return { subtasks: await listSubtasks(rid) };
+  });
+
+  // ─── GitHub 이슈/PR → 태스크 초안 (자동 발사 아님 — 사람이 검토 후 Run fleet) ──
+  app.post('/api/tasks/from-github', async (req, reply) => {
+    const b = (req.body ?? {}) as { url?: string };
+    const m = (b.url ?? '').trim().match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(issues|pull)\/(\d+)/);
+    if (!m) return reply.code(400).send({ error: 'expected a github.com issue or pull request URL' });
+    const [, owner, repo, kind, num] = m as unknown as [string, string, string, 'issues' | 'pull', string];
+    const isPr = kind === 'pull';
+    let title = '', body = '';
+    // gh CLI 우선(사설 repo 는 gh 인증이 필요) — 없거나 실패하면 공개 API 폴백
+    const local = { slug: 'local', kind: 'local', address: '', sshUser: '' };
+    const ghCmd = `gh ${isPr ? 'pr' : 'issue'} view ${shq(b.url!.trim())} --json title,body`;
+    const g = await runShellOn(local, `command -v gh >/dev/null 2>&1 && ${ghCmd}`, 20000);
+    if (g.ok) {
+      try { const j = JSON.parse(g.stdout) as { title?: string; body?: string }; title = j.title ?? ''; body = j.body ?? ''; } catch { /* fall through */ }
+    }
+    if (!title) {
+      try {
+        const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${num}`, {
+          headers: { 'user-agent': 'coxpit', accept: 'application/vnd.github+json' },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (r.ok) { const j = await r.json() as { title?: string; body?: string }; title = j.title ?? ''; body = j.body ?? ''; }
+      } catch { /* unreachable/private */ }
+    }
+    if (!title) return reply.code(502).send({ error: 'could not fetch it — private repo needs the gh CLI signed in on the daemon machine' });
+    return {
+      ok: true,
+      title: `${repo}#${num} · ${title}`.slice(0, 140),
+      prompt: `GitHub ${isPr ? 'pull request' : 'issue'}: ${b.url!.trim()}\n\n# ${title}\n\n${(body || '(no description)').slice(0, 6000)}\n\n---\nWork in this repository to address the ${isPr ? 'pull request' : 'issue'} above. Keep the change minimal and verifiable, and say how to verify it in your final summary.`,
+    };
+  });
+
+  // ─── 읽기 전용 공유 링크 — 토큰 URL 이 곧 능력(스냅샷 뷰, 액션 없음) ──
+  app.post('/api/runs/:id/share', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const ex = await db.select().from(shareLinks).where(eq(shareLinks.runId, id));
+    if (ex[0]) return { ok: true, url: `/share/${ex[0].token}`, existing: true };
+    const token = randomBytes(12).toString('base64url');
+    await db.insert(shareLinks).values({ runId: id, token });
+    return reply.code(201).send({ ok: true, url: `/share/${token}` });
+  });
+
+  app.delete('/api/runs/:id/share', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    await db.delete(shareLinks).where(eq(shareLinks.runId, id));
+    return { ok: true };
+  });
+
+  app.get('/share/:token', async (req, reply) => {
+    const { token } = req.params as { token: string };
+    const sl = (await db.select().from(shareLinks).where(eq(shareLinks.token, token)).limit(1))[0];
+    if (!sl) return reply.code(404).type('text/html').send('<!doctype html><meta charset="utf-8"><body style="background:#0b0d12;color:#8792a2;font-family:ui-monospace,monospace;padding:40px">share link not found or revoked</body>');
+    const run = (await db.select().from(agentRuns).where(eq(agentRuns.id, sl.runId)).limit(1))[0];
+    if (!run) return reply.code(404).send({ error: 'run gone' });
+    const task = (await db.select().from(tasks).where(eq(tasks.id, run.taskId)).limit(1))[0];
+    const evs = await db.select().from(agentEvents).where(eq(agentEvents.runId, run.id));
+    const d = await getRunDiff(run.id).catch(() => ({ ok: false, diff: '', stat: '' }));
+    return reply.type('text/html').send(sharePageHTML(run, task?.title ?? `task ${run.taskId}`, evs, d.ok ? d.diff : ''));
   });
 
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.

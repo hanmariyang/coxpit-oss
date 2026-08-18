@@ -12,6 +12,7 @@ One task → N parallel agent runs. Each run gets an isolated **git worktree + b
 - **Machines**: local via `sh`, remote via `ssh` (BatchMode). External tools are spawned, never vendored: `git`, `tmux`, the agent CLIs.
 - **Providers**: `src/providers.ts` is the seam — each provider answers three questions (launch command, resume command, how a stdout line normalizes to a board event). The board knows nothing about providers; codex events are normalized into the claude-like shapes it already renders. Dry-run always parses with the claude provider (the mock stream is claude-shaped). Codex resume caveat: `--sandbox`/`--json` are `exec` flags and must precede the `resume` subcommand.
 - **Terminal**: server-side PTY (node-pty) attaches to the run's tmux session; remote attach wraps `ssh -tt` inside the PTY so resize propagates.
+- **Self-orchestration**: local runs get a `.coxpit/spawn.json` file protocol (watched every 1.5s while the run lives) because default agent permissions (claude acceptEdits, codex workspace-write) block network calls — file writes are the only universally-allowed channel. `.coxpit/` is appended to the repo's `info/exclude` so it never pollutes diffs. The HTTP twin (`/api/agent/subtasks`, per-run Bearer token in `COXPIT_TOKEN`) exists for permission-relaxed setups. Subtask inheritance: parent's machine/provider; dry parents spawn dry children (rehearsal-safe).
 
 ## 3. Source map
 
