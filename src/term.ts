@@ -44,7 +44,7 @@ export function openTerm(m: MachineTarget, session: string, cols: number, rows: 
     env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
   };
   if (isLocal(m)) {
-    return pty().spawn('tmux', ['attach-session', '-t', session], opts);
+    return pty().spawn('tmux', ['attach-session', '-t', '=' + session], opts);
   }
   const args: string[] = [
     '-tt',
@@ -55,6 +55,6 @@ export function openTerm(m: MachineTarget, session: string, cols: number, rows: 
   if (config.sshKey) args.push('-i', config.sshKey);
   const target = m.sshUser ? `${m.sshUser}@${m.address}` : m.address;
   // 세션명은 우리가 만든 coxpit-rN 형식이라 셸 주입 여지 없음 — 그래도 인용.
-  args.push(target, `tmux attach-session -t '${session.replace(/'/g, "'\\''")}'`);
+  args.push(target, `tmux attach-session -t '=${session.replace(/'/g, "'\\''")}'`);
   return pty().spawn('ssh', args, opts);
 }

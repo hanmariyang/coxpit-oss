@@ -122,8 +122,9 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
       return;
     }
 
-    // 2) tmux 창(사람이 attach 해 개입할 수 있게) — best-effort
-    await runShellOn(ctx.machine, `tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)} 2>/dev/null || true`, 8000);
+    // 2) tmux 창(사람이 attach 해 개입할 수 있게) — best-effort. 동명 잔재는 선제 정리('=' 정확 일치)
+    await runShellOn(ctx.machine,
+      `tmux kill-session -t ${shq('=' + session)} 2>/dev/null; tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)} 2>/dev/null || true`, 8000);
 
     await setRun(runId, { status: 'running' });
     await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, real: useReal }));
@@ -443,7 +444,9 @@ export async function openWorkbench(repoId: number, title: string): Promise<{
 
   const prep = await runShellOn(
     machine,
+    // 동명 세션 잔재(DB 리셋 등으로 run id 재사용) 선제 정리 — '=' 정확 일치만
     `mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
+    ` && { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
     ` && tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)}`,
     20000,
   );
@@ -719,7 +722,7 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
   if (!ctx || !run || !run.worktreePath) return { ok: false, detail: 'no worktree' };
-  await runShellOn(ctx.machine, `tmux kill-session -t ${shq(`coxpit-r${runId}`)} 2>/dev/null || true`, 8000);
+  await runShellOn(ctx.machine, `tmux kill-session -t ${shq(`=coxpit-r${runId}`)} 2>/dev/null || true`, 8000);
   const rm = await runShellOn(
     ctx.machine,
     `git -C ${shq(ctx.repoPath)} worktree remove --force ${shq(run.worktreePath)} 2>&1` +

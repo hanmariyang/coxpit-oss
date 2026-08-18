@@ -229,7 +229,17 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .modal{width:min(1020px,100%);max-height:92vh;background:var(--surface);border:1px solid var(--line);
     border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow)}
   .modal.wide{width:min(1460px,100%)}
-  .modal.term{width:min(1200px,100%);height:min(760px,92vh)}
+  /* terminal = 전면 뷰 (모달 아님) — 개인 coxpit 터미널 페이지 패리티 */
+  #termOverlay.open{padding:0}
+  .modal.term{width:100%;height:100%;max-height:none;border:none;border-radius:0}
+  .modal.term .modal-h{padding:9px 14px;background:var(--surface2)}
+  .modal.term .modal-h .title{flex:0 1 auto;max-width:240px}
+  .term-tabs{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
+  .term-tabs::-webkit-scrollbar{display:none}
+  .ttab{font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--surface);
+    border:1px solid var(--line);border-radius:6px;padding:3px 10px;cursor:pointer;white-space:nowrap;flex:0 0 auto}
+  .ttab:hover{color:var(--ink)}
+  .ttab.on{color:var(--ink);border-color:var(--brand);background:rgba(78,201,176,.08)}
   .modal-h{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--line)}
   .modal-h .rid{font-family:var(--mono);font-size:12px;color:var(--faint)}
   .modal-h .title{font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -428,7 +438,8 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     <div class="modal-h">
       <span class="rid" id="termRid"></span>
       <span class="title" id="termTitle">terminal</span>
-      <span class="term-hint">tmux session · Ctrl-b d detaches</span>
+      <div class="term-tabs" id="termTabs"></div>
+      <span class="term-hint">tmux session · Ctrl-b d detaches · Esc closes</span>
       <button class="x" id="termClose" aria-label="close">×</button>
     </div>
     <div class="term-body"><div id="xterm"></div></div>
@@ -487,6 +498,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
+<script src="/vendor/addon-unicode11.js"></script>
 <script>
 const runs = new Map();      // runId -> run object
 const tasks = new Map();     // taskId -> task
@@ -686,6 +698,7 @@ function render(){
   $('empty').style.display = list.length ? 'none' : 'flex';
   if (!list.length) paintOnboarding();
   $('grid').innerHTML = list.map(cardHTML).join('');
+  if (termRunId!=null) termTabsRender();   // 터미널 열려있으면 세션 탭도 동기화
 }
 
 /* ── first-run onboarding (빈 보드 = 준비 상태 점검 + 시작 안내) ── */
@@ -1124,28 +1137,17 @@ $('mCompare').addEventListener('click', ()=>{
   closeModal(); openCompare(r.taskId);
 });
 
-/* ── terminal ── */
+/* ── terminal — 초기크기 접속·자동 재연결(백오프)·unicode11·CJK 폰트 ── */
 let termWS = null, termObj = null, fitAddon = null, termResizeObs = null;
-function openTerm(runId){
-  const r = runs.get(runId); if(!r) return;
-  $('termRid').textContent = 'r'+runId;
-  $('termTitle').textContent = (r.tmuxWindow||'terminal');
-  $('termOverlay').classList.add('open');
-  const el = $('xterm'); el.innerHTML = '';
-  termObj = new window.Terminal({
-    fontFamily: 'ui-monospace, SF Mono, Menlo, Consolas, monospace',
-    fontSize: 12.5, cursorBlink: true,
-    theme: { background:'#0b0d12', foreground:'#dee4ec', cursor:'#4ec9b0',
-      selectionBackground:'rgba(78,201,176,.25)', black:'#1c212c', brightBlack:'#5c6675' },
-  });
-  fitAddon = new window.FitAddon.FitAddon();
-  termObj.loadAddon(fitAddon);
-  termObj.open(el);
-  fitAddon.fit();
+let termRunId = null, termClosing = false, termRetry = 0, termRetryTimer = null;
+function termConnect(){
+  if (termRunId==null || termClosing || !termObj) return;
   const proto = location.protocol==='https:'?'wss':'ws';
-  termWS = new WebSocket(proto+'://'+location.host+'/ws/term/'+runId);
+  termWS = new WebSocket(proto+'://'+location.host+'/ws/term/'+termRunId
+    +'?cols='+termObj.cols+'&rows='+termObj.rows);
   termWS.onopen = ()=>{
-    termWS.send(JSON.stringify({t:'r',cols:termObj.cols,rows:termObj.rows}));
+    termRetry = 0;
+    $('termTitle').textContent = ((runs.get(termRunId)||{}).tmuxWindow||'terminal');
     termObj.focus();
   };
   termWS.onmessage = (m)=>{
@@ -1153,9 +1155,61 @@ function openTerm(runId){
       const d = JSON.parse(m.data);
       if (d.t==='o') termObj.write(d.d);
       else if (d.t==='err') termObj.write('\\r\\n\\x1b[31m'+d.d+'\\x1b[0m\\r\\n');
-      else if (d.t==='exit') termObj.write('\\r\\n\\x1b[90m[detached]\\x1b[0m\\r\\n');
+      else if (d.t==='exit') termObj.write('\\r\\n\\x1b[90m[session ended — reconnecting will revive it]\\x1b[0m\\r\\n');
     }catch{}
   };
+  termWS.onclose = ()=>{
+    if (termClosing || termRunId==null) return;
+    // 예기치 않은 끊김 — 백오프 재연결(서버가 죽은 세션도 소생시킴)
+    const delay = Math.min(8000, 800 * Math.pow(2, termRetry++));
+    $('termTitle').textContent = 'reconnecting…';
+    termRetryTimer = setTimeout(termConnect, delay);
+  };
+}
+/* 세션 탭 — 살아있는 세션(running·open) 사이를 터미널 안에서 바로 전환 */
+function termTabsRender(){
+  const el = $('termTabs');
+  const list = [...runs.values()].filter(r=>r.status==='running'||r.status==='open').sort((a,b)=>a.id-b.id);
+  el.innerHTML = list.map(r=>{
+    const kind = r.agent==='workbench' ? 'bench' : (r.agent||'agent');
+    return '<button class="ttab'+(r.id===termRunId?' on':'')+'" data-id="'+r.id+'">r'+r.id+' · '+esc(kind)+'</button>';
+  }).join('');
+  el.querySelectorAll('.ttab').forEach(b=>b.addEventListener('click',()=>termSwitch(+b.dataset.id)));
+}
+function termSwitch(id){
+  if (id===termRunId || !termObj) return;
+  if (termRetryTimer){ clearTimeout(termRetryTimer); termRetryTimer=null; }
+  if (termWS){ termClosing=true; try{ termWS.close(); }catch{} termWS=null; }
+  termClosing = false; termRetry = 0; termRunId = id;
+  $('termRid').textContent = 'r'+id;
+  $('termTitle').textContent = ((runs.get(id)||{}).tmuxWindow||'terminal');
+  termObj.reset();
+  termTabsRender();
+  termConnect();
+}
+function openTerm(runId){
+  const r = runs.get(runId); if(!r) return;
+  termRunId = runId; termClosing = false; termRetry = 0;
+  $('termRid').textContent = 'r'+runId;
+  $('termTitle').textContent = (r.tmuxWindow||'terminal');
+  termTabsRender();
+  $('termOverlay').classList.add('open');
+  const el = $('xterm'); el.innerHTML = '';
+  termObj = new window.Terminal({
+    fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', monospace",
+    fontSize: 12.5, cursorBlink: true, allowProposedApi: true,
+    theme: { background:'#0b0d12', foreground:'#dee4ec', cursor:'#4ec9b0',
+      selectionBackground:'rgba(78,201,176,.25)', black:'#1c212c', brightBlack:'#5c6675' },
+  });
+  fitAddon = new window.FitAddon.FitAddon();
+  termObj.loadAddon(fitAddon);
+  try{ // 이모지·CJK 폭 보정 — TUI(claude) 줄 밀림 방지
+    termObj.loadAddon(new window.Unicode11Addon.Unicode11Addon());
+    termObj.unicode.activeVersion = '11';
+  }catch{}
+  termObj.open(el);
+  fitAddon.fit();               // 접속 전에 크기 확정 → 80x24 경유 없이 바로 정사이즈 attach
+  termConnect();
   termObj.onData((d)=>{ if(termWS && termWS.readyState===1) termWS.send(JSON.stringify({t:'i',d})); });
   termResizeObs = new ResizeObserver(()=>{
     if (!fitAddon || !termObj) return;
@@ -1165,6 +1219,8 @@ function openTerm(runId){
   termResizeObs.observe(el);
 }
 function closeTerm(){
+  termClosing = true; termRunId = null;
+  if (termRetryTimer){ clearTimeout(termRetryTimer); termRetryTimer=null; }
   $('termOverlay').classList.remove('open');
   if (termResizeObs){ termResizeObs.disconnect(); termResizeObs=null; }
   if (termWS){ try{ termWS.close(); }catch{} termWS=null; }

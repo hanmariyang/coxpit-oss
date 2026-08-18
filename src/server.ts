@@ -24,6 +24,7 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
   'xterm.js': { pkg: '@xterm/xterm/package.json', rel: 'lib/xterm.js', type: 'text/javascript' },
   'xterm.css': { pkg: '@xterm/xterm/package.json', rel: 'css/xterm.css', type: 'text/css' },
   'addon-fit.js': { pkg: '@xterm/addon-fit/package.json', rel: 'lib/addon-fit.js', type: 'text/javascript' },
+  'addon-unicode11.js': { pkg: '@xterm/addon-unicode11/package.json', rel: 'lib/addon-unicode11.js', type: 'text/javascript' },
 };
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -32,7 +33,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.1.0' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '3.2.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -501,7 +502,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '3.1.0' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '3.2.0' }));
     socket.on('close', () => removeSink(socket));
   });
 
@@ -517,30 +518,54 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // run 터미널 — tmux 세션에 PTY attach, WS 로 중계.
   // client → {t:'i',d:string} 입력 · {t:'r',cols,rows} 리사이즈 / server → {t:'o',d} 출력 · {t:'exit'}
+  // 하드닝: ?cols&rows 초기 크기(80x24 경유 제거) · 세션 자동 소생 · keepalive · 백프레셔.
   app.get('/ws/term/:id', { websocket: true }, async (socket, req) => {
     const id = Number((req.params as { id: string }).id);
+    const q = (req.query ?? {}) as { cols?: string; rows?: string };
+    const cols = Math.max(20, Math.min(500, Number(q.cols) || 80));
+    const rows = Math.max(5, Math.min(200, Number(q.rows) || 24));
     const info = await getRunTermInfo(id);
     if (!info) {
       socket.send(JSON.stringify({ t: 'err', d: 'run or tmux session not found' }));
       socket.close();
       return;
     }
-    // 세션 생존 확인(정리됐거나 머신 재부팅이면 attach 가 바로 죽는다)
-    const has = await runShellOn(info.machine, `tmux has-session -t ${shq(info.session)} 2>&1`, 8000);
+    // 세션 자동 소생 — 셸 exit 등으로 죽었어도 worktree 가 살아있으면 그 자리에서 재생성
+    const has = await runShellOn(info.machine, `tmux has-session -t ${shq('=' + info.session)} 2>&1`, 8000);
     if (!has.ok) {
-      socket.send(JSON.stringify({ t: 'err', d: `tmux session '${info.session}' not available` }));
-      socket.close();
-      return;
+      const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+      const wt = rr[0]?.worktreePath ?? '';
+      const revive = wt
+        ? await runShellOn(info.machine, `test -d ${shq(wt)} && tmux new-session -d -s ${shq(info.session)} -c ${shq(wt)}`, 10000)
+        : { ok: false } as { ok: boolean };
+      if (!revive.ok) {
+        socket.send(JSON.stringify({ t: 'err', d: `tmux session '${info.session}' gone and could not be revived (worktree missing?)` }));
+        socket.close();
+        return;
+      }
+      socket.send(JSON.stringify({ t: 'o', d: '\r\n\x1b[90m[coxpit] session revived in the worktree\x1b[0m\r\n' }));
     }
     let term;
     try {
-      term = openTerm(info.machine, info.session, 80, 24);
+      term = openTerm(info.machine, info.session, cols, rows);
     } catch (e) {
       socket.send(JSON.stringify({ t: 'err', d: 'pty spawn failed: ' + String(e).slice(0, 200) }));
       socket.close();
       return;
     }
-    term.onData((d) => { try { socket.send(JSON.stringify({ t: 'o', d })); } catch { /* closed */ } });
+    // 백프레셔 — WS 송신 버퍼가 차면 pty 를 잠시 멈춰 폭주 방지
+    let paused = false;
+    term.onData((d) => {
+      try {
+        socket.send(JSON.stringify({ t: 'o', d }));
+        if (!paused && socket.bufferedAmount > 800_000) { paused = true; try { term.pause(); } catch { /* n/a */ } }
+      } catch { /* closed */ }
+    });
+    const drain = setInterval(() => {
+      if (paused && socket.bufferedAmount < 100_000) { paused = false; try { term.resume(); } catch { /* n/a */ } }
+    }, 200);
+    const keepalive = setInterval(() => { try { socket.ping(); } catch { /* closed */ } }, 30_000);
+
     term.onExit(() => { try { socket.send(JSON.stringify({ t: 'exit' })); socket.close(); } catch { /* closed */ } });
     socket.on('message', (raw: Buffer) => {
       try {
@@ -549,7 +574,10 @@ export async function buildServer(): Promise<FastifyInstance> {
         else if (m.t === 'r' && m.cols && m.rows) term.resize(Math.max(20, Math.min(500, m.cols)), Math.max(5, Math.min(200, m.rows)));
       } catch { /* ignore */ }
     });
-    socket.on('close', () => { try { term.kill(); } catch { /* gone */ } });
+    socket.on('close', () => {
+      clearInterval(drain); clearInterval(keepalive);
+      try { term.kill(); } catch { /* gone */ }
+    });
   });
 
   return app;

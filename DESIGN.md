@@ -48,7 +48,8 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Notify bell | `#bell` header toggle (🔕/🔔) | browser notification on run settle; server-side twin is `COXPIT_WEBHOOK_URL` (JSON `run.settled` POST) |
 | Sidebar layers | Context → Start → Library | ONE machine+repo pair up top (every action uses it); ONE launcher with Task/Goal/Workbench tabs and a shared mode+Start footer; captures live in a collapsed drawer. Never add a fourth parallel section — extend a layer |
 | Workbench | launcher tab + `--s-open` status | worktree+tmux, no agent: humans (and their interactive claude) work inside; the card keeps the diff/merge/PR/export rails |
-| Terminal | xterm themed with tokens | background `--bg`, cursor `--brand` |
+| Terminal | full-screen view, xterm themed with tokens | not a modal — `#termOverlay` fills the viewport (padding 0, no radius); background `--bg`, cursor `--brand`; CJK-safe font stack + unicode11 widths; Esc or × closes |
+| Terminal tabs | `.term-tabs` / `.ttab` in the terminal header | every live session (`running`·`open`) is a tab — switch sessions without leaving the terminal; active tab = `--brand` border; re-rendered on every board update |
 
 ## Interaction rules
 

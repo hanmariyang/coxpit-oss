@@ -1,16 +1,40 @@
 {
   "name": "coxpit",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Self-hosted cockpit for running a fleet of AI coding agents across your own machines — parallel worktree runs, live board, compare & merge, web terminal, design capture.",
   "type": "module",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/hanmariyang/coxpit-oss.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hanmariyang/coxpit-oss.git"
+  },
   "homepage": "https://hanmariyang.github.io/coxpit-oss/",
-  "bugs": { "url": "https://github.com/hanmariyang/coxpit-oss/issues" },
-  "keywords": ["ai-agents", "claude-code", "git-worktree", "tmux", "self-hosted", "fleet", "coding-agents", "cockpit"],
-  "engines": { "node": ">=20" },
-  "bin": { "coxpit": "bin/coxpit.js" },
-  "files": ["bin", "src", "README.md", "LICENSE", ".env.example"],
+  "bugs": {
+    "url": "https://github.com/hanmariyang/coxpit-oss/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "claude-code",
+    "git-worktree",
+    "tmux",
+    "self-hosted",
+    "fleet",
+    "coding-agents",
+    "cockpit"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "coxpit": "bin/coxpit.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE",
+    ".env.example"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
@@ -21,6 +45,7 @@
     "@fastify/websocket": "^11",
     "@libsql/client": "^0.14",
     "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/xterm": "^6.0.0",
     "dotenv": "^16",
     "drizzle-orm": "^0.38",
