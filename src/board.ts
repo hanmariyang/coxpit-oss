@@ -71,6 +71,14 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .row .narrow{flex:0 0 64px}
   .check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
   .check input{width:auto;accent-color:var(--brand)}
+  .seg{display:flex;gap:3px;padding:3px;border:1px solid var(--line);border-radius:var(--r-ctl);background:#0e1118}
+  .seg-opt{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 8px;border:none;
+    background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;
+    border-radius:calc(var(--r-ctl) - 3px);transition:background .15s,color .15s}
+  .seg-opt:hover{color:var(--ink)}
+  .seg-opt.on{background:var(--surface2);color:var(--ink)}
+  .seg-opt[data-real="1"].on{background:var(--brand);color:var(--brand-ink)}
+  .seg-hint{font-family:var(--mono);font-size:9.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
 
   /* ── buttons ────────────────────────────── */
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;cursor:pointer;
@@ -195,11 +203,15 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <input id="taskTitle" placeholder="Task title" />
         <textarea id="taskPrompt" placeholder="Prompt for the agents…"></textarea>
         <select id="taskCapture"><option value="">no design capture</option></select>
+        <div class="seg" id="modeSeg" role="group" aria-label="agent mode">
+          <button type="button" class="seg-opt" data-real="0">Dry run</button>
+          <button type="button" class="seg-opt" data-real="1">Real agent<span class="seg-hint">spends credits</span></button>
+        </div>
+        <input type="checkbox" id="taskReal" hidden />
         <div class="row">
           <input id="taskCount" class="narrow" type="number" min="1" max="8" value="2" title="number of agents" />
           <button class="btn" type="submit">Run fleet</button>
         </div>
-        <label class="check"><input type="checkbox" id="taskReal" /> real agent · spends credits</label>
       </form>
     </div>
     <div class="sect">
@@ -611,6 +623,22 @@ $('taskForm').addEventListener('submit', async (e)=>{
     body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked})});
   $('taskTitle').value=''; $('taskPrompt').value='';
 });
+
+/* ── agent mode segmented control (mirrors hidden #taskReal) ── */
+const segOpts = Array.from(document.querySelectorAll('#modeSeg .seg-opt'));
+function setMode(real, persist){
+  $('taskReal').checked = real;
+  for (const b of segOpts){
+    const on = (b.dataset.real === '1') === real;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  if (persist) try { localStorage.setItem('coxpit.real', real ? '1' : '0'); } catch {}
+}
+for (const b of segOpts) b.addEventListener('click', ()=>setMode(b.dataset.real === '1', true));
+let savedMode = null;
+try { savedMode = localStorage.getItem('coxpit.real'); } catch {}
+setMode(savedMode === '1', false);
 
 hydrate().then(connectWS);
 </script>
