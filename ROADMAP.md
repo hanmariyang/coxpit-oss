@@ -83,6 +83,8 @@ What a run produced should outlive its worktree, and you should choose who produ
       changes (done-but-not-merged output is deleted with the worktree)
 - [ ] Per-repo base branch override: repos on a develop-flow reject main-targeted
       merges today — let the repo say where Merge this / Sync base / PR mode point
+- [ ] Closed cards read as closed: dim + desaturate, diagonal hatching over the
+      timeline area with a CLOSED stamp — status chips stay (history at a glance)
 
 ### v4.2 — the board knows its groups
 Five runs born from one goal look like five strangers today. Grouping is recorded
@@ -98,6 +100,20 @@ shows neither.
       read as attempts, not duplicates
 - [ ] Group actions on the band: select-all → Integrate, review the group,
       close the group — the whole goal wrap-up in one place
+
+### v4.3 — the logbook
+The board is a cockpit for live work, not a museum. At hundreds of runs the answer
+is separation, not scrolling.
+
+- [ ] Active-first board: default view shows open/running/unsettled work only;
+      closed tasks leave the grid
+- [ ] Archive: closed work becomes compact list rows (title · status · date · repo)
+      with repo/status/provider/text filters — search beats scrolling past ~100 cards
+- [ ] Fleet payload diet: /api/fleet ships events for active runs only; archive rows
+      carry summaries and lazy-load detail on open (the full-history payload is the
+      real scaling wall, before the UI is)
+- [ ] Auto-archive: closed tasks older than N days fold away on their own — the DB
+      keeps everything, the cockpit just stops rendering it
 
 ## Non-goals
 
