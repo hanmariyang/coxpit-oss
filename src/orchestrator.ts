@@ -295,7 +295,17 @@ export async function getRunTermInfo(runId: number): Promise<{ machine: MachineT
  */
 export async function stopRun(runId: number): Promise<{ ok: boolean; detail: string }> {
   const child = liveChildren.get(runId);
-  if (!child) return { ok: false, detail: 'not running' };
+  if (!child) {
+    // 데몬 재시작 등으로 고아가 된 좀비 run — 프로세스는 없는데 DB 만 running.
+    // stop 요청을 정산으로 처리해 카드가 영원히 '진행 중'으로 남지 않게 한다.
+    const zr = (await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1))[0];
+    if (zr && (zr.status === 'running' || zr.status === 'starting')) {
+      await setRun(runId, { status: 'stopped', endedAt: new Date(), exitSummary: 'orphaned (daemon restarted) — settled by stop' });
+      await recordEvent(runId, 'meta', JSON.stringify({ orphanSettled: true }));
+      return { ok: true, detail: 'no live process — settled as stopped' };
+    }
+    return { ok: false, detail: 'not running' };
+  }
   stoppedRuns.add(runId);
 
   // 원격이면 먼저 원격 프로세스를 pid 파일로 죽인다(ssh 채널만 끊으면 잔존 가능).
@@ -719,6 +729,21 @@ export async function prRun(runId: number): Promise<{ ok: boolean; detail: strin
 /**
  * worktree/브랜치/tmux 정리(태스크 종료·run 폐기 시).
  */
+/**
+ * 부팅 정산 — 데몬 재시작 후 살아있는 자식이 있을 수 없는데 DB 가 running/starting 인
+ * run(고아)을 failed 로 정리한다. workbench('open')는 에이전트가 없으므로 대상 아님.
+ */
+export async function reconcileOrphanRuns(): Promise<number> {
+  const stale = (await db.select().from(agentRuns)).filter(
+    (r) => r.status === 'running' || r.status === 'starting',
+  );
+  for (const r of stale) {
+    await setRun(r.id, { status: 'failed', endedAt: new Date(), exitSummary: 'orphaned by daemon restart' });
+    await recordEvent(r.id, 'error', 'daemon restarted while this run was live — settled as failed (worktree/branch preserved; diff still reviewable)');
+  }
+  return stale.length;
+}
+
 export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: string }> {
   const ctx = await loadContext(runId);
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
