@@ -66,8 +66,7 @@
     "publish": {
       "provider": "github",
       "owner": "hanmariyang",
-      "repo": "coxpit-oss",
-      "releaseType": "release"
+      "repo": "coxpit-oss"
     }
   },
   "dependencies": {

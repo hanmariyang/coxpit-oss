@@ -7,11 +7,13 @@ Installers are built by CI on every `v*` tag (or manual dispatch) and uploaded t
 ```bash
 # bump "version" in package.json AND desktop/package.json (keep them equal)
 git tag vX.Y.Z && git push origin main vX.Y.Z
-gh release create vX.Y.Z --title "Coxpit X.Y.Z" --notes "..."
-# CI attaches: .dmg (arm64+x64) / .exe (nsis) / .AppImage + update metadata (latest*.yml)
+gh release create vX.Y.Z --draft --title "Coxpit X.Y.Z" --notes "..."
+# CI uploads all installers to the DRAFT, then the publish-release job flips it live.
 ```
 
-`releaseType: "release"` in `desktop/package.json` lets electron-builder upload to the published release directly.
+Releases must be created as **drafts**: electron-updater reads the *latest published* release, so publishing before assets exist opens a ~15-min window where update checks 404 on `latest-mac.yml`. The `publish-release` CI job publishes the draft only after every desktop job finished.
+
+Re-running a dispatch against an already-published release? electron-builder skips uploads to published releases — flip it back first: `gh release edit vX.Y.Z --draft=true`, dispatch, and let the publish job re-publish it.
 
 ## macOS code signing + notarization (pending)
 

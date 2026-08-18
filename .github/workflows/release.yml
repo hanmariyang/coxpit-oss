@@ -62,6 +62,18 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+  # 모든 인스톨러가 draft 릴리스에 다 오른 뒤에야 공개 — 업데이터가 yml 없는
+  # 최신 릴리스를 보는 "타이밍 404 창"을 없앤다.
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish the draft release
+        run: gh release edit "${GITHUB_REF_NAME}" -R "${GITHUB_REPOSITORY}" --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   ghcr:
     runs-on: ubuntu-latest
     steps:
