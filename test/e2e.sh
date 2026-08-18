@@ -5,6 +5,10 @@
 # No credits spent (dry-run agent). Exits non-zero on first failure.
 set -euo pipefail
 
+# coxpit 터미널(tmux) 안에서 e2e 를 돌려도 테스트 데몬의 tmux 가 그 소켓을 상속해
+# 실데몬 세션을 건드리지 않도록 — 항상 기본 서버를 쓴다.
+unset TMUX
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${COXPIT_TEST_PORT:-8261}"
 B="http://127.0.0.1:$PORT"
@@ -58,6 +62,7 @@ case "$BOARD_HTML" in *'id="menuBtn"'*) : ;; *) fail "mobile drawer button missi
 case "$BOARD_HTML" in *'openFromURL'*) : ;; *) fail "deep-link handler missing";; esac
 case "$BOARD_HTML" in *'id="mDocsTgl"'*) : ;; *) fail "doc-mode toggle missing";; esac
 case "$BOARD_HTML" in *'dl-line'*) : ;; *) fail "clickable diff lines missing";; esac
+case "$BOARD_HTML" in *'id="termIbar"'*) : ;; *) fail "terminal input bar missing";; esac
 pass "board served (mobile drawer + deep-link + doc mode + diff comments)"
 
 # machine probe

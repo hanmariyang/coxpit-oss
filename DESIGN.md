@@ -56,6 +56,7 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Deep link | `/?run=N` + notification `onclick` | any surface (webhook message, browser notification) can land directly on a run modal; the param is consumed then stripped from the URL |
 | Doc mode | `#mDocsTgl` / `#cmpDocsTgl` → `docsHTML()` | Rendered ↔ Diff toggle; changed `.md` renders via mdLite, `.html` in a fully sandboxed iframe (no scripts); toggle only appears when the changeset contains docs |
 | Diff comments | `.dl-line` (run modal only) | every +/- line is a click target that quotes `file: "line" — ` into the steer input; hover = brand tint; hidden runs (not settled) ignore clicks |
+| Terminal input bar | `.term-ibar` + `.tkey` (touch/≤860px) | direct xterm typing breaks IME composition on software keyboards (jamo arrive decomposed) — the bar is a real input that composes natively and sends whole lines; esc·tab·^C·↑·↓ chord keys; safe-area padded |
 
 ## Interaction rules
 

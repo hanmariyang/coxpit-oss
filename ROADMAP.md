@@ -58,7 +58,8 @@ Steer the fleet from a phone, for real. No native app — the board itself earns
 - [x] Diff comments: click any changed line and it lands in the steer input,
       quoted with its file — annotate, add your instruction, Send
 - [ ] Design Mode captures with screenshots (element crop, not just HTML/CSS)
-- [ ] Mobile terminal input pass (software keyboard, IME)
+- [x] Mobile terminal input pass — an IME-safe input bar (composes 한글/かな natively,
+      sends whole lines) plus esc·tab·^C·arrow keys, shown on touch/narrow screens
 
 ### v4.0 — reach
 - [ ] Open a run from a GitHub issue/PR reference (paste a URL, get a worktree)

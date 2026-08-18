@@ -311,6 +311,16 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .term-body{flex:1;min-height:0;background:#0b0d12;padding:8px 4px 4px 10px}
   #xterm{width:100%;height:100%}
   .term-hint{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  /* 모바일 입력바 — xterm 직접 타이핑은 소프트웨어 키보드 IME 에서 자모가 낱자로
+     전송된다(조합 미지원). 일반 input 은 네이티브로 조합하므로 여기서 완성문을 보낸다. */
+  .term-ibar{display:none;gap:6px;padding:8px 10px;border-top:1px solid var(--line);
+    background:var(--surface2);align-items:center;
+    padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+  .term-ibar input{flex:1;min-width:0}
+  .tkey{font-family:var(--mono);font-size:11.5px;color:var(--muted);background:var(--surface);
+    border:1px solid var(--line);border-radius:6px;padding:7px 9px;cursor:pointer;flex:0 0 auto}
+  .tkey:active{color:var(--ink);border-color:var(--brand)}
+  @media (max-width:860px),(pointer:coarse){.term-ibar{display:flex}}
 
   /* ── mobile · the pocket pass ───────────── */
   .menu-btn{display:none;font-size:15px;padding:5px 10px}
@@ -500,6 +510,16 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <button class="x" id="termClose" aria-label="close">×</button>
     </div>
     <div class="term-body"><div id="xterm"></div></div>
+    <div class="term-ibar" id="termIbar">
+      <button class="tkey" data-k="esc" title="Esc">esc</button>
+      <button class="tkey" data-k="tab" title="Tab">tab</button>
+      <button class="tkey" data-k="cc" title="Ctrl-C">^C</button>
+      <button class="tkey" data-k="up" title="Up">↑</button>
+      <button class="tkey" data-k="down" title="Down">↓</button>
+      <input id="termInput" placeholder="type here — composes IME (한글 OK), Enter sends"
+        autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <button class="btn sm" id="termSend">⏎</button>
+    </div>
   </div>
 </div>
 
@@ -1376,6 +1396,24 @@ function closeTerm(){
   if (termWS){ try{ termWS.close(); }catch{} termWS=null; }
   if (termObj){ try{ termObj.dispose(); }catch{} termObj=null; fitAddon=null; }
 }
+/* 모바일 입력바 — 조합 완료된 텍스트를 통째로 PTY 에 (IME-안전 경로) */
+function termSendRaw(d){ if (termWS && termWS.readyState===1) termWS.send(JSON.stringify({t:'i', d})); }
+function termSendLine(){
+  const inp = $('termInput');
+  const v = inp.value;
+  if (!v) { termSendRaw('\\r'); return; }
+  termSendRaw(v + '\\r');
+  inp.value = '';
+}
+$('termSend').addEventListener('click', termSendLine);
+$('termInput').addEventListener('keydown', (e)=>{
+  if (e.isComposing) return;                 // 조합 중 Enter 는 IME 확정용 — 보내지 않음
+  if (e.key === 'Enter'){ e.preventDefault(); termSendLine(); }
+});
+const TKEYS = { esc:'\\x1b', tab:'\\t', cc:'\\x03', up:'\\x1b[A', down:'\\x1b[B' };
+document.querySelectorAll('#termIbar .tkey').forEach(b=>{
+  b.addEventListener('click', ()=>{ const k=TKEYS[b.dataset.k]; if(k) termSendRaw(k); });
+});
 $('termClose').addEventListener('click', closeTerm);
 $('termOverlay').addEventListener('click',(e)=>{ if(e.target===$('termOverlay')) closeTerm(); });
 $('mTerm').addEventListener('click', ()=>{
