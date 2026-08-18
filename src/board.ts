@@ -71,6 +71,26 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .row .narrow{flex:0 0 64px}
   .check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
   .check input{width:auto;accent-color:var(--brand)}
+
+  /* ── custom dropdown (native select 대체) ── */
+  .dd{position:relative}
+  .dd-btn{width:100%;display:flex;align-items:center;gap:8px;background:#0e1118;color:var(--ink);
+    border:1px solid var(--line);border-radius:var(--r-ctl);padding:8px 10px;font-family:var(--mono);
+    font-size:12px;cursor:pointer;transition:border-color .15s;text-align:left}
+  .dd-btn:hover{border-color:var(--line-hi)}
+  .dd.open .dd-btn{border-color:rgba(78,201,176,.55)}
+  .dd-lbl{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .dd-car{color:var(--faint);font-size:10px;transition:transform .15s}
+  .dd.open .dd-car{transform:rotate(180deg)}
+  .dd-panel{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:40;background:var(--surface2);
+    border:1px solid var(--line-hi);border-radius:9px;box-shadow:var(--shadow);max-height:230px;
+    overflow:auto;padding:4px;display:none}
+  .dd.open .dd-panel{display:block}
+  .dd-opt{padding:7px 10px;border-radius:6px;font-family:var(--mono);font-size:12px;color:var(--muted);
+    cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dd-opt:hover{background:var(--surface);color:var(--ink)}
+  .dd-opt.on{color:var(--brand)}
+  .dd-opt.on::before{content:'✓ ';font-size:10px}
   .seg{display:flex;gap:3px;padding:3px;border:1px solid var(--line);border-radius:var(--r-ctl);background:#0e1118}
   .seg-opt{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 8px;border:none;
     background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;
@@ -363,6 +383,40 @@ function toast(msg, kind){
   $('toasts').appendChild(el);
   setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .25s'; setTimeout(()=>el.remove(),260); }, 4200);
 }
+/* ── custom dropdown — 숨긴 native select 를 상태 보관용으로 감싼다 ── */
+function dressSelect(id){
+  const sel = $(id); if(!sel || sel.dataset.dd) return;
+  sel.dataset.dd = '1';
+  const dd = document.createElement('div'); dd.className = 'dd';
+  dd.innerHTML = '<button type="button" class="dd-btn"><span class="dd-lbl"></span><span class="dd-car">▾</span></button><div class="dd-panel"></div>';
+  sel.parentNode.insertBefore(dd, sel);
+  sel.style.display = 'none';
+  dd.querySelector('.dd-btn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const wasOpen = dd.classList.contains('open');
+    closeDropdowns();
+    if (!wasOpen) dd.classList.add('open');
+  });
+  dd.querySelector('.dd-panel').addEventListener('click', (e)=>{
+    const o = e.target.closest('.dd-opt'); if(!o) return;
+    sel.value = o.dataset.v;
+    dd.classList.remove('open');
+    syncSelect(id);
+  });
+  syncSelect(id);
+}
+function syncSelect(id){
+  const sel = $(id); if(!sel) return;
+  const dd = sel.previousElementSibling;
+  if (!dd || !dd.classList || !dd.classList.contains('dd')) return;
+  const cur = sel.options[sel.selectedIndex];
+  dd.querySelector('.dd-lbl').textContent = cur ? cur.textContent : '—';
+  dd.querySelector('.dd-panel').innerHTML = [...sel.options].map(o =>
+    '<div class="dd-opt'+(o.value===sel.value?' on':'')+'" data-v="'+esc(o.value)+'">'+esc(o.textContent)+'</div>').join('');
+}
+function closeDropdowns(){ document.querySelectorAll('.dd.open').forEach(d=>d.classList.remove('open')); }
+document.addEventListener('click', closeDropdowns);
+
 let cfmResolve = null;
 function confirmUI(message, opts){
   opts = opts || {};
@@ -511,6 +565,7 @@ function paintSidebar(){
   capSel.innerHTML = '<option value="">no design capture</option>' + captures.map(c=>
     '<option value="'+c.id+'">#'+c.id+' '+esc((c.selector||'').slice(0,40))+'</option>').join('');
   capSel.value = cur;
+  ['repoMachine','taskRepo','taskCapture'].forEach(id => { dressSelect(id); syncSelect(id); });
   $('captures').innerHTML = captures.map(c=>
     '<div class="repo"><span class="nm">'+esc((c.selector||'?').slice(0,46))+'</span>'
     + '<button class="x" data-delcap="'+c.id+'" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button>'
@@ -591,7 +646,7 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ cfmClose(false); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
 async function sendSteer(){
   if (openRunId==null) return;
