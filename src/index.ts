@@ -5,6 +5,16 @@ import { acquireDaemonLock } from './lock';
 import { reconcileOrphanRuns } from './orchestrator';
 import { buildServer } from './server';
 
+// Windows 네이티브는 에이전트 실행 계층(sh·tmux·git worktree over sh)이 성립하지 않는다.
+// 보드/원격 머신 관제는 되지만 로컬 run 은 불가 — WSL 데몬을 안내한다.
+if (process.platform === 'win32') {
+  console.warn(
+    '[coxpit] Windows detected: local agent runs need a POSIX shell + tmux, which Windows lacks.\n' +
+    '[coxpit] Run the daemon inside WSL2 (npm i -g coxpit) and connect from the browser or desktop app,\n' +
+    '[coxpit] or register remote (ssh) machines only — the local machine will fail readiness checks.',
+  );
+}
+
 // DB 를 열기 전에 단일 데몬 보장 — 이미 떠 있으면 그 URL 을 안내하고 종료.
 await acquireDaemonLock();
 

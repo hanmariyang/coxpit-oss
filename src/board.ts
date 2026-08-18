@@ -37,6 +37,9 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .brand{display:flex;align-items:baseline;gap:9px;font-family:var(--mono)}
   .brand .mark{color:var(--brand);font-size:15px;font-weight:700;letter-spacing:.01em}
   .brand .sub{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.14em}
+  .daemon-badge{font-family:var(--mono);font-size:10.5px;color:var(--faint);padding:3px 9px;
+    border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:default}
+  .daemon-badge b{color:var(--muted);font-weight:500}
   .ws{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--muted);
     padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--s-failed);transition:background .3s}
@@ -155,6 +158,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   @media (prefers-reduced-motion:reduce){.chip.running i{animation:none}.card:hover{transform:none}}
   .meta{display:flex;gap:16px;padding:0 14px 10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
   .meta b{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+  .meta .resumable{color:var(--brand);opacity:.75}
   .log{border-top:1px solid var(--line);background:#0e1118;padding:10px 14px;font-family:var(--mono);
     font-size:11px;height:150px;overflow:auto;display:flex;flex-direction:column;gap:4px}
   .ev{display:flex;gap:9px;align-items:baseline;min-width:0}
@@ -302,6 +306,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 <body>
 <header>
   <div class="brand"><span class="mark">coxpit</span><span class="sub">fleet console</span></div>
+  <span class="daemon-badge" id="daemonBadge" style="display:none"></span>
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles">🔕</button>
   <div class="machines" id="machines"></div>
@@ -761,6 +766,8 @@ function cardHTML(r){
     + '<div class="meta"><span>branch <b>'+esc(r.branch||'—')+'</b></span>'
     + '<span>files <b>'+(r.filesChanged??0)+'</b></span>'
     + '<span>'+esc(r.agent||'')+'</span>'
+    + (r.sessionId && ['done','failed','stopped'].includes(r.status)
+        ? '<span class="resumable" title="agent session preserved — open the run and Send a next instruction to continue">↻ resumable</span>' : '')
     + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener" style="margin-left:auto">PR ↗</a>' : '')
     + '</div>'
     + '<div class="log">'+evs+'</div></div>';
@@ -781,6 +788,14 @@ async function hydrate(){
   (r.tasks||[]).forEach(t => tasks.set(t.id, t));
   runs.clear();
   (r.runs||[]).forEach(rn => runs.set(rn.id, { ...rn, events: rn.events||[] }));
+  if (r.daemon) {
+    const d = r.daemon;
+    const db = String(d.dbPath||'').replace(/^\\/(?:Users|home)\\/[^/]+/, '~');
+    const el = $('daemonBadge');
+    el.innerHTML = 'daemon <b>v'+esc(String(d.version||'?'))+'</b> · :'+esc(String(d.port||'?'));
+    el.title = 'pid '+d.pid+' · db '+db;
+    el.style.display = '';
+  }
   paintSidebar(); render();
 }
 function paintSidebar(){
