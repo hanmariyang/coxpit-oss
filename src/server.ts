@@ -12,7 +12,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
@@ -32,7 +32,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.5.1' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.6.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -155,10 +155,17 @@ export async function buildServer(): Promise<FastifyInstance> {
     const m = mr[0];
     if (!m) return reply.code(404).send({ error: 'machine not found' });
 
+    // 기본 브랜치는 "지금 체크아웃된 브랜치"가 아니라 repo 의 진짜 기본값:
+    // origin/HEAD → 로컬 main/master → 현재 HEAD 순으로 감지.
+    const g = `git -C ${shq(path)}`;
     const cmd =
-      `git -C ${shq(path)} rev-parse --is-inside-work-tree 2>&1` +
+      `${g} rev-parse --is-inside-work-tree 2>&1` +
       ` && echo '---B---'` +
-      ` && git -C ${shq(path)} rev-parse --abbrev-ref HEAD 2>&1`;
+      ` && { ${g} symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true; }` +
+      ` && echo '---C---'` +
+      ` && { ${g} show-ref --verify -q refs/heads/main && echo main || { ${g} show-ref --verify -q refs/heads/master && echo master; } || true; }` +
+      ` && echo '---D---'` +
+      ` && ${g} rev-parse --abbrev-ref HEAD 2>&1`;
     const r = await runShellOn(m, cmd);
     const isRepo = r.ok && /(^|\n)true(\n|$)/.test(r.stdout);
     if (!isRepo) {
@@ -167,7 +174,12 @@ export async function buildServer(): Promise<FastifyInstance> {
         detail: (r.stdout || r.stderr).trim().slice(0, 400),
       });
     }
-    const branch = (r.stdout.split('---B---')[1] ?? '').trim() || 'main';
+    const seg = (a: string, b: string): string =>
+      ((r.stdout.split(a)[1] ?? '').split(b)[0] ?? '').trim();
+    const originHead = seg('---B---', '---C---').replace(/^origin\//, '');
+    const localMain = seg('---C---', '---D---');
+    const headNow = (r.stdout.split('---D---')[1] ?? '').trim();
+    const branch = originHead || localMain || headNow || 'main';
     const name = (b.name ?? '').trim() || path.split('/').filter(Boolean).pop() || path;
 
     const ins = await db.insert(repos).values({
@@ -175,6 +187,17 @@ export async function buildServer(): Promise<FastifyInstance> {
     }).returning();
 
     return reply.code(201).send({ ok: true, repo: ins[0] });
+  });
+
+  // repo 삭제 — 열린 태스크가 있으면 거부(이력 보호).
+  app.delete('/api/repos/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rp = await db.select().from(repos).where(eq(repos.id, id)).limit(1);
+    if (!rp[0]) return reply.code(404).send({ error: 'not found' });
+    const open = (await db.select().from(tasks).where(eq(tasks.repoId, id))).filter((t) => t.status !== 'closed');
+    if (open.length) return reply.code(409).send({ ok: false, detail: `close ${open.length} open task(s) on this repo first` });
+    await db.delete(repos).where(eq(repos.id, id));
+    return { ok: true };
   });
 
   // 디렉토리 브라우저 — repo 등록용 파일 피커(로컬 머신 전용, 인증 게이트 뒤).
@@ -378,6 +401,27 @@ export async function buildServer(): Promise<FastifyInstance> {
     return reply.code(202).send(res);
   });
 
+  // 결과 파일 회수 — 머지 없이 worktree 산출물만 지정 폴더로 복사(조회성 태스크).
+  app.post('/api/runs/:id/export', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { dest?: string };
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const res = await exportRun(id, b.dest);
+    if (!res.ok) return reply.code(409).send(res);
+    return res;
+  });
+
+  // PR 모드 — run 브랜치 push + gh pr create.
+  app.post('/api/runs/:id/pr', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const res = await prRun(id);
+    if (!res.ok) return reply.code(409).send(res);
+    return res;
+  });
+
   // 실행 중 run 중지(SIGTERM) — close 핸들러가 stopped 로 봉인.
   app.post('/api/runs/:id/stop', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
@@ -397,7 +441,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.5.1' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.6.0' }));
     socket.on('close', () => removeSink(socket));
   });
 

@@ -350,6 +350,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <button class="btn-ghost sm" id="mTerm">Terminal</button>
       <button class="btn-ghost sm" id="mRefreshDiff">Refresh diff</button>
       <button class="btn-ghost sm" id="mCompare">Compare runs</button>
+      <button class="btn-ghost sm" id="mExport">Export files…</button>
       <span class="spacer"></span>
       <button class="btn-danger sm" id="mStop">Stop</button>
       <button class="btn-ghost sm" id="mCleanup">Cleanup</button>
@@ -398,6 +399,21 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 </div>
 
 <div class="toasts" id="toasts"></div>
+
+<div class="overlay" id="expOverlay">
+  <div class="cfm">
+    <div class="cfm-b">
+      <div class="m">Export this run's changed files</div>
+      <div class="s">Copies changed &amp; new files (with their folder structure) out of the worktree — no merge. Good for reports and one-off artifacts.</div>
+      <p class="flabel" style="margin-top:12px">destination folder</p>
+      <input id="expDest" placeholder="empty = ~/coxpit-exports/r<id>" />
+    </div>
+    <div class="cfm-f">
+      <button class="btn-ghost sm" id="expCancel">Cancel</button>
+      <button class="btn sm" id="expOk">Export</button>
+    </div>
+  </div>
+</div>
 
 <div class="overlay" id="cfmOverlay">
   <div class="cfm">
@@ -624,7 +640,9 @@ function cardHTML(r){
     + '<div class="card-h"><span class="rid">r'+r.id+'</span><span class="title">'+title+'</span>'+chipHTML(r.status)+'</div>'
     + '<div class="meta"><span>branch <b>'+esc(r.branch||'—')+'</b></span>'
     + '<span>files <b>'+(r.filesChanged??0)+'</b></span>'
-    + '<span>'+esc(r.agent||'')+'</span></div>'
+    + '<span>'+esc(r.agent||'')+'</span>'
+    + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener" style="margin-left:auto">PR ↗</a>' : '')
+    + '</div>'
     + '<div class="log">'+evs+'</div></div>';
 }
 function flash(id){ const el=$('card-'+id); if(el){ el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } }
@@ -650,6 +668,7 @@ function paintSidebar(){
     '<span class="mchip"><span class="mdot '+(m.online?'on':'')+'"></span><b>'+esc(m.slug)+'</b></span>').join('');
   $('repos').innerHTML = repos.map(r =>
     '<div class="repo"><span class="nm">'+esc(r.name)+'</span><span class="br">'+esc(r.defaultBranch)+'</span>'
+    + '<button class="x" data-delrepo="'+r.id+'" title="remove repo" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button>'
     + '<div class="path">'+esc(r.path)+'</div></div>').join('')
     || '<div class="repo" style="color:var(--faint)">none registered</div>';
   $('repoMachine').innerHTML = machines.map(m=>'<option value="'+esc(m.slug)+'">'+esc(m.slug)+'</option>').join('');
@@ -675,6 +694,16 @@ $('captures').addEventListener('click', async (e)=>{
   const b = e.target.closest('button[data-delcap]'); if(!b) return;
   await fetch('/api/design/'+b.dataset.delcap,{method:'DELETE'});
   hydrate();
+});
+$('repos').addEventListener('click', async (e)=>{
+  const b = e.target.closest('button[data-delrepo]'); if(!b) return;
+  const yes = await confirmUI('Remove this repository from coxpit?',
+    { sub: 'The repo itself is untouched — only the registration is removed. Refused while it has open tasks.', danger: true, okLabel: 'Remove' });
+  if (!yes) return;
+  const res = await fetch('/api/repos/'+b.dataset.delrepo,{method:'DELETE'});
+  const j = await res.json().catch(()=>({}));
+  if (res.ok){ toast('repo removed', 'ok'); hydrate(); }
+  else toast('remove: '+(j.detail||res.status), 'error');
 });
 
 function connectWS(){
@@ -743,8 +772,27 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
+$('mExport').addEventListener('click', ()=>{
+  if (openRunId==null) return;
+  $('expDest').value='';
+  $('expDest').placeholder='empty = ~/coxpit-exports/r'+openRunId;
+  $('expOverlay').classList.add('open');
+});
+async function doExport(){
+  if (openRunId==null) return;
+  const res = await fetch('/api/runs/'+openRunId+'/export',{method:'POST',
+    headers:{'content-type':'application/json'}, body:JSON.stringify({dest:$('expDest').value.trim()})});
+  const j = await res.json().catch(()=>({}));
+  $('expOverlay').classList.remove('open');
+  if (res.ok) toast(j.copied+' file(s) → '+j.dest, 'ok');
+  else toast('export: '+(j.detail||res.status), 'error');
+}
+$('expOk').addEventListener('click', doExport);
+$('expDest').addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ e.preventDefault(); doExport(); } });
+$('expCancel').addEventListener('click', ()=>$('expOverlay').classList.remove('open'));
+$('expOverlay').addEventListener('click',(e)=>{ if(e.target===$('expOverlay')) $('expOverlay').classList.remove('open'); });
 async function sendSteer(){
   if (openRunId==null) return;
   const msg = $('steerInput').value.trim(); if(!msg) return;
@@ -804,14 +852,30 @@ async function paintCompare(){
       + '<span class="files">'+files+' file'+(files===1?'':'s')+'</span></div>'
       + '<div class="cmp-meta" title="'+esc(summary)+'">'+(summary?esc(summary):'—')+'</div>'
       + '<div class="cmp-diff"><pre class="diff">'+diffHTML(r.diff||'')+'</pre></div>'
-      + '<div class="cmp-f"><span class="msg" id="cmpMsg-'+r.id+'"></span>'
+      + '<div class="cmp-f"><span class="msg" id="cmpMsg-'+r.id+'">'
+      + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener">PR ↗ '+esc(r.prUrl.split('/').slice(-1)[0])+'</a>' : '')
+      + '</span>'
       + (merged
         ? chipHTML('merged')
-        : '<button class="btn sm" data-merge="'+r.id+'"'+(mergeable?'':' disabled')+'>Merge this</button>')
+        : (r.prUrl ? '' : '<button class="btn-ghost sm" data-pr="'+r.id+'"'+(mergeable?'':' disabled')+'>Open PR</button>')
+          + '<button class="btn sm" data-merge="'+r.id+'"'+(mergeable?'':' disabled')+'>Merge this</button>')
       + '</div></div>';
   }).join('');
 }
 $('cmpBody').addEventListener('click', async (e)=>{
+  const prBtn = e.target.closest('button[data-pr]');
+  if (prBtn){
+    const rid = Number(prBtn.dataset.pr);
+    const yes = await confirmUI('Open a pull request from r'+rid+'?',
+      { sub: 'Commits the worktree, pushes the branch to origin, and opens a PR against the base branch (needs gh CLI signed in).', okLabel: 'Open PR' });
+    if (!yes) return;
+    prBtn.disabled = true;
+    const res = await fetch('/api/runs/'+rid+'/pr',{method:'POST'});
+    const j = await res.json().catch(()=>({}));
+    if (res.ok){ toast('PR opened: '+j.url, 'ok'); await paintCompare(); hydrate(); }
+    else { toast('PR: '+(j.detail||res.status), 'error'); prBtn.disabled = false; }
+    return;
+  }
   const btn = e.target.closest('button[data-merge]'); if(!btn) return;
   const rid = Number(btn.dataset.merge);
   const yes = await confirmUI('Merge r'+rid+' into the base branch?',

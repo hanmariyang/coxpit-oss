@@ -1,5 +1,8 @@
 import { posix as ppath } from 'node:path';
 import { createInterface } from 'node:readline';
+import { existsSync } from 'node:fs';
+import { mkdir, copyFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import type { ChildProcess } from 'node:child_process';
 import { eq } from 'drizzle-orm';
 import { config } from './config';
@@ -324,6 +327,91 @@ export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: st
   }
   await setRun(runId, { status: 'merged' });
   return { ok: true, detail: mg.stdout.trim().slice(0, 300) };
+}
+
+/**
+ * 결과 파일 회수(export) — 조회성 태스크용: worktree 의 변경·신규 파일을
+ * 지정 폴더로 복사한다. 머지 없이 산출물만 가져오는 길. (v1: 로컬 머신 전용)
+ */
+export async function exportRun(runId: number, destIn?: string): Promise<{ ok: boolean; detail: string; dest?: string; copied?: number; skipped?: number }> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.worktreePath) return { ok: false, detail: 'no worktree' };
+  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — wait for it to settle' };
+  if (ctx.machine.kind !== 'local' && ctx.machine.address !== '') {
+    return { ok: false, detail: 'remote export not yet supported — files are on the remote machine' };
+  }
+  const wt = run.worktreePath;
+  if (!existsSync(wt)) return { ok: false, detail: 'worktree missing (cleaned up)' };
+
+  // 회수 대상 = 분기점 이후 커밋된 변경(머지 시도가 auto-commit 했을 수 있음) ∪ 미커밋·신규
+  const list = await runShellOn(
+    ctx.machine,
+    `cd ${shq(wt)} && { git diff --name-only ${shq(ctx.baseBranch)}...HEAD -z 2>/dev/null; git ls-files -mo --exclude-standard -z; }`,
+    15000,
+  );
+  if (!list.ok) return { ok: false, detail: 'could not list changed files' };
+  const files = [...new Set(list.stdout.split('\0').filter(Boolean))];
+  if (!files.length) return { ok: false, detail: 'no changed files in this run' };
+
+  const dest = (destIn ?? '').trim() || ppath.join(homedir(), 'coxpit-exports', `r${runId}`);
+  if (!dest.startsWith('/')) return { ok: false, detail: 'destination must be an absolute path' };
+
+  let copied = 0, skipped = 0;
+  for (const f of files) {
+    const src = ppath.join(wt, f);
+    if (!existsSync(src)) { skipped++; continue; } // 삭제된 파일 등
+    const out = ppath.join(dest, f);
+    await mkdir(ppath.dirname(out), { recursive: true });
+    await copyFile(src, out);
+    copied++;
+  }
+  await recordEvent(runId, 'export', JSON.stringify({ dest, copied, skipped }));
+  return { ok: true, detail: `${copied} file(s) exported`, dest, copied, skipped };
+}
+
+/**
+ * PR 모드 — run 브랜치를 origin 에 push 하고 gh 로 pull request 를 연다.
+ * 팀 repo·리뷰 흐름용: 로컬 merge 대신 PR 로 결과를 보낸다.
+ */
+export async function prRun(runId: number): Promise<{ ok: boolean; detail: string; url?: string }> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.worktreePath || !run.branch) return { ok: false, detail: 'no worktree/branch' };
+  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — stop it first' };
+  if (!['done', 'failed', 'stopped'].includes(run.status)) return { ok: false, detail: `cannot open a PR from a '${run.status}' run` };
+  const wt = shq(run.worktreePath);
+
+  // 0) 사전 조건: origin 리모트 + gh CLI
+  const pre = await runShellOn(ctx.machine,
+    `cd ${wt} && { git remote get-url origin >/dev/null 2>&1 && echo R1 || echo R0; } && { command -v gh >/dev/null 2>&1 && echo G1 || echo G0; }`, 10000);
+  if (!pre.stdout.includes('R1')) return { ok: false, detail: 'no origin remote on this repo' };
+  if (!pre.stdout.includes('G1')) return { ok: false, detail: 'GitHub CLI (gh) not found on the machine' };
+
+  // 1) worktree 미커밋 변경 자동 커밋
+  const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
+  const c1 = await runShellOn(ctx.machine,
+    `cd ${wt} && git add -A && (git diff --cached --quiet || git ${ident} -c commit.gpgsign=false commit -m ${shq(`coxpit r${runId}: agent changes`)})`, 20000);
+  if (!c1.ok) return { ok: false, detail: 'worktree commit failed: ' + (c1.stderr || c1.stdout).trim().slice(0, 300) };
+
+  // 2) push
+  const push = await runShellOn(ctx.machine, `cd ${wt} && git push -u origin ${shq(run.branch)} 2>&1`, 60000);
+  if (!push.ok) return { ok: false, detail: 'push failed: ' + (push.stderr || push.stdout).trim().slice(0, 300) };
+
+  // 3) PR 생성 (동일 브랜치 PR 이 이미 있으면 그 URL 재사용)
+  const tr = await db.select().from(tasks).where(eq(tasks.id, run.taskId)).limit(1);
+  const title = `${tr[0]?.title ?? 'coxpit run'} (r${runId})`;
+  const body = (run.exitSummary ? run.exitSummary + '\n\n' : '') + '🤖 Opened from a coxpit agent run';
+  const pr = await runShellOn(ctx.machine,
+    `cd ${wt} && gh pr create -B ${shq(ctx.baseBranch)} -H ${shq(run.branch)} -t ${shq(title)} -b ${shq(body)} 2>&1 || true`, 60000);
+  const m = (pr.stdout + pr.stderr).match(/https:\/\/github\.com\/\S+\/pull\/\d+/);
+  if (!m) return { ok: false, detail: 'gh pr create failed: ' + (pr.stdout || pr.stderr).trim().slice(0, 300) };
+
+  await setRun(runId, { prUrl: m[0] });
+  await recordEvent(runId, 'pr', m[0]);
+  return { ok: true, detail: 'pull request opened', url: m[0] };
 }
 
 /**

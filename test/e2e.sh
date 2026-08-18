@@ -28,12 +28,13 @@ cleanup(){
 }
 trap cleanup EXIT
 
-# throwaway git repo
+# throwaway git repo — 사이드 브랜치에 체크아웃해 defaultBranch 감지를 시험
 mkdir -p "$REPO"
 git -C "$REPO" init -q -b main
 printf 'hello\n' > "$REPO/README.md"
 git -C "$REPO" add -A
 git -C "$REPO" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
+git -C "$REPO" checkout -q -b wip-side-branch
 
 # boot daemon (dry-run agent, auth off)
 COXPIT_AUTH_DISABLED=1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" \
@@ -59,6 +60,11 @@ curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' \
   -d "{\"machineSlug\":\"local\",\"path\":\"$REPO\"}" | grep -q '"ok":true' || fail "repo register"
 expect_code 400 -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$WORK\"}"
 pass "repo registry + work-tree validation"
+
+# defaultBranch 감지: wip 브랜치에 체크아웃돼 있어도 main 이어야 함 (aiplab 함정 재발 방지)
+curl -s "$B/api/repos" | grep -q '"defaultBranch":"main"' || fail "defaultBranch should resolve to main, not the checked-out branch"
+git -C "$REPO" checkout -q main
+pass "defaultBranch resolves to repo default (not checked-out branch)"
 
 # design capture
 curl -sf -X POST "$B/api/design/capture" -H 'content-type: application/json' \
@@ -102,6 +108,19 @@ printf 'DIFFERENT CONTENT\n' > "$WT2/COXPIT_DRYRUN.txt"
 expect_code 409 -X POST "$B/api/runs/2/merge"
 [ -z "$(git -C "$REPO" status --porcelain)" ] || fail "base repo dirty after abort"
 pass "merge conflict auto-abort, base clean"
+
+# export: r2 worktree 산출물을 머지 없이 회수
+curl -sf -X POST "$B/api/runs/2/export" -H 'content-type: application/json' -d "{\"dest\":\"$WORK/exp\"}" | grep -q '"ok":true' || fail "export"
+[ -f "$WORK/exp/COXPIT_DRYRUN.txt" ] || fail "exported file missing"
+pass "export files without merge"
+
+# PR 가드: origin 리모트 없는 repo -> 409
+expect_code 409 -X POST "$B/api/runs/2/pr"
+pass "PR guard (no origin remote 409)"
+
+# repo 삭제 가드: 열린 태스크 있으면 409
+expect_code 409 -X DELETE "$B/api/repos/1"
+pass "repo delete guarded while tasks open"
 
 # steer guards: dry-run has no session -> 409; missing message -> 400
 expect_code 409 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json' -d '{"message":"do more"}'

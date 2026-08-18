@@ -54,6 +54,7 @@ export const agentRuns = sqliteTable('agent_runs', {
   tmuxWindow: text('tmux_window').notNull().default(''),
   status: text('status').notNull().default('pending'), // pending | running | waiting | done | error
   sessionId: text('session_id').notNull().default(''), // 에이전트 세션(steer 용 --resume 키)
+  prUrl: text('pr_url').notNull().default(''), // PR 모드로 올린 pull request URL
   filesChanged: integer('files_changed').notNull().default(0),
   startedAt: integer('started_at', { mode: 'timestamp' }),
   endedAt: integer('ended_at', { mode: 'timestamp' }),

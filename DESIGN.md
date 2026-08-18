@@ -38,6 +38,8 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Empty state | onboarding `.setup` panel | never a bare "no data" — show machine readiness + next steps |
 | Field label | `.flabel` | 10px mono uppercase over every form control — placeholder-only fields are not allowed |
 | Repo browser | `.brw` modal + `GET /api/browse` | pick-don't-type: navigate folders, git repos get a badge + inline Register; local machine only (remote = manual path) |
+| Export dialog | `#expOverlay` (`.cfm` variant) | one input + consequence line; empty dest falls back to `~/coxpit-exports/r<id>` |
+| PR affordance | `Open PR` ghost in compare · `PR ↗` link on cards | once a run has a PR, the button becomes the link — never both |
 | Terminal | xterm themed with tokens | background `--bg`, cursor `--brand` |
 
 ## Interaction rules
