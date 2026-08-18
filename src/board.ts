@@ -1158,14 +1158,20 @@ let termRunId = null, termClosing = false, termRetry = 0, termRetryTimer = null;
 function termConnect(){
   if (termRunId==null || termClosing || !termObj) return;
   const proto = location.protocol==='https:'?'wss':'ws';
-  termWS = new WebSocket(proto+'://'+location.host+'/ws/term/'+termRunId
+  // 소켓 정체성 가드 — close 이벤트는 비동기라 termClosing 토글만으론 못 막는다.
+  // 대체된(sock!==termWS) 소켓은 출력도 재연결도 금지: 같은 tmux 세션에 WS 가
+  // 누적 attach 되면 tmux 가 전 클라이언트에 미러링해 글자가 N번씩 보인다.
+  const sock = new WebSocket(proto+'://'+location.host+'/ws/term/'+termRunId
     +'?cols='+termObj.cols+'&rows='+termObj.rows);
-  termWS.onopen = ()=>{
+  termWS = sock;
+  sock.onopen = ()=>{
+    if (sock!==termWS){ try{ sock.close(); }catch{} return; }
     termRetry = 0;
     $('termTitle').textContent = ((runs.get(termRunId)||{}).tmuxWindow||'terminal');
     termObj.focus();
   };
-  termWS.onmessage = (m)=>{
+  sock.onmessage = (m)=>{
+    if (sock!==termWS || !termObj) return;
     try{
       const d = JSON.parse(m.data);
       if (d.t==='o') termObj.write(d.d);
@@ -1173,7 +1179,8 @@ function termConnect(){
       else if (d.t==='exit') termObj.write('\\r\\n\\x1b[90m[session ended — reconnecting will revive it]\\x1b[0m\\r\\n');
     }catch{}
   };
-  termWS.onclose = ()=>{
+  sock.onclose = ()=>{
+    if (sock!==termWS) return;
     if (termClosing || termRunId==null) return;
     // 예기치 않은 끊김 — 백오프 재연결(서버가 죽은 세션도 소생시킴)
     const delay = Math.min(8000, 800 * Math.pow(2, termRetry++));
@@ -1204,6 +1211,9 @@ function termSwitch(id){
 }
 function openTerm(runId){
   const r = runs.get(runId); if(!r) return;
+  // 재진입 방어 — 이전 소켓/타이머가 남아 있으면 정리(중복 attach 방지)
+  if (termRetryTimer){ clearTimeout(termRetryTimer); termRetryTimer=null; }
+  if (termWS){ const old=termWS; termWS=null; try{ old.close(); }catch{} }
   termRunId = runId; termClosing = false; termRetry = 0;
   $('termRid').textContent = 'r'+runId;
   $('termTitle').textContent = (r.tmuxWindow||'terminal');
