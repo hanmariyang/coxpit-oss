@@ -263,6 +263,18 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .cmp-f .msg{font-family:var(--mono);font-size:11px;color:var(--muted);flex:1;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
+  /* ── AI review panel (compare) ── */
+  .cmp-review{border-bottom:1px solid var(--line);background:var(--surface2);padding:14px 20px;
+    max-height:42vh;overflow:auto;font-size:13px;line-height:1.65;color:var(--muted)}
+  .cmp-review[hidden]{display:none}
+  .cmp-review h2{font-size:13px;color:var(--brand);margin:14px 0 6px;letter-spacing:.02em}
+  .cmp-review h3{font-size:12.5px;color:var(--ink);margin:12px 0 4px}
+  .cmp-review ul{margin:4px 0 8px;padding-left:18px}
+  .cmp-review li{margin-bottom:3px}
+  .cmp-review strong{color:var(--ink)}
+  .cmp-review code{font-family:var(--mono);font-size:.9em;background:#0e1118;padding:1px 5px;border-radius:4px;color:var(--brand)}
+  .cmp-review p{margin:0 0 8px}
+
   /* ── terminal ───────────────────────────── */
   .term-body{flex:1;min-height:0;background:#0b0d12;padding:8px 4px 4px 10px}
   #xterm{width:100%;height:100%}
@@ -390,9 +402,11 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   <div class="modal wide">
     <div class="modal-h">
       <span class="title" id="cmpTitle">Compare</span>
+      <button class="btn sm" id="cmpAI">AI review</button>
       <button class="btn-ghost sm" id="cmpRefresh">Refresh</button>
       <button class="x" id="cmpClose" aria-label="close">×</button>
     </div>
+    <div class="cmp-review" id="cmpReview" hidden></div>
     <div class="cmp" id="cmpBody"></div>
   </div>
 </div>
@@ -578,20 +592,49 @@ $('cfmOk').addEventListener('click', ()=>cfmClose(true));
 $('cfmCancel').addEventListener('click', ()=>cfmClose(false));
 $('cfmOverlay').addEventListener('click',(e)=>{ if(e.target===$('cfmOverlay')) cfmClose(false); });
 
-function summarize(kind, payload){
+/* 이벤트 인간화 — JSON 원문 대신 사람이 읽는 한 줄로. null = 표시 생략(노이즈). */
+function humanize(e){
+  const kind = e.kind, payload = e.payload;
+  if (kind === 'rate_limit_event') return null;
+  if (kind === 'steer') return { k:'steer', t:'→ '+payload };
+  if (kind === 'export'){ try{ const o=JSON.parse(payload); return { k:'export', t:o.copied+' file(s) → '+o.dest }; }catch{ return { k:'export', t:payload }; } }
+  if (kind === 'pr') return { k:'pr', t:payload };
+  if (kind === 'stderr') return { k:'stderr', t:payload };
   try{
     const o = JSON.parse(payload);
+    if (o.type === 'system') return { k:'session', t:'started · '+(o.model||o.subtype||'') };
+    if (o.type === 'user') return null; // tool 결과 회신 — 노이즈
     if (o.type === 'assistant' && o.message){
-      const c = (o.message.content||[]).map(x => x.type==='text' ? x.text : (x.type==='tool_use' ? '['+x.name+']' : '')).join(' ');
-      return c || '(assistant)';
+      const parts = [];
+      for (const x of (o.message.content||[])){
+        if (x.type === 'text' && x.text) parts.push({ k:'said', t:x.text });
+        else if (x.type === 'tool_use'){
+          const i = x.input || {};
+          const arg = i.file_path || i.command || i.path || i.pattern || '';
+          parts.push({ k:'tool', t:'▸ '+x.name+(arg?' — '+String(arg).split('/').slice(-2).join('/').slice(0,60):'') });
+        }
+      }
+      return parts.length ? parts : null;
     }
-    if (o.type === 'assistant' && o.text) return o.text;
-    if (o.type === 'result') return o.result || '(result)';
-    if (o.type === 'user') return '(tool result)';
-    if (o.type === 'system') return o.subtype || 'system';
-    if (kind === 'meta') return 'worktree ' + (o.worktree||'');
-    return kind;
-  }catch{ return payload; }
+    if (o.type === 'assistant' && o.text) return { k:'said', t:o.text };
+    if (o.type === 'result') return { k:'done', t:o.result || 'finished' };
+    if (kind === 'meta') return { k:'start', t:'worktree '+String(o.worktree||'').split('/').slice(-2).join('/') };
+    return { k:kind, t:payload.slice(0,140) };
+  }catch{ return { k:kind, t:payload }; }
+}
+function humanLines(events){
+  const out = [];
+  for (const e of (events||[])){
+    const h = humanize(e);
+    if (!h) continue;
+    if (Array.isArray(h)) out.push(...h); else out.push(h);
+  }
+  return out;
+}
+function summarize(kind, payload){
+  const h = humanize({kind, payload});
+  if (!h) return '';
+  return Array.isArray(h) ? h.map(x=>x.t).join(' · ') : h.t;
 }
 function diffHTML(text){
   if (!text.trim()) return '<span style="color:var(--faint)">no changes</span>';
@@ -667,8 +710,8 @@ function cardHTML(r){
   const closed = task && task.status==='closed';
   const title = (task ? esc(task.title) : ('task ' + (r.taskId ?? '?')))
     + (closed ? ' <span class="closed">· closed</span>' : '');
-  const evs = (r.events||[]).slice(-8).map(e =>
-    '<div class="ev"><span class="k">'+esc(e.kind)+'</span><span class="t">'+esc(summarize(e.kind,e.payload)).slice(0,140)+'</span></div>'
+  const evs = humanLines(r.events).slice(-8).map(h =>
+    '<div class="ev"><span class="k">'+esc(h.k)+'</span><span class="t">'+esc(h.t).slice(0,140)+'</span></div>'
   ).join('') || '<div class="ev"><span class="t" style="color:var(--faint)">waiting…</span></div>';
   const selCls = (selectMode?' selmode':'') + (selected.has(r.id)?' selected':'');
   return '<div class="card'+selCls+'" id="card-'+r.id+'">'
@@ -787,8 +830,8 @@ function paintModal(){
   $('mStop').style.display = (r.status==='running'||r.status==='preparing'||r.status==='pending') ? '' : 'none';
   // steer 는 정착한 real run 에서만 의미(드라이런은 세션 없음 — 서버가 사유와 함께 거절)
   $('steerRow').style.display = ['done','failed','stopped'].includes(r.status) ? '' : 'none';
-  $('mTimeline').innerHTML = (r.events||[]).map(e =>
-    '<div class="ev"><span class="k">'+esc(e.kind)+'</span><span class="t">'+esc(summarize(e.kind,e.payload))+'</span></div>'
+  $('mTimeline').innerHTML = humanLines(r.events).map(h =>
+    '<div class="ev"><span class="k">'+esc(h.k)+'</span><span class="t">'+esc(h.t)+'</span></div>'
   ).join('') || '<span style="color:var(--faint)">no events yet</span>';
 }
 async function loadDiff(){
@@ -908,6 +951,7 @@ $('mCloseTask').addEventListener('click', async ()=>{
 let cmpTaskId = null;
 async function openCompare(taskId){
   cmpTaskId = taskId;
+  $('cmpReview').hidden = true; $('cmpReview').innerHTML = '';
   $('cmpOverlay').classList.add('open');
   $('cmpBody').innerHTML = '<div class="empty" style="flex:1">loading…</div>';
   await paintCompare();
@@ -969,6 +1013,34 @@ $('cmpBody').addEventListener('click', async (e)=>{
 $('cmpClose').addEventListener('click', ()=>{ cmpTaskId=null; $('cmpOverlay').classList.remove('open'); });
 $('cmpOverlay').addEventListener('click',(e)=>{ if(e.target===$('cmpOverlay')){ cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('cmpRefresh').addEventListener('click', paintCompare);
+/* 초경량 md 렌더 (리뷰 표시용) */
+function mdLite(src){
+  let s = esc(src);
+  s = s.replace(/\`\`\`[a-z]*\\n([\\s\\S]*?)\`\`\`/g, (m,c)=>'<pre style="background:#0e1118;border:1px solid var(--line);border-radius:7px;padding:8px 10px;overflow-x:auto">'+c+'</pre>');
+  s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  s = s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+  s = s.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
+  s = s.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>[\\s\\S]*?<\\/li>)(?!\\s*<li>)/g, '<ul>$1</ul>');
+  s = s.split(/\\n{2,}/).map(b => /^<(h2|h3|ul|pre)/.test(b.trim()) ? b : (b.trim()? '<p>'+b.replace(/\\n/g,'<br>')+'</p>':'' )).join('');
+  return s;
+}
+$('cmpAI').addEventListener('click', async ()=>{
+  if (cmpTaskId==null) return;
+  const yes = await confirmUI('Run an AI review of these implementations?',
+    { sub: 'A reviewer agent reads every diff and summarizes each approach, pros/cons, and a recommendation — so you judge instead of reading all the code. Real agent, spends credits (~1–2 min).', okLabel: 'Review' });
+  if (!yes) return;
+  const btn = $('cmpAI');
+  btn.disabled = true; btn.textContent = 'Reviewing…';
+  try{
+    const res = await fetch('/api/tasks/'+cmpTaskId+'/review',{method:'POST',
+      headers:{'content-type':'application/json'}, body:JSON.stringify({real:true})});
+    const j = await res.json().catch(()=>({}));
+    if (res.ok){ $('cmpReview').innerHTML = mdLite(j.review||''); $('cmpReview').hidden = false; }
+    else toast('review: '+(j.detail||res.status), 'error');
+  } finally { btn.disabled = false; btn.textContent = 'AI review'; }
+});
 $('mCompare').addEventListener('click', ()=>{
   if (openRunId==null) return;
   const r = runs.get(openRunId); if(!r) return;

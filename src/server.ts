@@ -12,7 +12,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
@@ -32,7 +32,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.8.0' }));
+  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: '2.9.0' }));
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -325,6 +325,17 @@ export async function buildServer(): Promise<FastifyInstance> {
     return reply.code(202).send({ ok: true, runs: created.map((r) => ({ id: r.id, status: r.status })) });
   });
 
+  // AI 리뷰 — 심판 에이전트가 run diff 들을 읽고 접근/장단점/추천을 요약.
+  app.post('/api/tasks/:id/review', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { real?: boolean };
+    const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+    if (!tr[0]) return reply.code(404).send({ error: 'task not found' });
+    const res = await reviewTask(id, b.real === true);
+    if (!res.ok) return reply.code(422).send(res);
+    return res;
+  });
+
   // 비교 뷰 — 태스크의 모든 run + 각 diff 를 한 방에 (승자 고르기용).
   app.get('/api/tasks/:id/compare', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
@@ -470,7 +481,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
-    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.8.0' }));
+    socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: '2.9.0' }));
     socket.on('close', () => removeSink(socket));
   });
 

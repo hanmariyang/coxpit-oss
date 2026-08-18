@@ -109,6 +109,10 @@ expect_code 409 -X POST "$B/api/runs/2/merge"
 [ -z "$(git -C "$REPO" status --porcelain)" ] || fail "base repo dirty after abort"
 pass "merge conflict auto-abort, base clean"
 
+# AI 리뷰: 리허설 모드 응답 + 정착 run 2개 요구 가드
+curl -sf -X POST "$B/api/tasks/1/review" -H 'content-type: application/json' -d '{"real":false}' | grep -q 'AI Review' || fail "review rehearsal"
+pass "AI review returns digest (rehearsal mode)"
+
 # integrate: 충돌 run → 통합 태스크 자동 발사 (real:false = 모의 에이전트로 배관만 검증)
 INTEG=$(curl -sf -X POST "$B/api/integrate" -H 'content-type: application/json' -d '{"runIds":[2],"real":false}')
 echo "$INTEG" | grep -q '"conflicts":1' || fail "integrate should report 1 conflict: $INTEG"

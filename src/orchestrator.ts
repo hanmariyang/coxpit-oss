@@ -400,6 +400,62 @@ export async function planFanout(repoId: number, goal: string, real: boolean): P
   return { ok: true, detail: `${created.length} task(s) launched`, tasks: created };
 }
 
+/**
+ * AI 리뷰(심판) — 태스크의 정착 run diff 들을 리뷰 에이전트가 읽고
+ * 접근 방식·장단점·리스크·추천을 요약한다. 사람은 코드 전수가 아니라
+ * 판단만 하면 되도록. (read-only, 워크트리 불필요)
+ */
+export async function reviewTask(taskId: number, real: boolean): Promise<{ ok: boolean; detail: string; review?: string }> {
+  const tr = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  const task = tr[0];
+  if (!task) return { ok: false, detail: 'task not found' };
+  const rp = await db.select().from(repos).where(eq(repos.id, task.repoId)).limit(1);
+  const repo = rp[0];
+  if (!repo) return { ok: false, detail: 'repo not found' };
+  const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
+  const m = mr[0];
+  if (!m) return { ok: false, detail: 'machine not found' };
+  const machine: MachineTarget = { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser };
+
+  const trs = (await db.select().from(agentRuns).where(eq(agentRuns.taskId, taskId)))
+    .filter((r) => ['done', 'failed', 'stopped', 'merged'].includes(r.status));
+  if (trs.length < 2) return { ok: false, detail: 'need at least 2 settled runs to review' };
+
+  const sections: string[] = [];
+  for (const r of trs) {
+    const d = await getRunDiff(r.id);
+    const diff = (d.ok ? d.diff : '(worktree gone — diff unavailable)').slice(0, 15000);
+    sections.push(`### run r${r.id} (status: ${r.status})\nAgent's own summary: ${(r.exitSummary || '-').slice(0, 300)}\n\nDiff:\n\`\`\`diff\n${diff}\n\`\`\``);
+  }
+
+  if (!real) {
+    return {
+      ok: true, detail: 'rehearsal review',
+      review: `## AI Review (rehearsal)\n\n${trs.map((r) => `**r${r.id}** — approach: (dry-run placeholder)\n- pros: n/a\n- cons: n/a`).join('\n\n')}\n\n**Recommendation**: run with Real agent for an actual review.`,
+    };
+  }
+
+  const prompt =
+    `You are reviewing ${trs.length} competing implementations of the same task.\n` +
+    `Task: ${task.title}\nOriginal prompt: ${task.prompt.slice(0, 800)}\n\n` +
+    sections.join('\n\n') +
+    `\n\nWrite a review in markdown, in the language of the task prompt (Korean if the prompt is Korean):\n` +
+    `1. For EACH run: one-line approach summary, then pros (max 3) and cons (max 3) as bullets.\n` +
+    `2. '## 추천' section: which run to merge and WHY, in 2-3 sentences. If combining both is better, say exactly what to steer.\n` +
+    `Judge correctness, simplicity, consistency with the existing codebase, and risk. Be decisive. Respond with ONLY the markdown.`;
+  const cmd = `cd ${shq(repo.path)} && ${config.agent.bin} -p ${shq(prompt)} --output-format json`;
+  const r = await runShellOn(machine, cmd, 300000);
+  if (!r.ok) return { ok: false, detail: 'reviewer failed: ' + (r.stderr || r.stdout).trim().slice(0, 300) };
+  try {
+    const envelope = JSON.parse(r.stdout.trim()) as { result?: string };
+    const review = (envelope.result ?? '').trim();
+    if (!review) throw new Error('empty review');
+    return { ok: true, detail: 'reviewed', review };
+  } catch (e) {
+    return { ok: false, detail: 'could not parse review: ' + String(e).slice(0, 200) };
+  }
+}
+
 export interface IntegrateResult {
   runId: number;
   status: 'merged' | 'conflict' | 'skipped';

@@ -42,6 +42,8 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | PR affordance | `Open PR` ghost in compare · `PR ↗` link on cards | once a run has a PR, the button becomes the link — never both |
 | Select mode | `Select runs` toolbar toggle + `.selbar` | cards grow a ✓ circle; click toggles instead of opening; the floating bar states the consequence ("merges in selection order · conflicts spawn an integration agent") |
 | Plan form | `#planForm` sidebar section | one goal → planner splits → auto-launch; button narrates its long wait ("Planning… (1–3 min)"); follows the global Dry/Real mode |
+| AI review panel | `#cmpReview` above compare columns | reviewer digests every diff into approach/pros/cons/recommendation (mdLite-rendered) — the human judges, not reads |
+| Timeline lines | `humanize()` | never raw JSON: `said`/`tool ▸ Name — file`/`done`/`steer`; rate-limit and tool-result echoes are dropped as noise |
 | Terminal | xterm themed with tokens | background `--bg`, cursor `--brand` |
 
 ## Interaction rules
