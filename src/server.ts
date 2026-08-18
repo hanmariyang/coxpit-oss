@@ -9,7 +9,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, mergeRun, getRunTermInfo, steerRun } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { BOARD_HTML } from './board';
@@ -333,6 +333,19 @@ export async function buildServer(): Promise<FastifyInstance> {
     const res = await mergeRun(id);
     if (!res.ok) return reply.code(409).send(res);
     return res;
+  });
+
+  // 후속 지시(steer) — 정착한 run 을 같은 세션(--resume)·같은 worktree 로 계속.
+  app.post('/api/runs/:id/steer', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { message?: string };
+    const message = (b.message ?? '').trim();
+    if (!message) return reply.code(400).send({ error: 'message required' });
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const res = await steerRun(id, message);
+    if (!res.ok) return reply.code(409).send(res);
+    return reply.code(202).send(res);
   });
 
   // 실행 중 run 중지(SIGTERM) — close 핸들러가 stopped 로 봉인.

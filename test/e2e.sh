@@ -99,6 +99,11 @@ expect_code 409 -X POST "$B/api/runs/2/merge"
 [ -z "$(git -C "$REPO" status --porcelain)" ] || fail "base repo dirty after abort"
 pass "merge conflict auto-abort, base clean"
 
+# steer guards: dry-run has no session -> 409; missing message -> 400
+expect_code 409 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json' -d '{"message":"do more"}'
+expect_code 400 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json' -d '{}'
+pass "steer guards (no session 409, empty 400)"
+
 # task close cleans everything
 curl -sf -X POST "$B/api/tasks/1/close" | grep -q '"ok":true' || fail "close"
 [ -z "$(git -C "$REPO" branch --list 'coxpit/*')" ] || fail "branches not cleaned"

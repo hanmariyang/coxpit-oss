@@ -126,54 +126,95 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
     const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
     const cmd = `cd ${shq(wtPath)} && ${pidPrefix}{ ${agentCommand(ctx.prompt, useReal)}; }`;
-    const child = spawnShellOn(ctx.machine, cmd);
-    liveChildren.set(runId, child);
-
-    let lastResult = '';
-    if (child.stdout) {
-      const rl = createInterface({ input: child.stdout });
-      rl.on('line', (line: string) => {
-        const s = line.trim();
-        if (!s) return;
-        let kind = 'log';
-        try {
-          const obj = JSON.parse(s) as { type?: string; result?: string };
-          if (obj.type) kind = obj.type;
-          // result 이벤트의 사람이 읽는 요약만 뽑아 둔다(없으면 원본 라인).
-          if (obj.type === 'result') lastResult = typeof obj.result === 'string' ? obj.result : s;
-        } catch { /* 비-JSON 로그 라인 */ }
-        void recordEvent(runId, kind, s.slice(0, 2000));
-      });
-    }
-    if (child.stderr) {
-      const rle = createInterface({ input: child.stderr });
-      rle.on('line', (line: string) => {
-        const s = line.trim();
-        if (s) void recordEvent(runId, 'stderr', s.slice(0, 2000));
-      });
-    }
-
-    const code: number = await new Promise((resolve) => {
-      child.on('close', (c) => resolve(c ?? 0));
-      child.on('error', () => resolve(-1));
-    });
-    liveChildren.delete(runId);
-
-    // 4) 변경 파일 수 집계
-    const stat = await runShellOn(ctx.machine, `git -C ${shq(wtPath)} status --porcelain | wc -l`, 10000);
-    const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
-
-    const wasStopped = stoppedRuns.delete(runId);
-    await setRun(runId, {
-      status: wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed',
-      endedAt: new Date(),
-      filesChanged,
-      exitSummary: wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`,
-    });
+    await runAgentChild(runId, ctx.machine, wtPath, cmd);
   } catch (e) {
     await recordEvent(runId, 'error', String(e).slice(0, 500));
     await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'orchestrator error' });
   }
+}
+
+/**
+ * 에이전트 자식 프로세스 배선(공용) — stream-json 파싱→이벤트, session 캡처,
+ * 종료 시 files_changed 집계 + 상태 전이. launchRun/steerRun 이 공유.
+ */
+async function runAgentChild(runId: number, machine: MachineTarget, wtPath: string, cmd: string): Promise<void> {
+  const child = spawnShellOn(machine, cmd);
+  liveChildren.set(runId, child);
+
+  let lastResult = '';
+  if (child.stdout) {
+    const rl = createInterface({ input: child.stdout });
+    rl.on('line', (line: string) => {
+      const s = line.trim();
+      if (!s) return;
+      let kind = 'log';
+      try {
+        const obj = JSON.parse(s) as { type?: string; result?: string; session_id?: string };
+        if (obj.type) kind = obj.type;
+        // steer(--resume) 용 세션 키 캡처
+        if (obj.type === 'system' && typeof obj.session_id === 'string') {
+          void setRun(runId, { sessionId: obj.session_id });
+        }
+        // result 이벤트의 사람이 읽는 요약만 뽑아 둔다(없으면 원본 라인).
+        if (obj.type === 'result') lastResult = typeof obj.result === 'string' ? obj.result : s;
+      } catch { /* 비-JSON 로그 라인 */ }
+      void recordEvent(runId, kind, s.slice(0, 2000));
+    });
+  }
+  if (child.stderr) {
+    const rle = createInterface({ input: child.stderr });
+    rle.on('line', (line: string) => {
+      const s = line.trim();
+      if (s) void recordEvent(runId, 'stderr', s.slice(0, 2000));
+    });
+  }
+
+  const code: number = await new Promise((resolve) => {
+    child.on('close', (c) => resolve(c ?? 0));
+    child.on('error', () => resolve(-1));
+  });
+  liveChildren.delete(runId);
+
+  const stat = await runShellOn(machine, `git -C ${shq(wtPath)} status --porcelain | wc -l`, 10000);
+  const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
+
+  const wasStopped = stoppedRuns.delete(runId);
+  await setRun(runId, {
+    status: wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed',
+    endedAt: new Date(),
+    filesChanged,
+    exitSummary: wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`,
+  });
+}
+
+/**
+ * 후속 지시(steer) — 정착한 run 의 세션을 --resume 으로 이어 같은 worktree 에서 계속.
+ * fire-and-forget. 진행 중 run 은 거부(개입은 터미널로).
+ */
+export async function steerRun(runId: number, message: string): Promise<{ ok: boolean; detail: string }> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run) return { ok: false, detail: 'run not found' };
+  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — attach the terminal to intervene' };
+  if (!['done', 'failed', 'stopped'].includes(run.status)) return { ok: false, detail: `cannot steer a '${run.status}' run` };
+  if (!run.worktreePath) return { ok: false, detail: 'worktree gone (cleaned up)' };
+  if (!run.sessionId) return { ok: false, detail: 'no agent session on this run (dry-run runs cannot be steered)' };
+
+  const wt = run.worktreePath;
+  const exists = await runShellOn(ctx.machine, `test -d ${shq(wt)} && echo yes`, 8000);
+  if (!exists.stdout.includes('yes')) return { ok: false, detail: 'worktree missing on machine' };
+
+  await setRun(runId, { status: 'running', endedAt: null });
+  await recordEvent(runId, 'steer', message.slice(0, 2000));
+
+  const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
+  const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
+  const resume = `${config.agent.bin} -p --resume ${shq(run.sessionId)} ${shq(message)}` +
+    ` --output-format stream-json --verbose --permission-mode ${config.agent.perm}`;
+  const cmd = `cd ${shq(wt)} && ${pidPrefix}{ ${resume}; }`;
+  void runAgentChild(runId, ctx.machine, wt, cmd);
+  return { ok: true, detail: 'steering' };
 }
 
 /** 터미널 attach 용 — run 의 머신 타깃 + tmux 세션명. */

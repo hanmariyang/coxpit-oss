@@ -239,6 +239,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <div class="pane-c"><pre class="diff" id="mDiff">loading…</pre></div>
       </div>
     </div>
+    <div class="modal-f" id="steerRow" style="border-top:1px solid var(--line)">
+      <input id="steerInput" placeholder="Send follow-up instructions — continues in the same session &amp; worktree…" style="flex:1" />
+      <button class="btn sm" id="steerSend">Steer</button>
+    </div>
     <div class="modal-f">
       <button class="btn-ghost sm" id="mTerm">Terminal</button>
       <button class="btn-ghost sm" id="mRefreshDiff">Refresh diff</button>
@@ -424,6 +428,8 @@ function paintModal(){
   chip.style.borderColor = statusColor(r.status);
   $('mChipTxt').textContent = r.status||'pending';
   $('mStop').style.display = (r.status==='running'||r.status==='preparing'||r.status==='pending') ? '' : 'none';
+  // steer 는 정착한 real run 에서만 의미(드라이런은 세션 없음 — 서버가 사유와 함께 거절)
+  $('steerRow').style.display = ['done','failed','stopped'].includes(r.status) ? '' : 'none';
   $('mTimeline').innerHTML = (r.events||[]).map(e =>
     '<div class="ev"><span class="k">'+esc(e.kind)+'</span><span class="t">'+esc(summarize(e.kind,e.payload))+'</span></div>'
   ).join('') || '<span style="color:var(--faint)">no events yet</span>';
@@ -449,6 +455,16 @@ $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
 document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
+async function sendSteer(){
+  if (openRunId==null) return;
+  const msg = $('steerInput').value.trim(); if(!msg) return;
+  const res = await fetch('/api/runs/'+openRunId+'/steer',{method:'POST',
+    headers:{'content-type':'application/json'}, body:JSON.stringify({message:msg})});
+  if (res.ok){ $('steerInput').value=''; }
+  else { const j = await res.json().catch(()=>({})); alert('steer: '+(j.detail||res.status)); }
+}
+$('steerSend').addEventListener('click', sendSteer);
+$('steerInput').addEventListener('keydown',(e)=>{ if(e.key==='Enter') sendSteer(); });
 $('mStop').addEventListener('click', async ()=>{
   if (openRunId==null) return;
   await fetch('/api/runs/'+openRunId+'/stop',{method:'POST'});
