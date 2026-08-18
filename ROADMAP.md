@@ -14,7 +14,7 @@ Coxpit's goal is simple: prove that a self-hosted, owner-first agent-fleet cockp
 
 ## v2.2 — daily driver
 
-- Mid-run steering: send follow-up instructions to a running agent (beyond terminal attach)
+- [x] Steering: follow-up instructions to a settled run (same session + worktree)
 - PR mode: open a pull request from a winning run instead of direct merge
 - Provider interface + a second agent CLI (prove the seam)
 - Mobile pass on the board (steer from a phone, for real)
