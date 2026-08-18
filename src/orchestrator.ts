@@ -155,8 +155,12 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
       const s = line.trim();
       if (!s) return;
       let kind = 'log';
+      let stored = s;
       try {
-        const obj = JSON.parse(s) as { type?: string; result?: string; session_id?: string };
+        const obj = JSON.parse(s) as {
+          type?: string; subtype?: string; model?: string; result?: string; session_id?: string;
+          message?: { content?: Array<{ type?: string; text?: string; name?: string; input?: Record<string, unknown> }> };
+        };
         if (obj.type) kind = obj.type;
         // steer(--resume) 용 세션 키 캡처
         if (obj.type === 'system' && typeof obj.session_id === 'string') {
@@ -164,8 +168,28 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
         }
         // result 이벤트의 사람이 읽는 요약만 뽑아 둔다(없으면 원본 라인).
         if (obj.type === 'result') lastResult = typeof obj.result === 'string' ? obj.result : s;
-      } catch { /* 비-JSON 로그 라인 */ }
-      void recordEvent(runId, kind, s.slice(0, 2000));
+        // 2000자 초과 이벤트는 자르면 JSON 이 깨져 잔해가 화면에 노출된다 —
+        // 저장 전에 "요지만 남긴" 유효 JSON 으로 압축한다.
+        if (s.length > 2000) {
+          if (obj.type === 'assistant' && obj.message) {
+            const content = (obj.message.content ?? [])
+              .filter((c) => c.type === 'text' || c.type === 'tool_use')
+              .map((c) => c.type === 'text'
+                ? { type: 'text', text: (c.text ?? '').slice(0, 600) }
+                : { type: 'tool_use', name: c.name, input: compactInput(c.input) });
+            stored = JSON.stringify({ type: 'assistant', message: { content } }).slice(0, 2000);
+          } else if (obj.type === 'user') {
+            stored = JSON.stringify({ type: 'user' }); // tool 결과 회신 — 표시 안 함
+          } else if (obj.type === 'system') {
+            stored = JSON.stringify({ type: 'system', subtype: obj.subtype, model: obj.model });
+          } else if (obj.type === 'result') {
+            stored = JSON.stringify({ type: 'result', result: (obj.result ?? '').slice(0, 1500) });
+          } else {
+            stored = s.slice(0, 2000);
+          }
+        }
+      } catch { stored = s.slice(0, 2000); /* 비-JSON 로그 라인 */ }
+      void recordEvent(runId, kind, stored.slice(0, 2000));
     });
   }
   if (child.stderr) {
@@ -190,6 +214,16 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
   const exitSummary = wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`;
   await setRun(runId, { status, endedAt: new Date(), filesChanged, exitSummary });
   void notifySettle(runId, status, filesChanged, exitSummary);
+}
+
+/** tool_use input 을 표시용 핵심 필드만 남긴다(이벤트 압축용). */
+function compactInput(input?: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!input) return out;
+  for (const k of ['file_path', 'command', 'path', 'pattern', 'url']) {
+    if (typeof input[k] === 'string') out[k] = (input[k] as string).slice(0, 200);
+  }
+  return out;
 }
 
 /** run 정착 웹훅(선택) — COXPIT_WEBHOOK_URL 로 JSON POST. 실패는 무해. */

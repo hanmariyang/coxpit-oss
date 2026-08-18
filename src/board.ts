@@ -610,7 +610,11 @@ function humanize(e){
   if (kind === 'stderr') return { k:'stderr', t:payload };
   try{
     const o = JSON.parse(payload);
-    if (o.type === 'system') return { k:'session', t:'started · '+(o.model||o.subtype||'') };
+    if (o.type === 'system'){
+      if (o.subtype === 'init' || !o.subtype) return { k:'session', t:'started'+(o.model?' · '+o.model:'') };
+      if (o.subtype === 'permission_denied') return { k:'denied', t:'⛔ '+(o.tool_name||o.tool||'tool use')+' blocked — attach the Terminal to approve, or widen COXPIT_AGENT_PERM' };
+      return null; // thinking_tokens 등 스트림 잡음
+    }
     if (o.type === 'user') return null; // tool 결과 회신 — 노이즈
     if (o.type === 'assistant' && o.message){
       const parts = [];
@@ -628,7 +632,17 @@ function humanize(e){
     if (o.type === 'result') return { k:'done', t:o.result || 'finished' };
     if (kind === 'meta') return { k:'start', t:'worktree '+String(o.worktree||'').split('/').slice(-2).join('/') };
     return { k:kind, t:payload.slice(0,140) };
-  }catch{ return { k:kind, t:payload }; }
+  }catch{
+    // 파싱 실패(과거에 잘려 저장된 이벤트 등) — JSON 잔해를 그대로 보여주지 않는다:
+    // text 조각만 구제하고, 없으면 생략.
+    if (payload.trim().startsWith('{')){
+      const texts = [];
+      const re = /"text":"((?:[^"\\\\]|\\\\.)*)"/g; let m;
+      while ((m = re.exec(payload)) && texts.length < 2) texts.push(m[1].replace(/\\\\n/g,' ').slice(0,140));
+      return texts.length ? { k:'said', t:texts.join(' · ') } : null;
+    }
+    return { k:kind, t:payload };
+  }
 }
 function humanLines(events){
   const out = [];
