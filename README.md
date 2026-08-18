@@ -75,6 +75,7 @@ Your keys and login never touch coxpit's config or database.
 | `COXPIT_CODEX_BIN` | `codex` | Codex CLI command (optional second provider) |
 | `COXPIT_CODEX_SANDBOX` | `workspace-write` | Codex sandbox policy (`danger-full-access` for full autonomy) |
 | `COXPIT_WEBHOOK_URL` | — | POSTs `{event:"run.settled",run:{...}}` when a run finishes — wire it to Telegram, Slack, anything |
+| `COXPIT_PUBLIC_URL` | — | if set, the webhook payload adds `url: <base>/?run=<id>` — tap it on your phone and the board opens that run |
 
 Running on the open internet? Put it behind your own front door (Tailscale, Cloudflare Access, a reverse proxy with TLS) and keep basic auth on — it exposes shells.
 

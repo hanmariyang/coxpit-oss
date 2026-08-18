@@ -218,6 +218,8 @@ async function notifySettle(runId: number, status: string, filesChanged: number,
       body: JSON.stringify({
         event: 'run.settled',
         run: { id: runId, status, filesChanged, exitSummary: exitSummary.slice(0, 300), task: tr[0]?.title ?? '' },
+        // COXPIT_PUBLIC_URL 설정 시 폰에서 탭 → 보드가 그 run 모달을 딥링크로 연다
+        ...(config.publicUrl ? { url: `${config.publicUrl}/?run=${runId}` } : {}),
       }),
       signal: AbortSignal.timeout(8000),
     });

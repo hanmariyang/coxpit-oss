@@ -65,6 +65,8 @@ export const config = {
   sshKey: process.env.COXPIT_SSH_KEY ?? '',
   // run 정착 시 POST 할 웹훅(선택) — 텔레그램 브릿지 등 사용자 연결용.
   webhookUrl: process.env.COXPIT_WEBHOOK_URL ?? '',
+  // 웹훅 payload 의 딥링크 base(선택) — 설정 시 url: <base>/?run=<id> 포함 (폰에서 탭 → 그 run)
+  publicUrl: (process.env.COXPIT_PUBLIC_URL ?? '').replace(/\/+$/, ''),
   agent: {
     // 기본 드라이런(모의 에이전트). 실제 CLI 실행은 켤 때만(크레딧 소모).
     real: process.env.COXPIT_AGENT_REAL === '1',

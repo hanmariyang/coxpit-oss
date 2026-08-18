@@ -44,6 +44,7 @@ HPID=$!
 
 # boot daemon (dry-run agent, auth off, 웹훅 연결)
 COXPIT_AUTH_DISABLED=1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" COXPIT_WEBHOOK_URL="http://127.0.0.1:$HOOKPORT/" \
+  COXPIT_PUBLIC_URL="http://board.example:9999/" \
   node --import tsx "$ROOT/src/index.ts" >"$WORK/daemon.log" 2>&1 &
 DPID=$!
 for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
@@ -53,7 +54,9 @@ pass "daemon boots, health ok"
 # (보드가 커서 grep -q 조기종료→SIGPIPE→pipefail 오탐 — 파이프 없이 패턴 매칭)
 BOARD_HTML=$(curl -s "$B/")
 case "$BOARD_HTML" in *'<title>coxpit'*) : ;; *) fail "board not served";; esac
-pass "board served"
+case "$BOARD_HTML" in *'id="menuBtn"'*) : ;; *) fail "mobile drawer button missing";; esac
+case "$BOARD_HTML" in *'openFromURL'*) : ;; *) fail "deep-link handler missing";; esac
+pass "board served (with mobile drawer + deep-link)"
 
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
@@ -121,7 +124,8 @@ pass "merge conflict auto-abort, base clean"
 sleep 1
 HOOKS=$(grep -c 'run.settled' "$WORK/hooks.log" 2>/dev/null || echo 0)
 [ "$HOOKS" -ge 2 ] || fail "webhook: expected >=2 run.settled, got $HOOKS"
-pass "settle webhook delivers run.settled"
+grep -q 'http://board.example:9999/?run=' "$WORK/hooks.log" || fail "webhook missing deep-link url (COXPIT_PUBLIC_URL)"
+pass "settle webhook delivers run.settled + deep-link url"
 
 # base sync: 이미 머지된 r1 은 up-to-date(ok), 충돌 상태 r2 는 409+conflict
 curl -sf -X POST "$B/api/runs/1/sync" | grep -q '"ok":true' || fail "sync r1 clean"

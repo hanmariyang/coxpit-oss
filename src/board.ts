@@ -4,7 +4,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>coxpit · fleet</title>
 <link rel="stylesheet" href="/vendor/xterm.css" />
 <style>
@@ -295,22 +295,51 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   #xterm{width:100%;height:100%}
   .term-hint{font-family:var(--mono);font-size:11px;color:var(--faint)}
 
+  /* ── mobile · the pocket pass ───────────── */
+  .menu-btn{display:none;font-size:15px;padding:5px 10px}
+  .scrim{position:fixed;inset:0;top:54px;background:rgba(5,7,10,.5);z-index:29;display:none}
   @media (max-width:860px){
-    .layout{grid-template-columns:1fr}
-    aside{border-right:none;border-bottom:1px solid var(--line)}
-    .modal-b{grid-template-columns:1fr}
+    .layout{grid-template-columns:1fr;min-height:calc(100dvh - 55px)}
+    /* 사이드바 = 오프캔버스 드로어 — 플릿이 첫 화면, 런처는 ☰ 뒤에 */
+    .menu-btn{display:inline-flex}
+    aside{position:fixed;top:54px;bottom:0;left:0;width:min(86vw,340px);z-index:30;
+      transform:translateX(-103%);transition:transform .22s ease;overflow-y:auto;
+      -webkit-overflow-scrolling:touch;box-shadow:var(--shadow)}
+    aside.open{transform:translateX(0)}
+    .scrim.on{display:block}
+    header{padding:0 12px;gap:9px}
+    .brand .sub,.daemon-badge,.machines{display:none}
+    main{padding:14px}
+    .grid{grid-template-columns:1fr}
+    /* 모달 = 풀블리드 */
+    .overlay.open{padding:0}
+    .modal,.modal.wide{width:100%;height:100dvh;max-height:none;border:none;border-radius:0}
+    .modal-b{grid-template-columns:1fr;grid-template-rows:1fr 1fr}
     .pane{border-right:none;border-bottom:1px solid var(--line)}
+    .modal-f{flex-wrap:wrap;padding:10px 12px}
+    #steerRow .seg{flex:0 0 108px}
+    /* iOS: 16px 미만 input 포커스 시 강제 줌 — 폰에서만 16px 로 */
+    input,textarea,select,.dd-btn{font-size:16px}
+    /* 온보딩 패널이 좁은 화면을 넘치지 않게 */
+    .empty{padding:24px 0}
+    .setup{max-width:100%;width:100%;margin:8px 0}
+    .chk .v{min-width:0}
+    .cmp{flex-direction:column;overflow-y:auto;overflow-x:hidden}
+    .cmp-col{min-width:0;border-right:none;border-bottom:1px solid var(--line);flex:0 0 auto;max-height:72vh}
   }
+  @media (prefers-reduced-motion:reduce){aside{transition:none}}
 </style>
 </head>
 <body>
 <header>
+  <button class="btn-ghost sm menu-btn" id="menuBtn" aria-label="open launcher">☰</button>
   <div class="brand"><span class="mark">coxpit</span><span class="sub">fleet console</span></div>
   <span class="daemon-badge" id="daemonBadge" style="display:none"></span>
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles">🔕</button>
   <div class="machines" id="machines"></div>
 </header>
+<div class="scrim" id="scrim"></div>
 <div class="layout">
   <aside>
     <div class="sect">
@@ -868,10 +897,12 @@ function notifySettleUI(ev){
   if (!notifyOn) return;
   const t = tasks.get(ev.taskId ?? (runs.get(ev.runId)||{}).taskId);
   try {
-    new Notification('coxpit · r'+ev.runId+' '+ev.status, {
+    const n = new Notification('coxpit · r'+ev.runId+' '+ev.status, {
       body: (t ? t.title+' — ' : '') + (ev.filesChanged??0)+' file(s) changed',
       tag: 'coxpit-r'+ev.runId,
     });
+    // 딥링크 — 알림 탭이 곧 그 run 의 모달
+    n.onclick = ()=>{ try{ window.focus(); }catch{} if (runs.has(ev.runId)) openModal(ev.runId); n.close(); };
   } catch {}
 }
 
@@ -1323,6 +1354,7 @@ $('repoForm').addEventListener('submit', async (e)=>{
 });
 $('taskForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
+  setDrawer(false); // 모바일: 발사하면 드로어를 닫고 플릿을 보여준다
   if (lTab === 'goal') return submitGoal();
   if (lTab === 'bench') return submitBench();
   const repoId = Number($('taskRepo').value);
@@ -1371,7 +1403,21 @@ let savedAgent = null;
 try { savedAgent = localStorage.getItem('coxpit.agent'); } catch {}
 if (savedAgent === 'codex') setProvider('codex', false);
 
-hydrate().then(connectWS);
+/* ── mobile drawer ── */
+const asideEl = document.querySelector('aside');
+function setDrawer(on){ asideEl.classList.toggle('open', on); $('scrim').classList.toggle('on', on); }
+$('menuBtn').addEventListener('click', ()=>setDrawer(!asideEl.classList.contains('open')));
+$('scrim').addEventListener('click', ()=>setDrawer(false));
+
+/* 딥링크 — /?run=N 이면 하이드레이션 후 그 run 모달을 연다 (웹훅 링크·알림용) */
+function openFromURL(){
+  const q = new URLSearchParams(location.search).get('run');
+  const id = Number(q);
+  if (q && runs.has(id)){ openModal(id); }
+  if (q) history.replaceState(null, '', location.pathname);
+}
+
+hydrate().then(()=>{ connectWS(); openFromURL(); });
 </script>
 </body>
 </html>`;

@@ -41,17 +41,22 @@ The architectural milestone: Coxpit orchestrates *agents*, not *an agent*.
 - [x] Mixed fleets: same task fanned across both providers, compared side by side
 - [x] Per-launch provider choice in the launcher; the card badge is the agent name
 
-### v3.6 — the pocket pass
+### v3.6 — the pocket pass *(shipped)*
 Steer the fleet from a phone, for real. No native app — the board itself earns it.
 
-- [ ] Mobile layout pass on the board (cards, run detail, compare)
-- [ ] Steer + Ask from mobile; settle notifications that deep-link back to the run
-- [ ] Terminal on mobile: read-only first, then input if it proves usable
+- [x] Mobile layout pass: the launcher becomes an off-canvas drawer, cards go
+      single-column, modals go full-bleed with Timeline stacked over Diff
+- [x] Steer + Ask from mobile; deep links — `/?run=N` opens that run, browser
+      notifications land on it, and `COXPIT_PUBLIC_URL` puts a tappable link
+      in the settle webhook
+- [x] Terminal opens full-screen on a phone (view/scroll); a dedicated mobile
+      input pass remains below
 
 ### v3.7 — richer review
 - [ ] Doc mode: side-by-side rendered output (Markdown/HTML) for non-code runs
 - [ ] Diff comments: annotate a diff line, send the annotation back as a steer
 - [ ] Design Mode captures with screenshots (element crop, not just HTML/CSS)
+- [ ] Mobile terminal input pass (software keyboard, IME)
 
 ### v4.0 — reach
 - [ ] Open a run from a GitHub issue/PR reference (paste a URL, get a worktree)

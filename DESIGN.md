@@ -51,6 +51,9 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Terminal | full-screen view, xterm themed with tokens | not a modal — `#termOverlay` fills the viewport (padding 0, no radius); background `--bg`, cursor `--brand`; CJK-safe font stack + unicode11 widths; Esc or × closes |
 | Terminal tabs | `.term-tabs` / `.ttab` in the terminal header | every live session (`running`·`open`) is a tab — switch sessions without leaving the terminal; active tab = `--brand` border; re-rendered on every board update |
 | Provider seg | `#provSeg` in the Task panel | Claude/Codex per launch (persisted in localStorage); Task tab only — the Goal planner and Workbench are provider-neutral; cards already carry the agent name as the badge |
+| Mobile drawer | `.menu-btn` + `aside.open` + `.scrim` (≤860px) | the fleet is the first screen; the launcher slides in from the left and closes itself on launch — never a stacked sidebar above the cards |
+| Mobile modals | full-bleed at ≤860px | run modal stacks Timeline over Diff (1fr/1fr rows); compare columns stack vertically; footers wrap; inputs go 16px (iOS focus-zoom guard) |
+| Deep link | `/?run=N` + notification `onclick` | any surface (webhook message, browser notification) can land directly on a run modal; the param is consumed then stripped from the URL |
 
 ## Interaction rules
 
