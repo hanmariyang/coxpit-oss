@@ -180,6 +180,63 @@ Guardrails held: greenfield is an **explicit action**, never a side effect of
 Register (someone's folder is never turned into a repo by surprise); the empty
 initial commit is a clean base so merge stays clean.
 
+### v4.6 — the Goal workroom *(shipped — [design/v4.6-goal-workroom.md](design/v4.6-goal-workroom.md))*
+A room per Goal, opened from the group band: aggregate sibling runs, spawn attempts,
+broadcast a follow-up to settled runs, and a read-only Ask coordinator (Work/Ask).
+
+### v4.7 — deliverables & the converge workroom *(shipped — [design/v4.7-deliverables-workroom.md](design/v4.7-deliverables-workroom.md))*
+Tasks declare required outputs; runs pin them as typed **output cards** with real
+per-type viewers (rendered markdown, live sandboxed HTML, colored diff, image). The
+Goal workroom becomes a per-run **converge** panel (review / steer / merge / close).
+Plus: closed-task terminal fix and a **reclaim orphaned worktrees** maintenance action.
+
+### v4.8 — access-key auth & the icon system *(shipped — [design/v4.8-auth-and-icons.md](design/v4.8-auth-and-icons.md))*
+The Basic-Auth popup is replaced by a branded, owner-first **access key** (no accounts,
+no username) with first-run setup — and it only engages **when exposed** (localhost is
+zero-friction). Signed session cookie, rate-limit, anti-claim. Lucide icon system
+(inlined, ISC) replaces system emoji across the board + login.
+
+### v5.0 — the console redesign *(planned — approved 시안, spec TBD)*
+The milestone theme: **the left rail stops being a permanent compose form and becomes a
+navigator; launching becomes a focused action.** Approved direction (Direction A) —
+mockup lives with the maintainer; a `design/v5.0-*.md` spec will precede implementation.
+
+Core redesign:
+- [ ] **Navigator rail** — machine switcher + a **repo list** (each row shows its active-run
+      count, click to scope the board) + view nav (**Active / Goals / Archive**, moved out of
+      the header). The rail is scannable, repo-centric, calm.
+- [ ] **Launch is an action** — `＋ New` opens a focused **compose sheet** with
+      **Task / Goal / Workbench** tabs; the optional fields (provider is up front; model /
+      design capture / **deliverables**) sit under a progressive "Options" reveal. Task →
+      Run fleet, Goal → Plan & run, Workbench → Open workbench.
+- [ ] **Pocket board** — the mobile drawer becomes just the navigator; a `＋` FAB opens the
+      compose sheet. Fixes the "dense form crammed into a drawer" problem.
+
+Adjacent polish (same milestone):
+- [ ] **⌘K command palette** — switch repo, New task, jump to a run — keyboard-first (the
+      cockpit is repetitive; this is high-leverage).
+- [ ] **Active vs Goals boundary** — Active = all active runs (flat); Goals = the group
+      bands / converge entry; Archive = closed. Clarify the overlap.
+- [ ] **Collapsible rail** (icon-only) for maximum board space (VS Code activity-bar style).
+- [ ] **Repo-row status signals** — the active-run badge plus an attention dot when a repo
+      has failed/dirty work needing a hand.
+- [ ] **Empty-state onboarding** — no repo registered → the rail guides "Add your first
+      repository" (wire to the existing readiness panel).
+- [ ] Optional: `＋ New ▾` split menu (one-click type shortcut) alongside the sheet tabs.
+
+Fixes folded into 5.0:
+- [ ] **Compare AI review has room** — today the review is a squeezed band above the diff
+      columns (`.cmp-review` has no dedicated scroll/height), so a long review is hard to
+      read. Give it its own full-height, scrollable space (reuse the Answer viewer, or a
+      review mode that replaces the diff columns) — no more tiny band.
+- [ ] **English sweep** — the deliverables/contract + converge labels leaked Korean from the
+      design mocks; normalize to English (Answer/Code/Doc/Page/File · Required/Extra ·
+      Review/Steer/Merge/Close) since the product ships in English.
+
+Sequencing: develop as e2e-green commits on main (rail → sheet → mobile → palette → the
+polish + fixes), then cut **5.0** once the redesign lands — the major bump signals the new
+console. Design-as-Fable / build-as-Opus continues.
+
 ## Non-goals
 
 - Vendoring or wrapping agent CLIs — external tools stay external (`git`, `tmux`, the agent)
