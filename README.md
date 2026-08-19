@@ -139,3 +139,5 @@ issues privately per **[SECURITY.md](SECURITY.md)** (Coxpit exposes shells).
 ## License
 
 MIT
+
+Icons — [Lucide](https://lucide.dev) (ISC). Paths are inlined as an SVG `<symbol>` sprite (no runtime dependency); the ISC notice is kept in [`licenses/lucide.txt`](licenses/lucide.txt).

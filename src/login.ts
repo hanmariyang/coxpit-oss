@@ -1,6 +1,7 @@
 // 브랜디드 접근키 언락/셋업 페이지(단일 자가완결 HTML — 빌드 0, 보드 토큰 매치).
 // 브라우저 basic-auth 팝업을 대체한다. fetch 로 A2/A3 엔드포인트 POST → 성공 시 보드로 reload.
 // setup=true → 첫 실행(키 설정, confirm 필드+토큰 힌트), false → 언락(키 1개).
+import { ICON_SPRITE, ICON_CSS } from './icons.js';
 
 /** login/setup 페이지 HTML. setup 이면 셋업(키+확인), 아니면 언락. */
 export function loginPageHTML(setup: boolean): string {
@@ -54,11 +55,15 @@ export function loginPageHTML(setup: boolean): string {
   .ft{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);text-align:center}
   .ft a{color:var(--faint);text-decoration:none;font-size:11.5px}
   .ft a:hover{color:var(--muted)}
+  ${ICON_CSS}
+  .mark .ic{width:18px;height:18px}
+  .btn .ic{width:16px;height:16px}
 </style>
 </head>
 <body>
+${ICON_SPRITE}
   <form class="card" id="f" autocomplete="off">
-    <div class="mark"><span class="glyph">${setup ? '&#128272;' : '&#128274;'}</span><span>coxpit</span></div>
+    <div class="mark"><svg class="ic"><use href="#i-lock"/></svg><span>coxpit</span></div>
     <h1>${setup ? 'Protect this coxpit' : 'Unlock this coxpit'}</h1>
     <p class="sub">${setup
       ? 'Set an access key. You&#39;ll enter it once per device — no accounts, no username.'
@@ -74,7 +79,7 @@ export function loginPageHTML(setup: boolean): string {
     ${setup ? `<div class="fld"><label class="flabel" for="key2">confirm access key</label>
       <input id="key2" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password"></div>` : ''}
     <label class="row"><input id="rem" type="checkbox"${setup ? ' checked' : ''}><span>Remember this device</span></label>
-    <button class="btn" id="go" type="submit"><span class="glyph">${setup ? '&#128272;' : '&#128275;'}</span><span>${setup ? 'Set key &amp; enter' : 'Unlock'}</span></button>
+    <button class="btn" id="go" type="submit"><svg class="ic"><use href="#i-${setup ? 'lock' : 'unlock'}"/></svg><span>${setup ? 'Set key &amp; enter' : 'Unlock'}</span></button>
     <div class="ft"><a href="https://github.com/hanmariyang/coxpit-oss#remote-access" target="_blank" rel="noopener">Fronting with Cloudflare Access / Tailscale? &rarr;</a></div>
   </form>
 <script>

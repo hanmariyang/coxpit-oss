@@ -8,3 +8,6 @@ dist/
 
 # local dev notes (batch-fix backlog) — never publish
 /BACKLOG.md
+
+# local reference mocks (not part of the product)
+scratchpad/

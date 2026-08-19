@@ -102,6 +102,18 @@ case "$BOARD_HTML" in *'function selectedOutputs'*) : ;; *) fail "selectedOutput
 case "$BOARD_HTML" in *'class="ochip" data-out="answer"'*) : ;; *) fail "deliverable chips missing";; esac
 pass "board serves outputs cards + real viewers + request-side deliverables selector"
 
+# v4.8 Part B — Lucide icon sprite + .ic usage inline in the board (no CDN, CSP-safe)
+case "$BOARD_HTML" in *'id="i-terminal"'*) : ;; *) fail "icon sprite: #i-terminal symbol missing";; esac
+case "$BOARD_HTML" in *'id="i-lock"'*) : ;; *) fail "icon sprite: #i-lock symbol missing";; esac
+case "$BOARD_HTML" in *'id="i-recycle"'*) : ;; *) fail "icon sprite: #i-recycle symbol missing";; esac
+case "$BOARD_HTML" in *'id="i-alert-triangle"'*) : ;; *) fail "icon sprite: #i-alert-triangle symbol missing";; esac
+case "$BOARD_HTML" in *'class="ic"'*) : ;; *) fail "icon .ic usage missing from board";; esac
+case "$BOARD_HTML" in *'use href="#i-x"'*) : ;; *) fail "icon <use href=#i-x> not wired in board";; esac
+case "$BOARD_HTML" in *'.ic{width:1em'*) : ;; *) fail ".ic CSS (currentColor stroke) missing";; esac
+# replaced system emoji must be gone from the served board (spot-check a couple)
+case "$BOARD_HTML" in *'🔗'*|*'♻'*|*'🔕'*|*'◆ 리뷰'*) fail "replaced emoji still present in served board";; *) : ;; esac
+pass "board inlines Lucide sprite + .ic usage; replaced emoji gone"
+
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
 pass "local machine probe ready"
@@ -791,7 +803,12 @@ case "$LOGIN" in *'Unlock this coxpit'*) : ;; *) fail "login page not served on 
 # no username INPUT field (the copy may say "no username" as a feature — that's fine)
 case "$LOGIN" in *'type="text"'*|*'name="user"'*|*'id="user"'*|*'autocomplete="username"'*) fail "login page must not have a username input";; *) : ;; esac
 case "$LOGIN" in *'access key'*) : ;; *) fail "login page missing access-key field";; esac
-pass "unauth HTML GET serves branded unlock page (key-only, no username input)"
+# v4.8 Part B — login page uses the Lucide sprite (lock/unlock), no OS emoji
+case "$LOGIN" in *'id="i-lock"'*) : ;; *) fail "login page missing #i-lock sprite symbol";; esac
+case "$LOGIN" in *'id="i-unlock"'*) : ;; *) fail "login page missing #i-unlock sprite symbol";; esac
+case "$LOGIN" in *'class="ic"'*) : ;; *) fail "login page missing .ic icon usage";; esac
+case "$LOGIN" in *'🔒'*|*'🔓'*|*'🔐'*) fail "login page still uses OS lock emoji";; *) : ;; esac
+pass "unauth HTML GET serves branded unlock page (key-only, no username input, Lucide icons)"
 
 # v4.8 — /api/auth/unlock: right key → 200 + Set-Cookie coxpit_sess; wrong key → 401
 UNLOCK=$(curl -s -D - -o /dev/null -X POST "$B/api/auth/unlock" -H 'content-type: application/json' -d '{"key":"pw-e2e","remember":true}')

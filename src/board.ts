@@ -1,5 +1,7 @@
 // 데몬이 서빙하는 단일 페이지 플릿 콘솔(빌드 스텝 0, 자가완결).
 // /api/fleet 로 하이드레이트 → /ws 구독 델타 → run 상세(타임라인·diff·터미널)·비교/머지.
+import { ICON_SPRITE, ICON_CSS, ICON_JS_HELPER } from './icons.js';
+
 export const BOARD_HTML = /* html */ `<!doctype html>
 <html lang="en">
 <head>
@@ -400,7 +402,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .rmt-tbl th{color:var(--faint);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em}
   .rmt-tbl code{font-family:var(--mono);font-size:10.5px;color:var(--brand);white-space:nowrap}
   .rmt-tbl .star{color:var(--brand)}
-  /* header 🔗 affordance shares the ghost-button look */
+  /* header remote-access affordance shares the ghost-button look */
 
   /* ── toasts ─────────────────────────────── */
   .toasts{position:fixed;top:66px;right:18px;z-index:60;display:flex;flex-direction:column;gap:8px;
@@ -529,6 +531,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .ocard.miss{opacity:.72;border-style:dashed;cursor:default}
   .ocard.miss:hover{transform:none;border-color:var(--line)}
   .ocard .og{font-size:15px;line-height:1;flex:0 0 auto;width:20px;text-align:center;color:var(--muted)}
+  .ocard.miss .og{color:var(--s-preparing)}
   .ocard .ob{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
   .ocard .ot{font-family:var(--sans);font-size:12.5px;color:var(--ink);font-weight:600;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -603,9 +606,11 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     .cmp-col{min-width:0;border-right:none;border-bottom:1px solid var(--line);flex:0 0 auto;max-height:72vh}
   }
   @media (prefers-reduced-motion:reduce){aside{transition:none}}
+  ${ICON_CSS}
 </style>
 </head>
 <body>
+${ICON_SPRITE}
 <header>
   <button class="btn-ghost sm menu-btn" id="menuBtn" aria-label="open launcher">☰</button>
   <div class="brand"><span class="mark">coxpit</span><span class="sub">fleet console</span></div>
@@ -615,8 +620,8 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     <button type="button" class="seg-opt" data-view="archive">Archive <span id="archN" class="seg-hint"></span></button>
   </div>
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
-  <button class="btn-ghost sm" id="bell" title="notify when a run settles">🔕</button>
-  <button class="btn-ghost sm" id="remoteBtn" title="reach this daemon from elsewhere (Tailscale · recipes)">🔗</button>
+  <button class="btn-ghost sm" id="bell" title="notify when a run settles"><svg class="ic"><use href="#i-bell-off"/></svg></button>
+  <button class="btn-ghost sm" id="remoteBtn" title="reach this daemon from elsewhere (Tailscale · recipes)"><svg class="ic"><use href="#i-external-link"/></svg></button>
   <div class="machines" id="machines"></div>
 </header>
 <div class="scrim" id="scrim"></div>
@@ -632,8 +637,8 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <button type="button" class="btn-ghost sm" id="repoBrowse" style="flex:1">Browse…</button>
         <button type="button" class="btn-ghost sm" id="repoNew" style="flex:0 0 auto" title="start a new project — empty folder in, scaffolded repo out">New</button>
         <button type="button" class="btn-ghost sm" id="repoManual" style="flex:0 0 auto" title="type an absolute path">Path</button>
-        <button type="button" class="btn-ghost sm" id="repoBranch" style="flex:0 0 auto" title="change the base branch — merges, Sync base and PRs all target it">⎇</button>
-        <button type="button" class="btn-ghost sm" id="repoRemove" style="flex:0 0 auto" title="remove selected repository from coxpit">×</button>
+        <button type="button" class="btn-ghost sm" id="repoBranch" style="flex:0 0 auto" title="change the base branch — merges, Sync base and PRs all target it"><svg class="ic"><use href="#i-branch"/></svg></button>
+        <button type="button" class="btn-ghost sm" id="repoRemove" style="flex:0 0 auto" title="remove selected repository from coxpit"><svg class="ic"><use href="#i-x"/></svg></button>
       </div>
       <form id="repoForm" hidden>
         <div class="row">
@@ -687,7 +692,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <input type="checkbox" id="taskReal" hidden />
         <div class="row">
           <input id="taskCount" class="narrow" type="number" min="1" max="8" value="1" title="agents — 1 for a job, N to explore variants" />
-          <button class="btn" type="submit" id="runFleetBtn">Run fleet</button>
+          <button class="btn" type="submit" id="runFleetBtn"><svg class="ic"><use href="#i-play"/></svg> Run fleet</button>
         </div>
       </form>
     </div>
@@ -714,7 +719,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <input id="archQ" placeholder="search title…" autocomplete="off" />
         <select id="archRepo"><option value="">all repos</option></select>
         <button type="button" class="btn-ghost sm" id="reclaimBtn" hidden
-          title="remove worktrees left by cleaned/failed runs — reclaims disk (active work untouched)">♻ Reclaim <span id="reclaimHint"></span></button>
+          title="remove worktrees left by cleaned/failed runs — reclaims disk (active work untouched)"><svg class="ic"><use href="#i-recycle"/></svg> Reclaim <span id="reclaimHint"></span></button>
       </div>
       <div id="archList"></div>
       <div style="text-align:center;margin-top:14px"><button class="btn-ghost sm" id="archMore" hidden>load 50 more</button></div>
@@ -728,7 +733,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <span class="rid" id="mRid"></span>
       <span class="title" id="mTitle"></span>
       <span class="chip" id="mChip"><i></i><span id="mChipTxt"></span></span>
-      <button class="x" id="mClose" aria-label="close">×</button>
+      <button class="x" id="mClose" aria-label="close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
     <div class="contract" id="mContract" hidden></div>
     <div class="modal-b">
@@ -753,14 +758,14 @@ export const BOARD_HTML = /* html */ `<!doctype html>
         <button type="button" class="seg-opt" data-mode="ask">Ask</button>
       </div>
       <input id="steerInput" placeholder="Next instruction — same session &amp; worktree…" style="flex:1" />
-      <button class="btn sm" id="steerSend">Send</button>
+      <button class="btn sm" id="steerSend"><svg class="ic"><use href="#i-pencil"/></svg> Send</button>
     </div>
     <div class="modal-f">
-      <button class="btn-ghost sm" id="mTerm">Terminal</button>
-      <button class="btn-ghost sm" id="mRefreshDiff">Refresh outputs</button>
+      <button class="btn-ghost sm" id="mTerm"><svg class="ic"><use href="#i-terminal"/></svg> Terminal</button>
+      <button class="btn-ghost sm" id="mRefreshDiff"><svg class="ic"><use href="#i-refresh"/></svg> Refresh outputs</button>
       <button class="btn-ghost sm" id="mCompare">Compare runs</button>
-      <button class="btn-ghost sm" id="mExport">Export files…</button>
-      <button class="btn-ghost sm" id="mSync">Sync base</button>
+      <button class="btn-ghost sm" id="mExport"><svg class="ic"><use href="#i-download"/></svg> Export files…</button>
+      <button class="btn-ghost sm" id="mSync"><svg class="ic"><use href="#i-branch"/></svg> Sync base</button>
       <button class="btn-ghost sm" id="mShare" title="create a read-only share link (no auth, snapshot view)">Share</button>
       <span class="spacer"></span>
       <button class="btn-danger sm" id="mStop">Stop</button>
@@ -776,7 +781,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <span class="rh-glyph">⌒</span>
       <span class="rh-t" id="roomTitle">Goal</span>
       <span class="rh-n" id="roomCount"></span>
-      <button class="x" id="roomClose" aria-label="close">×</button>
+      <button class="x" id="roomClose" aria-label="close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
     <div class="chips" id="roomChips"></div>
     <div class="gbar" id="roomGbar">
@@ -798,7 +803,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <div class="comp-hint" id="roomHint"></div>
       <textarea id="roomInput" placeholder="New attempt prompt, or a broadcast to the settled runs…"></textarea>
       <div class="verbs" id="roomVerbs">
-        <button type="button" class="btn-ghost sm" id="roomNew">＋ New attempt</button>
+        <button type="button" class="btn-ghost sm" id="roomNew"><svg class="ic"><use href="#i-plus"/></svg> New attempt</button>
         <button type="button" class="btn-ghost sm" id="roomBroadcast">→ Broadcast</button>
         <span class="grow"></span>
         <div class="conv-menu" id="roomConvMenu">
@@ -824,7 +829,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <button class="btn sm" id="cmpAI">AI review</button>
       <button class="btn-ghost sm" id="cmpDocsTgl">Rendered</button>
       <button class="btn-ghost sm" id="cmpRefresh">Refresh</button>
-      <button class="x" id="cmpClose" aria-label="close">×</button>
+      <button class="x" id="cmpClose" aria-label="close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
     <div class="cmp-review" id="cmpReview" hidden></div>
     <div class="cmp" id="cmpBody"></div>
@@ -838,7 +843,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <span class="title" id="termTitle">terminal</span>
       <div class="term-tabs" id="termTabs"></div>
       <span class="term-hint">tmux session · Ctrl-b d detaches · Esc closes</span>
-      <button class="x" id="termClose" aria-label="close">×</button>
+      <button class="x" id="termClose" aria-label="close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
     <div class="term-body"><div id="xterm"></div></div>
     <div class="term-ibar" id="termIbar">
@@ -860,12 +865,12 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <button class="btn-ghost sm" id="brwUp">↑ Up</button>
       <button class="btn-ghost sm" id="brwHome">Home</button>
       <span class="brw-path" id="brwPath"></span>
-      <button class="x" id="brwClose" aria-label="close">×</button>
+      <button class="x" id="brwClose" aria-label="close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
     <div class="brw-list" id="brwList"></div>
     <div class="brw-f">
       <span class="hint"><span style="color:var(--brand)">git</span> badge = repo (Register) · empty folder = Start here</span>
-      <button class="btn-ghost sm" id="brwNewFolder">＋ New folder here</button>
+      <button class="btn-ghost sm" id="brwNewFolder"><svg class="ic"><use href="#i-plus"/></svg> New folder here</button>
       <button class="btn sm" id="brwRegHere" style="display:none">Register this folder</button>
     </div>
     <form class="brw-f" id="brwNewForm" hidden>
@@ -983,13 +988,14 @@ let remoteAuthOpen = false; // true = no password → Funnel guard on (from /api
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const escA = (s) => esc(s).replace(/"/g, '&quot;');
+${ICON_JS_HELPER}   // ic('x') → '<svg class="ic"><use href="#i-x"/></svg>' (Lucide 스프라이트)
 const statusColor = (s) => 'var(--s-' + (s||'pending') + ', var(--muted))';
 
 /* ── custom toast / confirm (시스템 alert·confirm 대체) ── */
 function toast(msg, kind){
   const el = document.createElement('div');
   el.className = 'toast ' + (kind==='error'?'err':kind==='ok'?'ok':'');
-  el.innerHTML = '<span class="tk">'+(kind==='error'?'✕':kind==='ok'?'✓':'·')+'</span><span>'+esc(msg)+'</span>';
+  el.innerHTML = '<span class="tk">'+(kind==='error'?ic('x'):kind==='ok'?ic('check'):'·')+'</span><span>'+esc(msg)+'</span>';
   $('toasts').appendChild(el);
   setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .25s'; setTimeout(()=>el.remove(),260); }, 4200);
 }
@@ -1041,7 +1047,7 @@ async function brwGo(p){
   $('brwList').innerHTML =
     (d.error ? '<div class="brw-row"><span class="nm" style="color:var(--s-failed)">'+esc(d.error)+'</span></div>' : '')
     + (d.dirs.map(x =>
-        '<div class="brw-row" data-n="'+esc(x.name)+'"><span class="ico">▸</span><span class="nm">'+esc(x.name)+'</span>'
+        '<div class="brw-row" data-n="'+esc(x.name)+'"><span class="ico">'+ic('folder')+'</span><span class="nm">'+esc(x.name)+'</span>'
         + (x.isRepo ? '<span class="gitchip">git</span><button type="button" class="btn sm" data-reg="'+esc(x.name)+'">Register</button>'
            : x.isEmpty ? '<button type="button" class="btn-ghost sm" data-start="'+esc(x.name)+'">Start here</button>' : '')
         + '</div>').join('')
@@ -1375,7 +1381,7 @@ async function probeFirstMachine(){
 }
 function chkRow(name, ok, val){
   const cls = ok===null ? 'wait' : ok ? 'ok' : 'bad';
-  const st = ok===null ? '…' : ok ? '✓' : '✕';
+  const st = ok===null ? '…' : ok ? ic('check') : ic('x');
   return '<div class="chk '+cls+'"><span class="st">'+st+'</span><span class="nm">'+esc(name)+'</span>'
     + '<span class="v">'+esc(val||'')+'</span></div>';
 }
@@ -1423,7 +1429,7 @@ function cardHTML(r){
   const selCls = (selectMode?' selmode':'') + (selected.has(r.id)?' selected':'') + (closed?' closed':'');
   return '<div class="card'+selCls+'" id="card-'+r.id+'">'
     + '<div class="card-h"><span class="rid">r'+r.id+'</span><span class="title">'+title+'</span>'
-    + '<span class="selbox">✓</span>'+chipHTML(r.status)+'</div>'
+    + '<span class="selbox">'+ic('check')+'</span>'+chipHTML(r.status)+'</div>'
     + '<div class="meta"><span>branch <b>'+esc(r.branch||'—')+'</b></span>'
     + '<span>files <b>'+(r.filesChanged??0)+'</b></span>'
     + '<span>'+esc(r.agent||'')+'</span>'
@@ -1432,7 +1438,7 @@ function cardHTML(r){
     + (task && task.parentRunId ? '<span title="spawned by agent r'+task.parentRunId+'">↳ by r'+task.parentRunId+'</span>' : '')
     + (r.sessionId && ['done','failed','stopped'].includes(r.status)
         ? '<span class="resumable" title="agent session preserved — open the run and Send a next instruction to continue">↻ resumable</span>' : '')
-    + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener" style="margin-left:auto">PR ↗</a>' : '')
+    + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener" style="margin-left:auto">PR '+ic('external-link')+'</a>' : '')
     + '</div>'
     + '<div class="log">'+evs+'</div></div>';
 }
@@ -1535,7 +1541,7 @@ $('repoManual').addEventListener('click', ()=>{
 /* ── 완료 알림(브라우저) — 벨 토글, run 정착 시 통지 ── */
 let notifyOn = false;
 try { notifyOn = localStorage.getItem('coxpit.notify') === '1' && Notification.permission === 'granted'; } catch {}
-function paintBell(){ $('bell').textContent = notifyOn ? '🔔' : '🔕'; }
+function paintBell(){ $('bell').innerHTML = ic(notifyOn ? 'bell' : 'bell-off'); }
 $('bell').addEventListener('click', async ()=>{
   if (!('Notification' in window)){ toast('this browser has no notification support', 'error'); return; }
   if (!notifyOn){
@@ -1634,7 +1640,7 @@ function paintModal(){
    /outputs 로 카드 목록을 받아 렌더하고, 클릭하면 타입별 실뷰어를 오른쪽에 띄운다.
    answer/doc → mdLite · page → sandbox iframe · code → 기존 diff 렌더러 · file → 이미지/다운로드. */
 let outCards = [];                 // 이 run 의 마지막 카드 목록(RunOutputCard[])
-const OUT_GLYPH = { answer:'✦', code:'‹›', doc:'▤', page:'◱', file:'⎘' };
+const OUT_ICON = { answer:'message', code:'code', doc:'file', page:'image', file:'image' };
 const OUT_LABEL = { answer:'답변', code:'코드', doc:'문서', page:'페이지', file:'파일' };
 function contractHTML(cards){
   const declared = cards.filter(c=>c.required);
@@ -1644,7 +1650,7 @@ function contractHTML(cards){
   if (declared.length){
     h += declared.map(c=>{
       const ok = c.present;
-      return '<span class="req '+(ok?'ok':'warn')+'"><span class="rg">'+(ok?'✓':'!')+'</span>'
+      return '<span class="req '+(ok?'ok':'warn')+'"><span class="rg">'+ic(ok?'check':'alert-triangle')+'</span>'
         + esc(OUT_LABEL[c.type]||c.type)+'</span>';
     }).join('');
   } else h += '<span class="req aux">없음</span>';
@@ -1659,14 +1665,14 @@ function outCardHTML(c, i){
   const badge = c.required
     ? '<span class="obadge '+(c.present?'req':'warn')+'">요청됨</span>'
     : '<span class="obadge">부수</span>';
-  const glyph = OUT_GLYPH[c.type] || '•';
+  const gname = miss ? 'alert-triangle' : (OUT_ICON[c.type] || 'circle');
   const meta = miss ? '산출물 미충족 — '+esc(c.meta||'') : esc(c.meta||'');
   return '<div class="ocard'+(miss?' miss':'')+'" data-oi="'+i+'">'
-    + '<span class="og">'+esc(glyph)+'</span>'
+    + '<span class="og">'+ic(gname)+'</span>'
     + '<span class="ob"><span class="ot">'+esc(c.title||c.type)+'</span>'
     + '<span class="om">'+meta+'</span></span>'
     + badge
-    + (miss?'':'<span class="oc">›</span>')
+    + (miss?'':'<span class="oc">'+ic('chevron')+'</span>')
     + '</div>';
 }
 /* run 형태로 기본 카드 선택 — 코드 변경 없고 answer/doc 있으면 그걸, 코드 위주면 code,
@@ -2021,7 +2027,7 @@ async function paintCompare(){
       + '<div class="cmp-meta" title="'+esc(summary)+'">'+(summary?esc(summary):'—')+'</div>'
       + '<div class="cmp-diff"><pre class="diff">'+diffHTML(r.diff||'')+'</pre></div>'
       + '<div class="cmp-f"><span class="msg" id="cmpMsg-'+r.id+'">'
-      + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener">PR ↗ '+esc(r.prUrl.split('/').slice(-1)[0])+'</a>' : '')
+      + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener">PR '+ic('external-link')+' '+esc(r.prUrl.split('/').slice(-1)[0])+'</a>' : '')
       + '</span>'
       + (merged
         ? chipHTML('merged')
@@ -2157,7 +2163,7 @@ function roomRunRowHTML(r){
     : (running ? '<span class="run-badge running">running</span>' : '');
   // running·merged 는 체크박스로 선택 불가(정착·미머지만 Integrate 대상)
   const selectable = !merged && !running && (r.filesChanged||0)>0;
-  const cb = '<span class="cb" data-rcb="'+(selectable?r.runId:'')+'"'+(selectable?'':' style="opacity:.4;cursor:default"')+'>'+(sel?'✓':'')+'</span>';
+  const cb = '<span class="cb" data-rcb="'+(selectable?r.runId:'')+'"'+(selectable?'':' style="opacity:.4;cursor:default"')+'>'+(sel?ic('check'):'')+'</span>';
   return '<div class="run'+(sel?' sel':'')+(merged?' dim':'')+(open?' open':'')+'" data-rrun="'+r.runId+'">'
     + '<div class="run-h">'+cb
     + '<span class="dot '+dotCls+'"></span>'
@@ -2335,7 +2341,7 @@ $('roomRuns').addEventListener('click', async (e)=>{
     e.stopPropagation();
     const id = Number(cb.dataset.rcb); if (!id) return;
     if (roomSel.has(id)) roomSel.delete(id); else roomSel.add(id);
-    cb.textContent = roomSel.has(id) ? '✓' : '';
+    cb.innerHTML = roomSel.has(id) ? ic('check') : '';
     cb.closest('.run').classList.toggle('sel', roomSel.has(id));
     roomUpdateGbar();
     return;
@@ -2410,7 +2416,7 @@ async function roomRunAction(act, rid){
     return;
   }
 }
-/* [리뷰] — 그 run 의 태스크에 reviewTask(/tasks/:id/review) 를 돌려 ◆ 요약을 행 안에 인라인 표시. */
+/* [리뷰] — 그 run 의 태스크에 reviewTask(/tasks/:id/review) 를 돌려 요약을 행 안에 인라인 표시. */
 async function reviewOneRun(r){
   const row = document.querySelector('.run[data-rrun="'+r.runId+'"]'); if(!row) return;
   if (!roomOpen.has(r.runId)){ roomOpen.add(r.runId); row.classList.add('open'); roomLoadRunOutputs(r.runId); }
@@ -2418,14 +2424,14 @@ async function reviewOneRun(r){
   let rv = body.querySelector('.review.airev');
   if (!rv){ rv = document.createElement('div'); rv.className='review airev'; body.insertBefore(rv, body.querySelector('.fix')||null); }
   const real = $('taskReal').checked;
-  rv.innerHTML = '<span class="rk">◆ 리뷰</span><span class="rt">reviewing… ('+(real?'real':'dry')+')</span>';
+  rv.innerHTML = '<span class="rk">'+ic('message')+' 리뷰</span><span class="rt">reviewing… ('+(real?'real':'dry')+')</span>';
   try{
     const res = await fetch('/api/tasks/'+r.taskId+'/review',{method:'POST',
       headers:{'content-type':'application/json'}, body:JSON.stringify({real})});
     const j = await res.json().catch(()=>({}));
-    if (res.ok){ rv.innerHTML = '<span class="rk">◆ 리뷰</span><span class="rt">'+mdLite(j.review||'(no summary)')+'</span>'; }
-    else { rv.innerHTML = '<span class="rk">◆ 리뷰</span><span class="rt">review 실패 — '+esc(j.detail||String(res.status))+'</span>'; toast('review: '+(j.detail||res.status), 'error'); }
-  }catch{ rv.innerHTML = '<span class="rk">◆ 리뷰</span><span class="rt">review 요청 실패</span>'; }
+    if (res.ok){ rv.innerHTML = '<span class="rk">'+ic('message')+' 리뷰</span><span class="rt">'+mdLite(j.review||'(no summary)')+'</span>'; }
+    else { rv.innerHTML = '<span class="rk">'+ic('message')+' 리뷰</span><span class="rt">review 실패 — '+esc(j.detail||String(res.status))+'</span>'; toast('review: '+(j.detail||res.status), 'error'); }
+  }catch{ rv.innerHTML = '<span class="rk">'+ic('message')+' 리뷰</span><span class="rt">review 요청 실패</span>'; }
 }
 /* steer 입력 Enter → 전송 */
 $('roomRuns').addEventListener('keydown', (e)=>{
