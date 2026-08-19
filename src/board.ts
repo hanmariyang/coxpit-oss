@@ -817,7 +817,9 @@ function humanize(e){
   try{
     const o = JSON.parse(payload);
     if (o.type === 'system'){
-      if (o.subtype === 'init' || !o.subtype) return { k:'session', t:'started'+(o.model?' · '+o.model:'') };
+      if (o.subtype === 'init' || !o.subtype) return { k:'session',
+        t:'started'+(o.model?' · '+String(o.model).replace(/\\u001b\\[[0-9;]*m/g,'')
+                                                  .replace(/\\x1b\\[[0-9;]*m/g,'') : '') };
       if (o.subtype === 'permission_denied') return { k:'denied', t:'⛔ '+(o.tool_name||o.tool||'tool use')+' blocked — attach the Terminal to approve, or widen COXPIT_AGENT_PERM' };
       return null; // thinking_tokens 등 스트림 잡음
     }

@@ -433,6 +433,11 @@ const cl = getProvider('claude-code');
 if (!cl.launchCmd('p', 'opus-x').includes("--model 'opus-x'")) throw new Error('claude model flag missing');
 if (cl.launchCmd('p').includes('--model')) throw new Error('empty model must not add flag');
 if (!/exec --json --sandbox \S+ -m 'gpt-x' resume /.test(p.resumeCmd('id', 'm', 'gpt-x'))) throw new Error('codex -m order');
+// v4.4 C — claude system 이벤트의 model 에서 ANSI 이스케이프 소독(저장 시점)
+const sysEv = cl.parseLine(JSON.stringify({ type: 'system', subtype: 'init', model: 'm[1mx' }));
+if (!sysEv) throw new Error('system event dropped');
+if (sysEv.stored.includes('')) throw new Error('ANSI not stripped from stored model: ' + JSON.stringify(sysEv.stored));
+if (!sysEv.stored.includes('m') || !sysEv.stored.includes('x')) throw new Error('model text lost during strip: ' + sysEv.stored);
 console.log('PROVIDER_OK');
 EOF
 PROV_OUT=$(node --import tsx "$WORK/prov.test.ts" 2>&1) || fail "codex provider seam: $PROV_OUT"

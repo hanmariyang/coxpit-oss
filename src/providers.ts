@@ -76,9 +76,20 @@ const claudeProvider: Provider = {
       if (obj.type) kind = obj.type;
       if (obj.type === 'system' && typeof obj.session_id === 'string') ev.sessionId = obj.session_id;
       if (obj.type === 'result') ev.resultText = typeof obj.result === 'string' ? obj.result : s;
-      // 2000자 초과 이벤트는 자르면 JSON 이 깨져 잔해가 화면에 노출된다 —
-      // 저장 전에 "요지만 남긴" 유효 JSON 으로 압축한다.
-      if (s.length > 2000) {
+      // system 이벤트는 full fidelity 가 필요 없다 — 길이와 무관하게 항상 컴팩트 재직렬화로
+      // 통일하고 그 시점에 model 의 ANSI 이스케이프를 소독한다(예: 'claude-opus-4-8\x1b[1m').
+      // session_id 캡처는 위에서 이미 ev 에 담았으므로 stored 축약과 무관.
+      // ESC(\x1b) 를 포함해 SGR 시퀀스 전체를 제거 — spec 예시 정규식은 ESC 를 남겨
+      //   'm\x1b[1mx' → 'm\x1bx' 로 잔해가 남아 DoD("ESC 부재")를 못 지킨다. ESC 도 소비한다.
+      const stripAnsi = (x: string) => x.replace(/\x1b?\[[0-9;]*m/g, '');
+      if (obj.type === 'system') {
+        stored = JSON.stringify({
+          type: 'system', subtype: obj.subtype,
+          model: typeof obj.model === 'string' ? stripAnsi(obj.model) : obj.model,
+        });
+      } else if (s.length > 2000) {
+        // 2000자 초과 이벤트는 자르면 JSON 이 깨져 잔해가 화면에 노출된다 —
+        // 저장 전에 "요지만 남긴" 유효 JSON 으로 압축한다.
         if (obj.type === 'assistant' && obj.message) {
           const content = (obj.message.content ?? [])
             .filter((c) => c.type === 'text' || c.type === 'tool_use')
@@ -88,8 +99,6 @@ const claudeProvider: Provider = {
           stored = JSON.stringify({ type: 'assistant', message: { content } }).slice(0, 2000);
         } else if (obj.type === 'user') {
           stored = JSON.stringify({ type: 'user' }); // tool 결과 회신 — 표시 안 함
-        } else if (obj.type === 'system') {
-          stored = JSON.stringify({ type: 'system', subtype: obj.subtype, model: obj.model });
         } else if (obj.type === 'result') {
           stored = JSON.stringify({ type: 'result', result: (obj.result ?? '').slice(0, 1500) });
         } else {
