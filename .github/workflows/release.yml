@@ -16,11 +16,21 @@ permissions:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    timeout-minutes: 20          # 멈추면 6h 대신 20분에 fail-fast (재실행 가능)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: sudo apt-get update && sudo apt-get install -y tmux
+      # apt 미러 stall 방어: 시도마다 자체 timeout + 재시도 (apt 는 hung 커넥션에 자체 타임아웃이 없다)
+      - name: install tmux
+        run: |
+          for i in 1 2 3; do
+            sudo timeout 150 apt-get update \
+              && sudo timeout 150 apt-get install -y --no-install-recommends tmux \
+              && break
+            echo "::warning::apt attempt $i stalled/failed — retrying in 5s"; sleep 5
+          done
+          tmux -V     # 설치 실패 시 여기서 스텝을 fail 시킨다
       - run: npm ci
       - run: npm run typecheck
       - run: bash test/e2e.sh
@@ -34,6 +44,7 @@ jobs:
           - os: windows-latest    # nsis exe
           - os: ubuntu-latest     # AppImage
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30          # 서명·notarize 여유 (macOS 실측 ~7분)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,10 +75,13 @@ jobs:
 
   # 모든 인스톨러가 draft 릴리스에 다 오른 뒤에야 공개 — 업데이터가 yml 없는
   # 최신 릴리스를 보는 "타이밍 404 창"을 없앤다.
+  # e2e 도 gate: 인스톨러는 병렬로 다 빌드하되, 공개(un-draft)는 e2e 통과 시에만.
+  # e2e 가 인프라 플레이크로 실패하면 릴리스는 draft 로 남고, e2e 재실행 시 이 잡이 이어서 공개한다.
   publish-release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [desktop]
+    needs: [desktop, e2e]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: publish the draft release
         run: gh release edit "${GITHUB_REF_NAME}" -R "${GITHUB_REPOSITORY}" --draft=false
@@ -76,6 +90,7 @@ jobs:
 
   ghcr:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
