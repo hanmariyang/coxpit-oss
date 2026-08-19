@@ -1,11 +1,25 @@
 // 브랜디드 접근키 언락/셋업 페이지(단일 자가완결 HTML — 빌드 0, 보드 토큰 매치).
-// 브라우저 basic-auth 팝업을 대체한다. fetch 로 A2/A3 엔드포인트 POST → 성공 시 보드로 reload.
+// 브라우저 basic-auth 팝업을 대체한다.
+// ── Safari 쿠키 레이스 수정(v5.0) ──
+// 폼은 real navigation POST(urlencoded, hidden nav=1)로 /api/auth/{unlock,setup} 에 제출한다.
+// 서버는 성공 시 303 → GET /(브라우저가 그 응답의 Set-Cookie 를 커밋한 뒤 이동)로 답하므로,
+// fetch-then-location.replace 가 겪던 "쿠키 미커밋 → 다시 로그인" 레이스가 사라진다.
+// 실패는 서버가 이 페이지를 error 와 함께 다시 렌더한다(JS 없이도 동작). JSON API 는 그대로 유지.
 // setup=true → 첫 실행(키 설정, confirm 필드+토큰 힌트), false → 언락(키 1개).
 import { ICON_SPRITE, ICON_CSS } from './icons.js';
 
-/** login/setup 페이지 HTML. setup 이면 셋업(키+확인), 아니면 언락. */
-export function loginPageHTML(setup: boolean): string {
+/** HTML 속성 값 이스케이프(서버 렌더 에러 문자열 안전 주입용). */
+function escA(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+export interface LoginOpts { error?: string }
+
+/** login/setup 페이지 HTML. setup 이면 셋업(키+확인), 아니면 언락. opts.error 는 서버가 재렌더 시 주입. */
+export function loginPageHTML(setup: boolean, opts: LoginOpts = {}): string {
   const title = setup ? 'set an access key' : 'unlock';
+  const initialErr = opts.error ? escA(opts.error) : '';
+  const action = setup ? '/api/auth/setup' : '/api/auth/unlock';
   return /* html */ `<!doctype html>
 <html lang="en">
 <head>
@@ -25,8 +39,11 @@ export function loginPageHTML(setup: boolean): string {
   *{box-sizing:border-box}
   [hidden]{display:none !important}
   html,body{height:100%}
+  html{overscroll-behavior:none}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;
-    -webkit-font-smoothing:antialiased;display:flex;align-items:center;justify-content:center;padding:24px}
+    -webkit-font-smoothing:antialiased;display:flex;align-items:center;justify-content:center;
+    padding:24px;padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left));
+    overflow-x:hidden}
   ::selection{background:var(--brand-dim)}
   .card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);
     border-radius:var(--r-card);box-shadow:var(--shadow);padding:26px 24px 22px}
@@ -38,7 +55,7 @@ export function loginPageHTML(setup: boolean): string {
   .flabel{display:block;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;
     color:var(--faint);margin:0 0 6px}
   input[type=password]{width:100%;background:#0e1118;border:1px solid var(--line);border-radius:var(--r-ctl);
-    color:var(--ink);font-family:var(--mono);font-size:14px;padding:10px 12px;outline:none}
+    color:var(--ink);font-family:var(--mono);font-size:16px;padding:10px 12px;outline:none}
   input[type=password]:focus{border-color:var(--brand)}
   input::placeholder{color:var(--faint)}
   .fld{margin-bottom:14px}
@@ -62,7 +79,8 @@ export function loginPageHTML(setup: boolean): string {
 </head>
 <body>
 ${ICON_SPRITE}
-  <form class="card" id="f" autocomplete="off">
+  <form class="card" id="f" method="post" action="${action}" autocomplete="off">
+    <input type="hidden" name="nav" value="1">
     <div class="mark"><svg class="ic"><use href="#i-lock"/></svg><span>coxpit</span></div>
     <h1>${setup ? 'Protect this coxpit' : 'Unlock this coxpit'}</h1>
     <p class="sub">${setup
@@ -71,14 +89,18 @@ ${ICON_SPRITE}
     ${setup ? `<div class="hint">To prove you own this machine, this first-time setup needs the one-time
       <code>setup token</code> printed in the daemon log &mdash; unless you&#39;re on
       <code>http://127.0.0.1</code> directly. Paste it below if asked.</div>` : ''}
-    <div class="err" id="err"></div>
+    <div class="err" id="err">${initialErr}</div>
     ${setup ? `<div class="fld"><label class="flabel" for="tok">setup token (from the daemon log)</label>
-      <input id="tok" type="password" placeholder="paste if not on localhost" autocomplete="off"></div>` : ''}
+      <input id="tok" name="token" type="password" placeholder="paste if not on localhost" autocomplete="off"
+        autocapitalize="none" autocorrect="off" spellcheck="false"></div>` : ''}
     <div class="fld"><label class="flabel" for="key">access key</label>
-      <input id="key" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="${setup ? 'new-password' : 'current-password'}" autofocus></div>
+      <input id="key" name="key" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+        autocomplete="${setup ? 'new-password' : 'current-password'}"
+        autocapitalize="none" autocorrect="off" spellcheck="false" autofocus></div>
     ${setup ? `<div class="fld"><label class="flabel" for="key2">confirm access key</label>
-      <input id="key2" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password"></div>` : ''}
-    <label class="row"><input id="rem" type="checkbox"${setup ? ' checked' : ''}><span>Remember this device</span></label>
+      <input id="key2" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+        autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false"></div>` : ''}
+    <label class="row"><input id="rem" name="remember" type="checkbox" value="on"${setup ? ' checked' : ''}><span>Remember this device</span></label>
     <button class="btn" id="go" type="submit"><svg class="ic"><use href="#i-${setup ? 'lock' : 'unlock'}"/></svg><span>${setup ? 'Set key &amp; enter' : 'Unlock'}</span></button>
     <div class="ft"><a href="https://github.com/hanmariyang/coxpit-oss#remote-access" target="_blank" rel="noopener">Fronting with Cloudflare Access / Tailscale? &rarr;</a></div>
   </form>
@@ -89,33 +111,18 @@ ${ICON_SPRITE}
   var err = document.getElementById('err');
   var go = document.getElementById('go');
   function show(m){ err.textContent = m || ''; }
+  // 폼은 native navigation POST 로 제출된다(Safari 가 응답의 Set-Cookie 를 커밋 → 303 GET /).
+  // 여기서는 클라이언트 사전검증만: 비면 막고, setup 이면 confirm/길이 확인. 통과 시 native 제출 진행.
   f.addEventListener('submit', function(ev){
-    ev.preventDefault();
-    show('');
     var key = document.getElementById('key').value;
-    var rem = document.getElementById('rem').checked;
-    if (!key){ show('access key required'); return; }
-    var body, url;
+    if (!key){ ev.preventDefault(); show('access key required'); return; }
     if (SETUP){
       var key2 = document.getElementById('key2').value;
-      if (key !== key2){ show('keys do not match'); return; }
-      if (key.length < 6){ show('use at least 6 characters'); return; }
-      url = '/api/auth/setup';
-      body = { key: key, token: document.getElementById('tok').value, remember: rem };
-    } else {
-      url = '/api/auth/unlock';
-      body = { key: key, remember: rem };
+      if (key !== key2){ ev.preventDefault(); show('keys do not match'); return; }
+      if (key.length < 6){ ev.preventDefault(); show('use at least 6 characters'); return; }
     }
-    go.disabled = true;
-    fetch(url, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body) })
-      .then(function(r){ return r.json().then(function(j){ return { s:r.status, j:j }; }); })
-      .then(function(res){
-        if (res.s >= 200 && res.s < 300 && res.j && res.j.ok){ location.replace('/'); return; }
-        go.disabled = false;
-        var m = (res.j && (res.j.detail || res.j.error)) || ('error ' + res.s);
-        show(m);
-      })
-      .catch(function(){ go.disabled = false; show('network error'); });
+    show('');
+    go.disabled = true;           // 네비게이션 진행 중 중복 제출 방지(네이티브 제출은 계속)
   });
 })();
 </script>

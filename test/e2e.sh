@@ -167,6 +167,20 @@ case "$BOARD_HTML" in *'id="i-target"'*) : ;; *) fail "icon sprite: #i-target (G
 case "$BOARD_HTML" in *'id="i-archive"'*) : ;; *) fail "icon sprite: #i-archive (Archive) missing";; esac
 pass "board sprite carries v5.0 rail icons (server/layers/target/archive)"
 
+# v5.0 Part C — pocket board: mobile FAB + drawer wiring
+case "$BOARD_HTML" in *'id="fab"'*) : ;; *) fail "pocket-board mobile FAB (#fab) missing";; esac
+case "$BOARD_HTML" in *".fab{display:inline-flex}"*) : ;; *) fail "FAB is never shown on mobile (media rule missing)";; esac
+case "$BOARD_HTML" in *"\$('fab')"*) : ;; *) fail "FAB not wired to open the compose sheet";; esac
+case "$BOARD_HTML" in *'#newBtn,.newnote{display:none}'*) : ;; *) fail "rail New button not hidden on mobile (should defer to FAB)";; esac
+pass "pocket board: mobile FAB served + wired to the sheet; rail New hidden on mobile"
+
+# v5.0 Part C — mobile stability: horizontal rubber-band/pan guard on the root
+case "$BOARD_HTML" in *'html{overscroll-behavior:none}'*) : ;; *) fail "root overscroll-behavior guard missing (iOS rubber-band)";; esac
+case "$BOARD_HTML" in *'-webkit-font-smoothing:antialiased;overflow-x:hidden'*) : ;; *) fail "body overflow-x:hidden clamp missing";; esac
+# must NOT clamp overflow on html (breaks iOS position:fixed/sticky the header+drawer rely on)
+case "$BOARD_HTML" in *'html,body{height:100%;overflow'*|*'html{overflow-x'*|*'html{overflow:'*) fail "overflow on <html> would break iOS fixed/sticky — clamp body only";; *) : ;; esac
+pass "mobile stability: overscroll-behavior on root + body overflow-x clamp (html not clamped)"
+
 # v5.0 — the served board's inline client JS parses (SyntaxError in the giant template literal blanks the board)
 BHFILE="$WORK/board.html"
 printf '%s' "$BOARD_HTML" > "$BHFILE"
@@ -875,7 +889,12 @@ case "$LOGIN" in *'id="i-lock"'*) : ;; *) fail "login page missing #i-lock sprit
 case "$LOGIN" in *'id="i-unlock"'*) : ;; *) fail "login page missing #i-unlock sprite symbol";; esac
 case "$LOGIN" in *'class="ic"'*) : ;; *) fail "login page missing .ic icon usage";; esac
 case "$LOGIN" in *'🔒'*|*'🔓'*|*'🔐'*) fail "login page still uses OS lock emoji";; *) : ;; esac
-pass "unauth HTML GET serves branded unlock page (key-only, no username input, Lucide icons)"
+# v5.0 Part C — Safari-safe: real form navigation POST (not fetch-then-replace)
+case "$LOGIN" in *'method="post" action="/api/auth/unlock"'*) : ;; *) fail "login page must POST-navigate to /api/auth/unlock (Safari cookie race)";; esac
+case "$LOGIN" in *'name="nav" value="1"'*) : ;; *) fail "login form missing nav=1 flag (form-nav branch)";; esac
+# v5.0 Part C — iOS input hygiene on the key field(s)
+case "$LOGIN" in *'autocapitalize="none" autocorrect="off" spellcheck="false"'*) : ;; *) fail "key input missing autocapitalize/autocorrect/spellcheck hardening";; esac
+pass "unauth HTML GET serves branded unlock page (key-only, no username, Lucide, form-nav + input hygiene)"
 
 # v4.8 — /api/auth/unlock: right key → 200 + Set-Cookie coxpit_sess; wrong key → 401
 UNLOCK=$(curl -s -D - -o /dev/null -X POST "$B/api/auth/unlock" -H 'content-type: application/json' -d '{"key":"pw-e2e","remember":true}')
@@ -883,7 +902,20 @@ case "$UNLOCK" in *'HTTP/1.1 200'*|*' 200 '*) : ;; *) fail "unlock with right ke
 case "$UNLOCK" in *[Ss]et-[Cc]ookie:*coxpit_sess=*) : ;; *) fail "unlock should Set-Cookie coxpit_sess: $UNLOCK";; esac
 UBAD=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/auth/unlock" -H 'content-type: application/json' -d '{"key":"nope-wrong"}')
 [ "$UBAD" != "200" ] || fail "unlock with wrong key must not 200 (got $UBAD)"
-pass "unlock: right key 200+Set-Cookie · wrong key non-200"
+pass "unlock: right key 200+Set-Cookie · wrong key non-200 (JSON API intact)"
+
+# v5.0 Part C — real form navigation POST(urlencoded + nav=1): right key → 303 → / + Set-Cookie;
+# wrong key → re-renders the login page (200 HTML) with the error (Safari-safe cookie commit).
+FNAV=$(curl -s -D - -o /dev/null -X POST "$B/api/auth/unlock" \
+  -H 'content-type: application/x-www-form-urlencoded' --data 'nav=1&key=pw-e2e&remember=on')
+case "$FNAV" in *'303'*) : ;; *) fail "form-nav unlock (right key) should 303: $FNAV";; esac
+case "$FNAV" in *[Ll]ocation:*/*) : ;; *) fail "form-nav unlock should redirect to /: $FNAV";; esac
+case "$FNAV" in *[Ss]et-[Cc]ookie:*coxpit_sess=*) : ;; *) fail "form-nav unlock should Set-Cookie: $FNAV";; esac
+FBAD=$(curl -s -X POST "$B/api/auth/unlock" \
+  -H 'content-type: application/x-www-form-urlencoded' --data 'nav=1&key=wrong-nope')
+case "$FBAD" in *'Unlock this coxpit'*) : ;; *) fail "form-nav unlock (wrong key) should re-render login page";; esac
+case "$FBAD" in *'wrong key'*) : ;; *) fail "form-nav unlock (wrong key) should surface the error inline";; esac
+pass "form-nav unlock: right key 303→/ +Set-Cookie · wrong key re-renders login with error"
 
 # v4.8 — cookie round-trip: the minted session cookie is accepted by the gate
 CJAR="$WORK/cookies.txt"

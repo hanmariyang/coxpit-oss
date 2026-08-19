@@ -8,6 +8,7 @@ import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import websocket from '@fastify/websocket';
 import { eq, inArray, and, like, desc } from 'drizzle-orm';
 import { authGate } from './auth';
+import { loginPageHTML } from './login';
 import {
   authMode, authIsOpen, verifyKey, storeKey, signSession, SESSION_COOKIE,
   clientKey, rateCheck, rateFail, rateReset, setupAllowed,
@@ -179,6 +180,20 @@ function sharePageHTML(
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
   await app.register(websocket);
+  // urlencoded 본문 파서(deps 0) — login/setup 폼이 real navigation POST 를 보내면
+  // 브라우저가 그 응답의 Set-Cookie 를 확정 커밋한다(Safari fetch-then-replace 레이스 회피).
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_req, body, done) => {
+      try {
+        const out: Record<string, string> = {};
+        const p = new URLSearchParams(body as string);
+        for (const [k, v] of p.entries()) out[k] = v;
+        done(null, out);
+      } catch (e) { done(e as Error, undefined); }
+    },
+  );
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
@@ -210,45 +225,71 @@ export async function buildServer(): Promise<FastifyInstance> {
   };
   const socketIp = (req: { socket?: { remoteAddress?: string } }): string =>
     String(req.socket?.remoteAddress ?? '');
+  // real form navigation POST(urlencoded + nav flag) 인가 — 그러면 JSON 대신 303/HTML 로 답한다.
+  // 이 경로는 브라우저가 응답의 Set-Cookie 를 커밋한 뒤 GET / 로 이동하므로 Safari 쿠키 레이스가 없다.
+  const isFormNav = (req: { body?: unknown; headers: Record<string, unknown> }): boolean => {
+    const ct = String(req.headers['content-type'] ?? '');
+    const b = (req.body ?? {}) as { nav?: unknown };
+    return ct.includes('application/x-www-form-urlencoded') || b.nav != null;
+  };
+  const truthy = (v: unknown): boolean =>
+    v === true || v === 'true' || v === 'on' || v === '1' || v === 1;
 
   // 첫 실행 셋업(anti-claim) — 셋업 토큰 일치 OR 진짜 로컬(loopback+no-fwd)만 허용.
   // 키가 이미 있으면 409(단발). 성공 시 해시 저장 + 세션 쿠키.
   app.post('/api/auth/setup', async (req, reply) => {
-    if (authMode().mode !== 'setup') return reply.code(409).send({ error: 'already configured' });
-    const b = (req.body ?? {}) as { key?: string; token?: string; remember?: boolean };
+    const nav = isFormNav(req);
+    // form-nav 실패는 로그인 페이지를 에러와 함께 다시 렌더(JSON 자동화는 아래처럼 JSON 유지).
+    const fail = (code: number, detail: string): FastifyReply => {
+      if (nav) return reply.type('text/html').code(code).send(loginPageHTML(true, { error: detail }));
+      return reply.code(code).send({ error: 'setup', detail });
+    };
+    if (authMode().mode !== 'setup') return fail(409, 'already configured');
+    const b = (req.body ?? {}) as { key?: string; token?: string; remember?: unknown };
     const key = String(b.key ?? '');
-    if (key.length < 6) return reply.code(400).send({ error: 'key too short', detail: 'use at least 6 characters' });
+    if (key.length < 6) return fail(400, 'use at least 6 characters');
     const gate = setupAllowed(req.headers as Record<string, unknown>, socketIp(req), String(b.token ?? ''));
     if (!gate.ok) {
-      return reply.code(403).send({ error: 'setup not allowed', detail: 'paste the one-time setup token from the daemon log (this request is not local)' });
+      return fail(403, 'paste the one-time setup token from the daemon log (this request is not local)');
     }
     storeKey(key); // 평문 키는 절대 로그하지 않음
-    setSessionCookie(reply, req, b.remember === true);
+    setSessionCookie(reply, req, truthy(b.remember));
+    // form-nav → 303 redirect to /(브라우저가 Set-Cookie 커밋 후 이동). JSON → 201.
+    if (nav) return reply.code(303).header('location', '/').send();
     return reply.code(201).send({ ok: true });
   });
 
   // 언락 — 상수시간 검증 + per-client 레이트리밋(백오프). 성공 시 세션 쿠키.
   app.post('/api/auth/unlock', async (req, reply) => {
+    const nav = isFormNav(req);
+    const fail = (code: number, detail: string): FastifyReply => {
+      if (nav) return reply.type('text/html').code(code).send(loginPageHTML(false, { error: detail }));
+      return reply.code(code).send({ error: 'unlock', detail });
+    };
     const m = authMode();
-    if (m.mode === 'disabled') return reply.send({ ok: true });
-    if (m.mode === 'setup') return reply.code(409).send({ error: 'not configured', detail: 'set an access key first' });
+    if (m.mode === 'disabled') {
+      if (nav) return reply.code(303).header('location', '/').send();
+      return reply.send({ ok: true });
+    }
+    if (m.mode === 'setup') return fail(409, 'set an access key first');
     const id = clientKey(req.headers as Record<string, unknown>, socketIp(req));
     const rc = rateCheck(id);
     if (rc.blocked) {
       const secs = Math.ceil(rc.retryMs / 1000);
-      return reply.code(429).send({ error: 'too many attempts', detail: `try again in ${secs}s` });
+      return fail(429, `too many attempts — try again in ${secs}s`);
     }
-    const b = (req.body ?? {}) as { key?: string; remember?: boolean };
+    const b = (req.body ?? {}) as { key?: string; remember?: unknown };
     if (verifyKey(String(b.key ?? ''), m)) {
       rateReset(id);
-      setSessionCookie(reply, req, b.remember === true);
+      setSessionCookie(reply, req, truthy(b.remember));
+      if (nav) return reply.code(303).header('location', '/').send();
       return reply.send({ ok: true });
     }
     const after = rateFail(id);
     const detail = after.retryMs > 0
       ? `wrong key — try again in ${Math.ceil(after.retryMs / 1000)}s`
       : `wrong key — ${after.attemptsLeft} attempt(s) left`;
-    return reply.code(401).send({ error: 'wrong key', detail });
+    return fail(401, detail);
   });
 
   // 로그아웃 — 쿠키 제거(Max-Age=0).

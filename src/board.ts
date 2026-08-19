@@ -23,8 +23,12 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   *{box-sizing:border-box}
   [hidden]{display:none !important}
   html,body{height:100%}
+  /* mobile stability — kill the iOS left-right rubber-band + horizontal pan.
+     overscroll-behavior on the root stops the rubber-band; overflow-x:hidden is on BODY only
+     (NOT html — overflow on html breaks iOS position:fixed/sticky, which the header + drawer use). */
+  html{overscroll-behavior:none}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;
-    -webkit-font-smoothing:antialiased}
+    -webkit-font-smoothing:antialiased;overflow-x:hidden;overscroll-behavior-x:none}
   ::selection{background:var(--brand-dim)}
   ::-webkit-scrollbar{width:9px;height:9px}
   ::-webkit-scrollbar-thumb{background:#252c3a;border-radius:5px;border:2px solid var(--bg)}
@@ -131,6 +135,13 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .newbtn[disabled]{opacity:.4;cursor:not-allowed;filter:none}
   .newbtn .ic{width:16px;height:16px}
   .newnote{font-family:var(--mono);font-size:9.5px;color:var(--faint);text-align:center;margin-top:5px}
+  /* mobile FAB (v5.0 pocket board) — floating ＋ opens the compose sheet; hidden on desktop */
+  .fab{display:none;position:fixed;z-index:28;right:18px;
+    right:calc(18px + env(safe-area-inset-right));bottom:20px;bottom:calc(20px + env(safe-area-inset-bottom));
+    width:52px;height:52px;border-radius:50%;border:none;background:var(--brand);color:var(--brand-ink);
+    box-shadow:0 6px 20px rgba(0,0,0,.4);cursor:pointer;align-items:center;justify-content:center}
+  .fab:active{filter:brightness(.94)}
+  .fab .ic{width:24px;height:24px}
   /* machine menu (native select 대체) — 레일 컨텍스트 앵커 */
   .mmenu{position:absolute;z-index:45;min-width:170px;background:var(--surface2);border:1px solid var(--line-hi);
     border-radius:9px;box-shadow:var(--shadow);padding:4px;display:none}
@@ -661,11 +672,14 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     .layout{grid-template-columns:1fr;min-height:calc(100dvh - 55px)}
     /* 사이드바 = 오프캔버스 드로어 — 플릿이 첫 화면, 런처는 ☰ 뒤에 */
     .menu-btn{display:inline-flex}
-    aside{position:fixed;top:54px;bottom:0;left:0;width:min(86vw,340px);z-index:30;
-      transform:translateX(-103%);transition:transform .22s ease;overflow-y:auto;
+    aside{position:fixed;top:54px;bottom:0;left:0;width:min(86vw,340px);max-width:100vw;z-index:30;
+      transform:translateX(-103%);transition:transform .22s ease;overflow-y:auto;overflow-x:hidden;
       -webkit-overflow-scrolling:touch;box-shadow:var(--shadow)}
     aside.open{transform:translateX(0)}
     .scrim.on{display:block}
+    /* pocket board — drawer is JUST the navigator; the ＋ FAB opens the compose sheet */
+    .fab{display:inline-flex}
+    #newBtn,.newnote{display:none}
     header{padding:0 12px;gap:9px}
     .brand .sub,.daemon-badge,.machines{display:none}
     main{padding:14px}
@@ -702,6 +716,8 @@ ${ICON_SPRITE}
   <div class="machines" id="machines"></div>
 </header>
 <div class="scrim" id="scrim"></div>
+<!-- pocket board FAB (v5.0 Part C) — mobile-only; opens the compose sheet -->
+<button type="button" class="fab" id="fab" aria-label="new task"><svg class="ic"><use href="#i-plus"/></svg></button>
 <div class="layout">
   <aside class="rail">
     <button type="button" class="machine" id="machineSwitch">
@@ -3336,6 +3352,7 @@ function openLaunch(tab){
 }
 function closeLaunch(){ $('newSheet').classList.remove('open'); $('repoActions').hidden = true; $('repoForm').hidden = true; }
 $('newBtn').addEventListener('click', ()=>openLaunch('task'));
+$('fab').addEventListener('click', ()=>openLaunch('task'));   // mobile pocket-board FAB → same sheet
 $('sheetClose').addEventListener('click', closeLaunch);
 $('newSheet').addEventListener('click', (e)=>{ if(e.target===$('newSheet')) closeLaunch(); });
 // Add repository — 시트를 열고 repo 피커(Browse/New-folder/Path 내장)를 노출
