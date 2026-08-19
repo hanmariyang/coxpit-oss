@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import websocket from '@fastify/websocket';
-import { eq } from 'drizzle-orm';
+import { eq, inArray, and, like, desc } from 'drizzle-orm';
 import { authGate } from './auth';
 import { config } from './config';
 import { db } from './db';
@@ -170,16 +170,27 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
 
   // 보드 하이드레이션 — machines/repos/tasks/runs(+events)/captures 한 방에.
-  app.get('/api/fleet', async () => {
-    const [ms, rs, ts, rns, evs, dcs, gs] = await Promise.all([
+  // 기본 view=active: 닫힌 태스크·그 run·이벤트 전량을 내리지 않는다(수백 run 시 페이로드 폭발 방지).
+  // 이벤트는 활성 run 당 최근 40개만(카드는 8, 모달은 전량 refetch). view=all 은 구버전 전량.
+  const EVENT_CAP = 40;
+  app.get('/api/fleet', async (req) => {
+    const view = ((req.query ?? {}) as { view?: string }).view === 'all' ? 'all' : 'active';
+    const [ms, rs, allTasks, dcs, gs] = await Promise.all([
       db.select().from(machines),
       db.select().from(repos),
       db.select().from(tasks),
-      db.select().from(agentRuns),
-      db.select().from(agentEvents),
       db.select().from(designCaptures),
       db.select().from(taskGroups),
     ]);
+    const activeTasks = allTasks.filter((t) => t.status !== 'closed');
+    const closedCount = allTasks.length - activeTasks.length;
+    const ts = view === 'all' ? allTasks : activeTasks;
+    const taskIds = new Set(ts.map((t) => t.id));
+    const allRuns = await db.select().from(agentRuns);
+    const rns = view === 'all' ? allRuns : allRuns.filter((r) => taskIds.has(r.taskId));
+    const runIds = rns.map((r) => r.id);
+    // 이벤트는 대상 run 으로 스코프한 뒤 로드(전량 로드 후 슬라이스 = 고치려는 그 버그).
+    const evs = runIds.length ? await db.select().from(agentEvents).where(inArray(agentEvents.runId, runIds)) : [];
     const byRun = new Map<number, Array<{ kind: string; payload: string }>>();
     for (const e of evs) {
       const arr = byRun.get(e.runId) ?? [];
@@ -188,11 +199,42 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
     return {
       machines: ms, repos: rs, tasks: ts, captures: dcs, groups: gs,
-      runs: rns.map((r) => ({ ...r, events: byRun.get(r.id) ?? [] })),
+      runs: rns.map((r) => ({ ...r, events: (byRun.get(r.id) ?? []).slice(-EVENT_CAP) })),
+      counts: { activeTasks: activeTasks.length, closedTasks: closedCount },
       // 보드 헤더 "어느 데몬에 붙어 있나" 표시용 (인증 뒤라 dbPath 노출 가능)
       daemon: { version: config.version, pid: process.pid, port: config.port, dbPath: config.dbPath },
       providers: listProviders(),
     };
+  });
+
+  // 아카이브 — 닫힌 태스크 목록(최신순, 페이지네이션·필터). 카드가 아니라 한 줄 행.
+  app.get('/api/archive', async (req) => {
+    const q = (req.query ?? {}) as { offset?: string; limit?: string; q?: string; repo?: string; status?: string };
+    const offset = Math.max(0, Number(q.offset) || 0);
+    const limit = Math.min(100, Math.max(1, Number(q.limit) || 50));
+    const conds = [eq(tasks.status, 'closed')];
+    if (q.q) conds.push(like(tasks.title, `%${q.q}%`));
+    if (q.repo) conds.push(eq(tasks.repoId, Number(q.repo)));
+    const where = conds.length === 1 ? conds[0] : and(...conds);
+    let closed = await db.select().from(tasks).where(where).orderBy(desc(tasks.id));
+    // status 필터 = 태스크의 run 중 그 상태를 가진 게 있어야 함(런 로드 후 필터)
+    const repoName = new Map((await db.select().from(repos)).map((r) => [r.id, r.name]));
+    const grpTitle = new Map((await db.select().from(taskGroups)).map((g) => [g.id, g.title]));
+    const total0 = closed.length;
+    const page = closed.slice(offset, offset + limit);
+    const rows = [];
+    for (const t of page) {
+      const rs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, t.id));
+      if (q.status && !rs.some((r) => r.status === q.status)) continue;
+      rows.push({
+        taskId: t.id, title: t.title, repoName: repoName.get(t.repoId) ?? '?',
+        groupTitle: t.groupId != null ? grpTitle.get(t.groupId) ?? null : null,
+        closedAt: t.closedAt ? Math.floor(t.closedAt.getTime() / 1000) : (t.createdAt ? Math.floor(t.createdAt.getTime() / 1000) : 0),
+        runs: rs.map((r) => ({ id: r.id, status: r.status, filesChanged: r.filesChanged, agent: r.agent, model: r.model })),
+      });
+    }
+    // status 필터가 있으면 total 은 근사(페이지 내 필터) — UI 는 rows 로만 판단하니 total0 유지.
+    return { total: total0, rows };
   });
 
   // ─── 머신 레지스트리 ────────────────────────────────────────────
@@ -540,7 +582,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     const cleanups = [];
     for (const r of trs) cleanups.push({ runId: r.id, ...(await cleanupRun(r.id)) });
 
-    await db.update(tasks).set({ status: 'closed' }).where(eq(tasks.id, id));
+    await db.update(tasks).set({ status: 'closed', closedAt: new Date() }).where(eq(tasks.id, id));
     broadcast({ type: 'task', taskId: id, status: 'closed' });
     return { ok: true, taskId: id, cleanups };
   });

@@ -110,7 +110,7 @@ One daemon, one SQLite file, zero external services. Machines are reached over S
 
 ## Status
 
-`v4.2` — everything in v4.1 plus **run grouping**: goal fan-outs and agent swarms cluster into bands on the board (title · N tasks · M settled, with fold, group Select runs, and Close group), and multi-run tasks get `run i/n` attempt counters so same-title cards read as attempts, not duplicates. All shipped and e2e-tested (36 checks). Roadmap: ROADMAP.md.
+`v4.3` — everything in v4.2 plus **the logbook**: the board is Active-first (closed tasks leave the grid), an Archive view lists them as searchable rows, and `/api/fleet` now scopes to active work and caps events per run so it stays fast at hundreds of runs. Opening an archived task still renders its documents — from the v4.1 snapshot. All shipped and e2e-tested (38 checks). ⚠️ `/api/fleet` defaults to `view=active` now — pass `?view=all` for the previous everything-payload. Roadmap: ROADMAP.md.
 
 ## License
 

@@ -152,6 +152,22 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .gband.folded .gband-grid{display:none}
   .gband-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
   .attempt{color:var(--brand);opacity:.8}
+  /* ── active/archive view seg + archive list ── */
+  .view-seg{padding:2px;gap:2px}
+  .view-seg .seg-opt{padding:4px 12px;font-size:11.5px}
+  .view-seg .seg-hint{color:var(--faint);margin-left:4px}
+  .arch-bar{display:flex;gap:8px;margin-bottom:12px}
+  .arch-bar input{flex:1}
+  .arch-bar select{flex:0 0 auto}
+  .arch-row{display:flex;align-items:center;gap:14px;padding:10px 14px;border:1px solid var(--line);
+    border-radius:9px;background:var(--surface);margin-bottom:7px;cursor:pointer;transition:border-color .15s}
+  .arch-row:hover{border-color:var(--line-hi)}
+  .ar-title{flex:1;font-weight:600;font-size:13px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .ar-runs{font-family:var(--mono);font-size:11px;color:var(--muted);flex:0 1 auto;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:34%}
+  .ar-repo{font-family:var(--mono);font-size:11px;color:var(--faint);flex:0 0 auto}
+  .ar-date{font-family:var(--mono);font-size:11px;color:var(--faint);flex:0 0 auto}
+  .arch-empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:30px 0;text-align:center}
+  @media (max-width:860px){.ar-repo{display:none}.ar-runs{max-width:44%}}
   .card{border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);
     overflow:hidden;display:flex;flex-direction:column;cursor:pointer;
     transition:border-color .18s,transform .18s,box-shadow .18s}
@@ -383,6 +399,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   <button class="btn-ghost sm menu-btn" id="menuBtn" aria-label="open launcher">☰</button>
   <div class="brand"><span class="mark">coxpit</span><span class="sub">fleet console</span></div>
   <span class="daemon-badge" id="daemonBadge" style="display:none"></span>
+  <div class="seg view-seg" id="viewSeg">
+    <button type="button" class="seg-opt on" data-view="active">Active</button>
+    <button type="button" class="seg-opt" data-view="archive">Archive <span id="archN" class="seg-hint"></span></button>
+  </div>
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles">🔕</button>
   <div class="machines" id="machines"></div>
@@ -467,6 +487,14 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <span class="glyph">▚▞▚</span>
       <span>No runs yet</span>
       <span style="color:#3d4657">register a repo, write a task, hit Run fleet</span>
+    </div>
+    <div id="archive" hidden>
+      <div class="arch-bar">
+        <input id="archQ" placeholder="search title…" autocomplete="off" />
+        <select id="archRepo"><option value="">all repos</option></select>
+      </div>
+      <div id="archList"></div>
+      <div style="text-align:center;margin-top:14px"><button class="btn-ghost sm" id="archMore" hidden>load 50 more</button></div>
     </div>
   </main>
 </div>
@@ -875,6 +903,7 @@ function bandHTML(g, grpRuns){
     + '<div class="gband-grid">'+cards+'</div></div>';
 }
 function render(){
+  if (boardView==='archive') return;   // 아카이브 뷰는 자체 리스트 — grid 안 건드림
   const list = [...runs.values()].sort((a,b)=>b.id-a.id);
   $('empty').style.display = list.length ? 'none' : 'flex';
   if (!list.length){ paintOnboarding(); $('grid').innerHTML=''; return; }
@@ -892,6 +921,73 @@ function render(){
   $('grid').innerHTML = html;
   if (termRunId!=null) termTabsRender();   // 터미널 열려있으면 세션 탭도 동기화
 }
+
+/* ── active / archive view ─────────────────────────────── */
+let boardView = 'active';
+let archOffset = 0, archTotal = 0;
+const ARCH_LIMIT = 50;
+function setView(v){
+  boardView = v;
+  document.querySelectorAll('#viewSeg .seg-opt').forEach(b=>{
+    const on = b.dataset.view===v;
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', on?'true':'false');
+  });
+  const archive = v==='archive';
+  $('archive').hidden = !archive;
+  $('grid').style.display = archive ? 'none' : '';
+  $('empty').style.display = archive ? 'none' : ($('grid').innerHTML ? 'none' : 'flex');
+  document.querySelector('.toolbar').style.display = archive ? 'none' : '';
+  if (archive){ paintArchRepos(); archFetch(true); }
+  else render();
+}
+document.querySelectorAll('#viewSeg .seg-opt').forEach(b=>b.addEventListener('click', ()=>setView(b.dataset.view)));
+function paintArchRepos(){
+  const sel = $('archRepo'); const cur = sel.value;
+  sel.innerHTML = '<option value="">all repos</option>' + repos.map(r=>'<option value="'+r.id+'">'+esc(r.name)+'</option>').join('');
+  sel.value = cur;
+}
+function archRowHTML(row){
+  const runs = row.runs.map(r=>'r'+r.id+' '+r.status).join(' · ');
+  const d = row.closedAt ? new Date(row.closedAt*1000) : null;
+  const date = d ? (String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')) : '';
+  const grp = row.groupTitle ? '<span class="ar-repo" title="group">⌁ '+esc(row.groupTitle.slice(0,24))+'</span>' : '';
+  return '<div class="arch-row" data-t="'+row.taskId+'">'
+    + '<span class="ar-title">'+esc(row.title)+'</span>'
+    + '<span class="ar-runs">'+esc(runs)+'</span>'+grp
+    + '<span class="ar-repo">'+esc(row.repoName)+'</span>'
+    + '<span class="ar-date">'+date+'</span></div>';
+}
+async function archFetch(reset){
+  if (reset){ archOffset = 0; $('archList').innerHTML = '<div class="arch-empty">loading…</div>'; }
+  const q = encodeURIComponent($('archQ').value.trim());
+  const repo = $('archRepo').value;
+  const url = '/api/archive?offset='+archOffset+'&limit='+ARCH_LIMIT
+    + (q?'&q='+q:'') + (repo?'&repo='+repo:'');
+  try{
+    const j = await fetch(url).then(x=>x.json());
+    archTotal = j.total||0;
+    const rows = (j.rows||[]).map(archRowHTML).join('');
+    if (reset) $('archList').innerHTML = rows || '<div class="arch-empty">no closed tasks match</div>';
+    else $('archList').insertAdjacentHTML('beforeend', rows);
+    archOffset += (j.rows||[]).length;
+    $('archMore').hidden = archOffset >= archTotal || !(j.rows||[]).length;
+  }catch{ $('archList').innerHTML = '<div class="arch-empty">archive failed</div>'; }
+}
+$('archMore').addEventListener('click', ()=>archFetch(false));
+let archTimer = null;
+$('archQ').addEventListener('input', ()=>{ clearTimeout(archTimer); archTimer = setTimeout(()=>archFetch(true), 300); });
+$('archRepo').addEventListener('change', ()=>archFetch(true));
+$('archList').addEventListener('click', async (e)=>{
+  const row = e.target.closest('.arch-row'); if(!row) return;
+  const tid = Number(row.dataset.t);
+  try{
+    const j = await fetch('/api/tasks/'+tid).then(x=>x.json());
+    if (!j.task || !(j.runs||[]).length){ toast('task has no runs', 'error'); return; }
+    tasks.set(j.task.id, j.task);
+    j.runs.forEach(rn => { if(!runs.has(rn.id)) runs.set(rn.id, { ...rn, events: [] }); });
+    openModal(j.runs.map(r=>r.id).sort((a,b)=>a-b)[0]);
+  }catch{ toast('could not open task', 'error'); }
+});
 
 /* ── first-run onboarding (빈 보드 = 준비 상태 점검 + 시작 안내) ── */
 let readiness = null, probing = false;
@@ -973,8 +1069,9 @@ function upsertRun(patch){
 }
 
 async function hydrate(){
-  const r = await fetch('/api/fleet').then(x=>x.json());
+  const r = await fetch('/api/fleet?view=active').then(x=>x.json());
   machines = r.machines||[]; repos = r.repos||[]; captures = r.captures||[];
+  if (r.counts){ const n = r.counts.closedTasks||0; $('archN').textContent = n ? '· '+n : ''; }
   tasks.clear();
   (r.tasks||[]).forEach(t => tasks.set(t.id, t));
   groups.clear();
@@ -1092,17 +1189,22 @@ function connectWS(){
   ws.onclose = ()=>{ $('wsdot').classList.remove('on'); $('wstext').textContent='reconnecting'; setTimeout(connectWS,1500); };
   ws.onmessage = (m)=>{
     let ev; try{ ev = JSON.parse(m.data); }catch{ return; }
+    // 아카이브 뷰는 정적 스냅샷 — 라이브 갱신으로 뒤엎지 않는다.
+    if (boardView==='archive' && (ev.type==='run'||ev.type==='event'||ev.type==='task')) return;
     if (ev.type==='run'){
-      const known = runs.has(ev.runId ?? ev.id);
+      const rid = ev.runId ?? ev.id;
+      const known = runs.has(rid);
+      // 아카이브된(맵에 없는) run 의 뒤늦은 echo 는 무시 — 신규는 항상 pending 으로 먼저 온다.
+      if (!known && ev.status && ev.status!=='pending') return;
       upsertRun(ev);
       if (!known && ev.taskId==null){ hydrate(); return; }
       if (ev.taskId!=null && !tasks.has(ev.taskId)) hydrate(); // 통합 태스크 등 신규 태스크 동기화
-      render(); flash(ev.runId ?? ev.id); paintModal();
-      if (openRunId===(ev.runId??ev.id) && ['done','failed','error','stopped'].includes(ev.status)) loadDiff();
+      render(); flash(rid); paintModal();
+      if (openRunId===rid && ['done','failed','error','stopped'].includes(ev.status)) loadDiff();
       if (cmpTaskId!=null && ['done','failed','error','stopped','merged'].includes(ev.status)) paintCompare();
       if (['done','failed','error','stopped'].includes(ev.status)) notifySettleUI(ev);
     } else if (ev.type==='event'){
-      const r = runs.get(ev.runId); if(!r){ hydrate(); return; }
+      const r = runs.get(ev.runId); if(!r) return;   // 아카이브 run 의 이벤트는 무시(맵에 없으면 resurrect X)
       r.events = r.events||[]; r.events.push({ kind:ev.kind, payload:ev.payload });
       render(); flash(ev.runId); paintModal();
     } else if (ev.type==='task'){
@@ -1198,11 +1300,16 @@ $('mDiffWrap').addEventListener('click', (e)=>{
   $('steerInput').value = (f ? f+': ' : '') + '"'+line+'" — ';
   $('steerInput').focus();
 });
-function openModal(id){
+async function openModal(id){
   openRunId = id;
   if (docMode){ docMode=false; $('mDocsTgl').textContent='Rendered'; $('mDiffWrap').innerHTML='<pre class="diff" id="mDiff">loading…</pre>'; }
   $('mDocsTgl').hidden = true;
   paintModal(); $('overlay').classList.add('open'); loadDiff();
+  // fleet 는 run 당 최근 40 이벤트만 내림 — 모달은 전체 타임라인을 다시 가져온다.
+  try{
+    const j = await fetch('/api/runs/'+id).then(x=>x.json());
+    if (j.run){ const r = runs.get(id); if (r){ r.events = j.events||[]; if (openRunId===id) paintModal(); } }
+  }catch{}
 }
 function closeModal(){ openRunId=null; $('overlay').classList.remove('open'); }
 /* ── select mode (integrate) ── */

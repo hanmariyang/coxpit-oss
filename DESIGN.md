@@ -43,7 +43,7 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Select mode | `Select runs` toolbar toggle + `.selbar` | cards grow a ✓ circle; click toggles instead of opening; the floating bar states the consequence ("merges in selection order · conflicts spawn an integration agent") |
 | Plan form | `#planForm` sidebar section | one goal → planner splits → auto-launch; button narrates its long wait ("Planning… (1–3 min)"); follows the global Dry/Real mode |
 | AI review panel | `#cmpReview` above compare columns | reviewer digests every diff into approach/pros/cons/recommendation (mdLite-rendered) — the human judges, not reads |
-| Timeline lines | `humanize()` | never raw JSON: `said`/`tool ▸ Name — file`/`done`/`steer`/`ask ?`/`sync`; rate-limit and tool-result echoes are dropped as noise |
+| Timeline lines | `humanize()` | never raw JSON: `said`/`tool ▸ Name — file`/`done`/`steer`/`ask ?`/`sync`; rate-limit and tool-result echoes are dropped as noise. The modal always refetches the full timeline on open (`GET /api/runs/:id`) — the fleet payload caps events at 40/run |
 | Session bar | Work/Ask mini-seg + input in run modal | the run IS a session: Work = next instruction, Ask = question only (no file changes); Sync base refreshes a long-lived worktree |
 | Notify bell | `#bell` header toggle (🔕/🔔) | browser notification on run settle; server-side twin is `COXPIT_WEBHOOK_URL` (JSON `run.settled` POST) |
 | Sidebar layers | Context → Start → Library | ONE machine+repo pair up top (every action uses it); ONE launcher with Task/Goal/Workbench tabs and a shared mode+Start footer; captures live in a collapsed drawer. Never add a fourth parallel section — extend a layer |
@@ -68,6 +68,8 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Group band | `.gband` (`grid-column:1/-1`) around sibling cards | goal (`⌁`) / swarm (`↳`) siblings cluster under a header (title · N tasks · M settled) with fold/Select runs/Close group — a **dashed border**, never a left accent bar or a color fill; cards inside stay first-class, single-run tasks never band |
 | Attempt counter | `.attempt` in card meta | any task with >1 run shows `run i/n` so same-title cards read as attempts, not duplicates; brand-tinted, mono |
 | Group actions | band header buttons (delegated on `#grid`) | Select runs reuses the existing select mode + selbar (no new merge path); Close group loops the same close endpoint honoring the v4.1 guard, aggregating every `atRisk` into one confirm; fold state persists in localStorage across WS repaints |
+| View seg | `#viewSeg` (Active / Archive · N) in header | the board is a cockpit for live work — Active is the default and closed tasks leave it; Archive (`· N` badge = closed count) swaps the grid for a list; WS updates are ignored while Archive is shown (it's a static snapshot) |
+| Archive rows | `.arch-row` in `#archive` | closed tasks as compact single-line rows (title · run summary · repo · date), newest first, with a debounced title search and repo filter + load-more paging; a row opens the run modal via `GET /api/tasks/:id` — diff says worktree gone, Rendered falls back to the v4.1 snapshot |
 
 ## Interaction rules
 

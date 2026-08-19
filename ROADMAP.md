@@ -103,18 +103,18 @@ shows neither.
 - [x] Group actions on the band: select-all → Integrate, review the group,
       close the group — the whole goal wrap-up in one place
 
-### v4.3 — the logbook
+### v4.3 — the logbook *(shipped)*
 The board is a cockpit for live work, not a museum. At hundreds of runs the answer
 is separation, not scrolling.
 
-- [ ] Active-first board: default view shows open/running/unsettled work only;
+- [x] Active-first board: default view shows open/running/unsettled work only;
       closed tasks leave the grid
-- [ ] Archive: closed work becomes compact list rows (title · status · date · repo)
+- [x] Archive: closed work becomes compact list rows (title · status · date · repo)
       with repo/status/provider/text filters — search beats scrolling past ~100 cards
-- [ ] Fleet payload diet: /api/fleet ships events for active runs only; archive rows
+- [x] Fleet payload diet: /api/fleet ships events for active runs only; archive rows
       carry summaries and lazy-load detail on open (the full-history payload is the
       real scaling wall, before the UI is)
-- [ ] Closed = archived immediately (design supersedes the earlier N-day timer —
+- [x] Closed = archived immediately (design supersedes the earlier N-day timer —
       simpler, and v4.1 hatching already covers the "just closed" glance)
 
 ## Non-goals

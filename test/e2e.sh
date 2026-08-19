@@ -68,7 +68,9 @@ case "$BOARD_HTML" in *'id="repoBranch"'*) : ;; *) fail "base branch button miss
 case "$BOARD_HTML" in *'card.closed .log::before'*) : ;; *) fail "closed-card hatching missing";; esac
 case "$BOARD_HTML" in *'gband-h'*) : ;; *) fail "group band markup missing";; esac
 case "$BOARD_HTML" in *'attemptHTML'*) : ;; *) fail "attempt counter missing";; esac
-pass "board served (v4.1 model/branch/hatching + v4.2 group band/attempt)"
+case "$BOARD_HTML" in *'id="viewSeg"'*) : ;; *) fail "active/archive view seg missing";; esac
+case "$BOARD_HTML" in *'arch-row'*) : ;; *) fail "archive row styles missing";; esac
+pass "board served (v4.1..v4.3 UI assets present)"
 
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
@@ -246,6 +248,37 @@ curl -sf -X POST "$B/api/tasks/1/close" | grep -q '"ok":true' || fail "close"
 curl -sf -X POST "$B/api/tasks/$ITID/close" -H 'content-type: application/json' -d '{"force":true}' | grep -q '"ok":true' || fail "close integration task"
 [ -z "$(git -C "$REPO" branch --list 'coxpit/*')" ] || fail "branches not cleaned"
 pass "task close cleans worktrees + branches"
+
+# v4.3 A/C — 기본 fleet 은 닫힌 태스크 제외, view=all 은 포함, counts + 이벤트 40캡 + 전체 record
+V43=$(python3 - "$B" <<'PYEOF'
+import sys,json,urllib.request as R
+B=sys.argv[1]
+active=json.load(R.urlopen(B+"/api/fleet"))
+alltasks=json.load(R.urlopen(B+"/api/fleet?view=all"))
+atids={t["id"] for t in active["tasks"]}
+allids={t["id"] for t in alltasks["tasks"]}
+assert 1 not in atids, "closed task 1 must not appear in active fleet"
+assert 1 in allids, "closed task 1 must appear in view=all"
+assert active.get("counts",{}).get("closedTasks",0) >= 1, ("counts.closedTasks", active.get("counts"))
+# 이벤트 캡: 어떤 run 이든 events<=40
+for r in alltasks["runs"]:
+    assert len(r.get("events",[])) <= 40, ("event cap breached", r["id"], len(r["events"]))
+# 전체 record 경로: GET /api/runs/1 이 fleet 이벤트 수 이상
+r1_fleet=[r for r in alltasks["runs"] if r["id"]==1][0]
+full=json.load(R.urlopen(B+"/api/runs/1"))
+assert len(full["events"]) >= len(r1_fleet["events"]), "runs/:id must return full timeline"
+print("V43_OK")
+PYEOF
+) || fail "v4.3 fleet scoping: $V43"
+case "$V43" in *V43_OK*) : ;; *) fail "v4.3 fleet: $V43";; esac
+pass "fleet view scoping (active omits closed · all includes · counts · event cap · full record)"
+
+# v4.3 B — 아카이브 목록 + 필터
+ARCH=$(curl -s "$B/api/archive")
+echo "$ARCH" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d["total"]>=1 and any(r["taskId"]==1 for r in d["rows"]), d' || fail "archive missing closed task 1"
+curl -s "$B/api/archive?q=e2e" | grep -q '"taskId":1' || fail "archive q=e2e should match"
+curl -s "$B/api/archive?q=zzznope" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert not d["rows"], d' || fail "archive q=zzznope should miss"
+pass "archive list + title filter"
 
 # v4.1 A — 스냅샷이 cleanup(close) 후에도 문서 뷰를 살린다 (run 2 worktree 는 삭제됨)
 DOCS2=$(curl -sf "$B/api/runs/2/docs")

@@ -97,4 +97,5 @@ export async function ensureSchema(): Promise<void> {
   try { await client.execute('ALTER TABLE tasks ADD COLUMN parent_run_id INTEGER'); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN model TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
   try { await client.execute('ALTER TABLE tasks ADD COLUMN group_id INTEGER'); } catch { /* exists */ }
+  try { await client.execute('ALTER TABLE tasks ADD COLUMN closed_at INTEGER'); } catch { /* exists */ }
 }

@@ -50,6 +50,7 @@ export const tasks = sqliteTable('tasks', {
   designCaptureId: integer('design_capture_id'), // 선택 — 프롬프트에 DESIGN CONTEXT 주입
   parentRunId: integer('parent_run_id'), // 에이전트 셀프 오케스트레이션 — 이 태스크를 발사한 run
   groupId: integer('group_id'), // task_groups — goal/swarm 형제 묶음(수동 태스크는 NULL)
+  closedAt: integer('closed_at', { mode: 'timestamp' }), // 닫힌 시각(아카이브 정렬·표시)
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 
