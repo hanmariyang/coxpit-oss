@@ -286,6 +286,22 @@ expect_code 409 -X POST "$B/api/repos/new" -H 'content-type: application/json' -
 expect_code 400 -X POST "$B/api/repos/new" -H 'content-type: application/json' -d '{"machineSlug":"local","path":"relative/path"}'
 pass "greenfield guards (nonempty 409, existing repo 409, relative path 400)"
 
+# v4.5 — remote access: /api/remote is well-formed and never 500s. Tailscale can't
+# run in CI (bin absent → tailscale:"missing"); on a dev box with Tailscale it may
+# report "running" — assert the shape only, never a 500, accept any valid state.
+expect_code 200 "$B/api/remote"
+RMT=$(curl -s "$B/api/remote")
+echo "$RMT" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d["tailscale"] in ("missing","stopped","running"),d;assert isinstance(d["serve"],bool) and isinstance(d["funnel"],bool),d' || fail "remote state shape: $RMT"
+# Funnel guard: this daemon booted with auth DISABLED → funnel-on must refuse.
+RFUN=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/remote/funnel" -H 'content-type: application/json' -d '{"on":true}')
+[ "$RFUN" = "409" ] || fail "funnel-on with auth off should 409, got $RFUN"
+RFBODY=$(curl -s -X POST "$B/api/remote/funnel" -H 'content-type: application/json' -d '{"on":true}')
+case "$RFBODY" in *NO_AUTH*) : ;; *) fail "funnel guard missing NO_AUTH code: $RFBODY";; esac
+# Serve has no such guard and Funnel-off is always allowed (both return state, 200).
+expect_code 200 -X POST "$B/api/remote/serve" -H 'content-type: application/json' -d '{"on":false}'
+expect_code 200 -X POST "$B/api/remote/funnel" -H 'content-type: application/json' -d '{"on":false}'
+pass "remote: /api/remote shape (missing OK) · funnel NO_AUTH 409 · serve ungated"
+
 # task close cleans everything (통합 태스크까지 닫아야 브랜치 0)
 # r1=merged·r2=exported(둘 다 안전) → task 1 은 force 없이 닫힘. 통합 태스크는 미머지라 force.
 curl -sf -X POST "$B/api/tasks/1/close" | grep -q '"ok":true' || fail "close"
@@ -481,9 +497,17 @@ expect_code 200 -u admin:pw-e2e "$B/api/machines"
 expect_code 200 "$B/design/bookmarklet.js"
 # /share/* 는 무인증 예외(없는 토큰이라도 401 이 아니라 404 여야 함)
 expect_code 404 "$B/share/no-such-token"
-expect_code 201 -X POST "$B/api/design/capture?k=pw-e2e" -H 'content-type: application/json' -d '{"selector":"x"}' 
-expect_code 401 -X POST "$B/api/design/capture?k=nope" -H 'content-type: application/json' -d '{}' 
+expect_code 201 -X POST "$B/api/design/capture?k=pw-e2e" -H 'content-type: application/json' -d '{"selector":"x"}'
+expect_code 401 -X POST "$B/api/design/capture?k=nope" -H 'content-type: application/json' -d '{}'
 pass "auth gate + capture key"
+
+# v4.5 — remote endpoints are behind the auth gate; with a real password set the
+# Funnel guard does NOT trip (guard is empty-pass only). Test funnel-OFF (always
+# ungated, never invokes the CLI's funnel-on) so we don't touch a dev tailnet.
+expect_code 401 "$B/api/remote"
+expect_code 200 -u admin:pw-e2e "$B/api/remote"
+expect_code 200 -u admin:pw-e2e -X POST "$B/api/remote/funnel" -H 'content-type: application/json' -d '{"on":false}'
+pass "remote endpoints auth-gated; funnel guard is empty-pass only"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

@@ -17,6 +17,7 @@ import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getR
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
+import { remoteState, setServe, setFunnel } from './remote';
 import { BOARD_HTML } from './board';
 
 const require_ = createRequire(import.meta.url);
@@ -202,7 +203,11 @@ export async function buildServer(): Promise<FastifyInstance> {
       runs: rns.map((r) => ({ ...r, events: (byRun.get(r.id) ?? []).slice(-EVENT_CAP) })),
       counts: { activeTasks: activeTasks.length, closedTasks: closedCount },
       // 보드 헤더 "어느 데몬에 붙어 있나" 표시용 (인증 뒤라 dbPath 노출 가능)
-      daemon: { version: config.version, pid: process.pid, port: config.port, dbPath: config.dbPath },
+      // authOpen = 비밀번호 미설정 → Funnel(공개) 가드가 켜져야 함(원격접근 카드용)
+      daemon: {
+        version: config.version, pid: process.pid, port: config.port, dbPath: config.dbPath,
+        authOpen: config.auth.disabled || config.auth.pass === '',
+      },
       providers: listProviders(),
     };
   });
@@ -533,6 +538,28 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 북마클릿 본체 — 외부 앱 <script> 로 로드됨(인증 예외, 키는 src 쿼리로 전달)
   app.get('/design/bookmarklet.js', async (_req, reply) =>
     reply.type('text/javascript').header('cache-control', 'no-store').send(BOOKMARKLET_JS));
+
+  // ─── Remote access (v4.5) ──────────────────────────────────────
+  // coxpit DETECTS the user's own Tailscale and DRIVES serve/funnel — it never
+  // hosts a relay or issues a coxpit-branded URL. Truth is read live from the
+  // CLI each call (no DB state). Owner-only (behind the normal authGate).
+  app.get('/api/remote', async () => remoteState(config.port));
+
+  // Serve = tailnet-only HTTPS (safe by default) — no auth guard needed.
+  app.post('/api/remote/serve', async (req) => {
+    const b = (req.body ?? {}) as { on?: boolean };
+    return setServe(config.port, b.on === true);
+  });
+
+  // Funnel = PUBLIC internet. Refuse to expose shells without a password:
+  // Funnel has no Tailscale-side auth, so coxpit's basic auth is the only gate.
+  app.post('/api/remote/funnel', async (req, reply) => {
+    const b = (req.body ?? {}) as { on?: boolean };
+    if (b.on === true && (config.auth.disabled || config.auth.pass === '')) {
+      return reply.code(409).send({ error: 'set a password first', code: 'NO_AUTH' });
+    }
+    return setFunnel(config.port, b.on === true);
+  });
 
   // ─── Task ──────────────────────────────────────────────────────
   app.get('/api/tasks', async (req) => {
