@@ -1,0 +1,81 @@
+name: Bug report
+description: Something in Coxpit doesn't work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please reproduce on the **latest** release first.
+        For a security vulnerability, do **not** file here — see [SECURITY.md](https://github.com/hanmariyang/coxpit-oss/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, and what went wrong?
+      placeholder: Launched a fleet of 3 claude runs; the second card stuck on "running" and never settled.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Register repo …
+        2. Launch task with …
+        3. See …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Coxpit version
+      description: "`coxpit --version`, the npm version, or the desktop app version."
+      placeholder: "4.5.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: how-running
+    attributes:
+      label: How are you running it?
+      options:
+        - npm / npx
+        - Docker (GHCR image)
+        - Desktop app
+        - From source (npm run dev)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL2)
+        - Windows (native)
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider / mode
+      options:
+        - Claude Code
+        - Codex
+        - Dry run
+        - Mixed / multiple
+        - N/A
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant daemon output or the run timeline. **Redact any secrets, tokens, or private paths.**
+      render: shell

@@ -114,7 +114,15 @@ One daemon, one SQLite file, zero external services. Machines are reached over S
 
 ## Status
 
-`v4.3` — everything in v4.2 plus **the logbook**: the board is Active-first (closed tasks leave the grid), an Archive view lists them as searchable rows, and `/api/fleet` now scopes to active work and caps events per run so it stays fast at hundreds of runs. Opening an archived task still renders its documents — from the v4.1 snapshot. All shipped and e2e-tested (38 checks). ⚠️ `/api/fleet` defaults to `view=active` now — pass `?view=all` for the previous everything-payload. Roadmap: ROADMAP.md.
+`v4.5` — **greenfield + remote access**. Point Coxpit at an empty folder and a fleet scaffolds a brand-new project across N agents on an empty initial commit — compare the foundations, keep the best (existing folders are never touched). Remote access detects your Tailscale and puts the board on `https://<machine>.<tailnet>.ts.net` in one click (Funnel for public, behind a warning; copy-paste Cloudflare/Caddy recipes otherwise) — Coxpit drives the tool, never hosts a relay. Builds on v4.3's Active-first board + Archive. All shipped and e2e-tested (45 checks). Roadmap: ROADMAP.md.
+
+## Contributing
+
+Issues and PRs are welcome. Start with **[CONTRIBUTING.md](CONTRIBUTING.md)** for
+dev setup (`COXPIT_AUTH_DISABLED=1 npm run dev`), the verify gate (`npm run
+typecheck` + `bash test/e2e.sh`), and the house rules. Please read the
+[non-goals](ROADMAP.md#non-goals) before proposing a feature, and report security
+issues privately per **[SECURITY.md](SECURITY.md)** (Coxpit exposes shells).
 
 ## License
 

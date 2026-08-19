@@ -186,4 +186,4 @@ initial commit is a clean base so merge stays clean.
 - Accounts, telemetry, cloud relay — the daemon is yours; front it with your own access layer
 - A bundler for the board — one self-contained HTML string is a feature, not a debt
 
-Suggestions and PRs welcome — file an issue.
+Suggestions and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), then file an issue.
