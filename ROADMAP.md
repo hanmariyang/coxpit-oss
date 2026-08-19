@@ -30,6 +30,8 @@ Where the big players (Orca's desktop ADE, Paseo's multi-client daemon) go wide,
 - [x] Remote stop hardening (pgid group kill, TERM→KILL escalation)
 - [x] Platform support docs (Windows → WSL2 guidance)
 
+> Detailed, implementation-ready specs for v4.1–v4.3 live in [`design/`](design/README.md).
+
 ## Next
 
 ### v3.5 — the provider seam *(shipped)*
@@ -112,8 +114,8 @@ is separation, not scrolling.
 - [ ] Fleet payload diet: /api/fleet ships events for active runs only; archive rows
       carry summaries and lazy-load detail on open (the full-history payload is the
       real scaling wall, before the UI is)
-- [ ] Auto-archive: closed tasks older than N days fold away on their own — the DB
-      keeps everything, the cockpit just stops rendering it
+- [ ] Closed = archived immediately (design supersedes the earlier N-day timer —
+      simpler, and v4.1 hatching already covers the "just closed" glance)
 
 ## Non-goals
 
