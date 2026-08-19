@@ -445,6 +445,64 @@ for TID in $(echo "$PLAN" | python3 -c 'import sys,json;[print(t["id"]) for t in
 done
 pass "group model: plan siblings share a goal group; manual task ungrouped"
 
+# v4.6 L1 — Goal workroom: aggregate view · spawn · broadcast (honest skips) + UI contract
+# 새 dry plan 으로 방을 만든다(기존 태스크 ID 가정과 격리).
+WPLAN=$(curl -sf -X POST "$B/api/plan" -H 'content-type: application/json' -d '{"repoId":1,"goal":"workroom goal","real":false}')
+echo "$WPLAN" | grep -q '"ok":true' || fail "workroom plan: $WPLAN"
+WGID=$(python3 - "$B" <<'PYEOF'
+import sys,json,urllib.request as R
+B=sys.argv[1]
+fleet=json.load(R.urlopen(B+"/api/fleet"))
+goals=[g for g in fleet.get("groups",[]) if g["kind"]=="goal"]
+assert goals, "expected a goal group"
+print(max(g["id"] for g in goals))  # newest goal = the workroom plan
+PYEOF
+)
+[ -n "$WGID" ] || fail "could not resolve workroom group id"
+# 방의 두 run 이 정착할 때까지 대기(드라이 → done, 세션 없음)
+for i in $(seq 1 60); do
+  DN=$(curl -s "$B/api/groups/$WGID" | { grep -o '"status":"done"' || true; } | wc -l | tr -d ' ')
+  [ "$DN" -ge 2 ] && break; sleep 0.5
+done
+# B1 aggregate — group + runs(>=2, steerable boolean) + events array
+AGG=$(curl -sf "$B/api/groups/$WGID")
+echo "$AGG" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d["group"]["id"] and len(d["runs"])>=2, d;assert all(isinstance(r["steerable"],bool) and isinstance(r["live"],bool) for r in d["runs"]), d;assert isinstance(d["events"],list), d' || fail "aggregate shape: $AGG"
+expect_code 404 "$B/api/groups/999999"
+pass "workroom aggregate (group + runs with steerable/live + events, 404 for missing)"
+
+# B2 spawn — 새 attempt 가 그룹에 합류(groupId 일치), run 정착 done
+SPAWN=$(curl -sf -X POST "$B/api/groups/$WGID/spawn" -H 'content-type: application/json' -d '{"prompt":"another attempt","real":false}')
+echo "$SPAWN" | grep -q '"ok":true' || fail "spawn: $SPAWN"
+STID=$(echo "$SPAWN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["tasks"][0]["id"])')
+SRID=$(echo "$SPAWN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["tasks"][0]["runId"])')
+curl -s "$B/api/tasks/$STID" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d["task"]["groupId"]=='"$WGID"', d' || fail "spawned task not in group"
+SS=''
+for i in $(seq 1 60); do
+  SS=$(curl -s "$B/api/runs/$SRID" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$SS" ] && break; sleep 0.5
+done
+[ "$SS" = '"status":"done"' ] || fail "spawned run did not settle done: $SS"
+expect_code 400 -X POST "$B/api/groups/$WGID/spawn" -H 'content-type: application/json' -d '{}'
+pass "workroom spawn: new attempt joins group + settles done (empty prompt 400)"
+
+# B3 broadcast — dry runs have no session → honest skip (steered 0, skipped lists no-session)
+BC=$(curl -sf -X POST "$B/api/groups/$WGID/steer" -H 'content-type: application/json' -d '{"message":"follow up"}')
+echo "$BC" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d["ok"] and d["steered"]==0, d;assert len(d["skipped"])>=2, d;assert any("no agent session" in s["reason"] for s in d["skipped"]), d;assert "no session" in d["detail"], d' || fail "broadcast honest-skip shape: $BC"
+expect_code 400 -X POST "$B/api/groups/$WGID/steer" -H 'content-type: application/json' -d '{}'
+expect_code 404 -X POST "$B/api/groups/999999/steer" -H 'content-type: application/json' -d '{"message":"x"}'
+pass "workroom broadcast: dry/no-session runs skipped honestly (empty 400, missing 404)"
+
+# UI contract — workroom overlay + seg toggle + Open workroom control in the band
+case "$BOARD_HTML" in *'id="groupRoomOverlay"'*) : ;; *) fail "workroom overlay missing";; esac
+case "$BOARD_HTML" in *'id="roomSeg"'*) : ;; *) fail "workroom Work|Ask seg missing";; esac
+case "$BOARD_HTML" in *'data-groom='*) : ;; *) fail "Open workroom control missing";; esac
+case "$BOARD_HTML" in *'Open workroom'*) : ;; *) fail "Open workroom label missing";; esac
+pass "board serves goal workroom (#groupRoomOverlay + seg + Open workroom entry)"
+# 방 태스크 정리
+for TID in $(curl -s "$B/api/fleet" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(" ".join(str(t["id"]) for t in d["tasks"] if t.get("groupId")=='"$WGID"'))'); do
+  curl -s -X POST "$B/api/tasks/$TID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+done
+
 # provider seam — codex 파서 정규화 + 커맨드 시임 (unit, codex CLI 불필요)
 cat > "$WORK/prov.test.ts" <<EOF
 import { getProvider } from '$ROOT/src/providers.ts';

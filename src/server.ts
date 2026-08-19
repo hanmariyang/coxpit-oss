@@ -13,7 +13,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -760,6 +760,99 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!res.ok) return reply.code(422).send(res);
     return reply.code(202).send(res);
   });
+
+  // ─── Goal workroom (v4.6 L1) — 한 그룹(goal/swarm)을 한 방에서 몰기 ────────
+  // steerable = 정착(done/failed/stopped) + sessionId 보유 + worktree 살아있음.
+  // (steerRun 전제 그대로 — 라이브 run 은 steer 불가, 드라이런은 세션 없음.)
+  const groupRuns = async (groupId: number): Promise<{
+    group: typeof taskGroups.$inferSelect;
+    rows: Array<{ run: typeof agentRuns.$inferSelect; task: typeof tasks.$inferSelect }>;
+  } | null> => {
+    const gr = await db.select().from(taskGroups).where(eq(taskGroups.id, groupId)).limit(1);
+    if (!gr[0]) return null;
+    const gts = await db.select().from(tasks).where(eq(tasks.groupId, groupId));
+    const rows: Array<{ run: typeof agentRuns.$inferSelect; task: typeof tasks.$inferSelect }> = [];
+    for (const t of gts) {
+      const trs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, t.id));
+      for (const run of trs) rows.push({ run, task: t });
+    }
+    rows.sort((a, b) => a.run.id - b.run.id);
+    return { group: gr[0], rows };
+  };
+  const isSteerable = (r: typeof agentRuns.$inferSelect): boolean =>
+    !isRunLive(r.id) && ['done', 'failed', 'stopped'].includes(r.status) && !!r.sessionId && !!r.worktreePath;
+
+  // B1 — 애그리게이트 뷰(방의 chips + 최근 타임라인). 페이로드 다이어트: 최근 200 이벤트만.
+  app.get('/api/groups/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const g = await groupRuns(id);
+    if (!g) return reply.code(404).send({ error: 'group not found' });
+    const runs = g.rows.map(({ run, task }) => ({
+      runId: run.id, taskId: task.id, title: task.title, status: run.status,
+      agent: run.agent, model: run.model, branch: run.branch, filesChanged: run.filesChanged,
+      live: isRunLive(run.id), steerable: isSteerable(run),
+    }));
+    const runIds = g.rows.map((x) => x.run.id);
+    // 이벤트: 그룹 run 전체에서 최근 200개(id 순, 오래된 것 먼저 — 방 피드는 append-only).
+    const evs = runIds.length
+      ? (await db.select().from(agentEvents).where(inArray(agentEvents.runId, runIds)))
+          .sort((a, b) => a.id - b.id).slice(-200)
+      : [];
+    return {
+      group: { id: g.group.id, kind: g.group.kind, title: g.group.title },
+      runs,
+      events: evs.map((e) => ({ runId: e.runId, kind: e.kind, payload: e.payload, ts: e.ts })),
+    };
+  });
+
+  // B2 — "＋ New attempt": 그룹에 새 시도(들)를 발사. repo 는 그룹의 기존 태스크에서 상속.
+  app.post('/api/groups/:id/spawn', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { title?: string; prompt?: string; count?: number; real?: boolean };
+    const prompt = (b.prompt ?? '').trim();
+    if (!prompt) return reply.code(400).send({ error: 'prompt required' });
+    const g = await groupRuns(id);
+    if (!g) return reply.code(404).send({ error: 'group not found' });
+    if (!g.rows[0]) return reply.code(409).send({ error: 'group has no tasks to inherit a repo from' });
+    const repoId = g.rows[0].task.repoId; // 형제는 같은 repo 를 공유
+    const title = (b.title ?? '').trim() || prompt.slice(0, 40);
+    const count = Math.max(1, Math.min(5, Number(b.count) || 1));
+    const created: Array<{ id: number; title: string; runId: number }> = [];
+    for (let i = 0; i < count; i++) {
+      created.push(await launchGroupTask(id, repoId, title, prompt, b.real === true));
+    }
+    return reply.code(201).send({ ok: true, tasks: created });
+  });
+
+  // B3 — "→ Broadcast": 그룹의 정착·steerable run 전부에 후속 지시. 라이브/드라이는 정직하게 skip.
+  app.post('/api/groups/:id/steer', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { message?: string; mode?: string };
+    const message = (b.message ?? '').trim();
+    if (!message) return reply.code(400).send({ error: 'message required' });
+    const g = await groupRuns(id);
+    if (!g) return reply.code(404).send({ error: 'group not found' });
+    const mode = b.mode === 'ask' ? 'ask' : 'work';
+    let steered = 0;
+    const skipped: Array<{ runId: number; reason: string }> = [];
+    let running = 0, noSession = 0;
+    // 그룹 규모가 작아 순차 for 루프로 충분(폭주 fan-out 없음).
+    for (const { run } of g.rows) {
+      const res = await steerRun(run.id, message, mode);
+      if (res.ok) { steered++; continue; }
+      skipped.push({ runId: run.id, reason: res.detail });
+      if (/still running/.test(res.detail)) running++;
+      else if (/no agent session/.test(res.detail)) noSession++;
+    }
+    const parts = [`${steered} steered`];
+    if (running) parts.push(`${running} still running (steer after they settle)`);
+    if (noSession) parts.push(`${noSession} no session`);
+    const otherSkips = skipped.length - running - noSession;
+    if (otherSkips > 0) parts.push(`${otherSkips} skipped`);
+    return { ok: true, steered, skipped, detail: parts.join(' · ') };
+  });
+  // NOTE(v4.6): queuing a broadcast to apply to running runs once they settle is
+  // explicitly out of scope for L1 — running runs are reported as skipped, not queued.
 
   // 통합 — 여러 run(태스크 무관)을 base 에 순차 머지, 충돌은 통합 에이전트 자동 발사.
   app.post('/api/integrate', async (req, reply) => {

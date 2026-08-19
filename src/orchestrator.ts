@@ -59,6 +59,11 @@ export function resolveAgentToken(token: string): number | null {
   return agentTokens.get(token) ?? null;
 }
 
+/** run 이 지금 살아 있는가(자식 프로세스 보유). aggregate 뷰의 live/steerable 판정용. */
+export function isRunLive(runId: number): boolean {
+  return liveChildren.has(runId);
+}
+
 /** 에이전트 프롬프트에 붙는 능력 고지 — 독립 하위작업을 병렬 서브런으로 뺄 수 있다.
  * 파일 기반: 기본 권한(claude acceptEdits · codex workspace-write)이 네트워크를 막아도
  * 파일 쓰기는 되므로, spawn 요청을 워크트리의 .coxpit/spawn.json 으로 받는다. */
@@ -669,6 +674,25 @@ export async function openWorkbench(repoId: number, title: string): Promise<{
 }
 
 /**
+ * 그룹에 속한 태스크 1개를 만들고 run 1개를 발사한다(공용 helper).
+ * planFanout(plan 형제) 과 /api/groups/:id/spawn(＋New attempt) 이 공유하는
+ * "태스크 생성(groupId 각인) → run 생성 → 브로드캐스트 → launchRun" 몸통.
+ */
+export async function launchGroupTask(
+  groupId: number, repoId: number, title: string, prompt: string, real: boolean,
+): Promise<{ id: number; title: string; runId: number }> {
+  const rp = await db.select().from(repos).where(eq(repos.id, repoId)).limit(1);
+  const machineId = rp[0]!.machineId;
+  const tIns = await db.insert(tasks).values({ repoId, title: title.slice(0, 140), prompt, groupId }).returning();
+  const task = tIns[0]!;
+  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId, agent: 'claude-code', status: 'pending' }).returning();
+  const run = rIns[0]!;
+  broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, branch: '', filesChanged: 0 });
+  void launchRun(run.id, real);
+  return { id: task.id, title: task.title, runId: run.id };
+}
+
+/**
  * Plan fan-out — 스웜의 입구. 목표 하나를 받아 플래너 에이전트가 repo 를 읽고
  * 독립 실행 가능한 하위 태스크들로 분해 → 각 태스크를 count 1 로 자동 발사한다.
  * (수렴은 Integrate 가 담당. real=false 는 배관 리허설용 모의 2분할.)
@@ -728,13 +752,7 @@ export async function planFanout(repoId: number, goal: string, real: boolean): P
 
   const created: Array<{ id: number; title: string; runId: number }> = [];
   for (const t of plan) {
-    const tIns = await db.insert(tasks).values({ repoId, title: t.title, prompt: t.prompt, groupId }).returning();
-    const task = tIns[0]!;
-    const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent: 'claude-code', status: 'pending' }).returning();
-    const run = rIns[0]!;
-    broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, branch: '', filesChanged: 0 });
-    void launchRun(run.id, real);
-    created.push({ id: task.id, title: t.title, runId: run.id });
+    created.push(await launchGroupTask(groupId, repoId, t.title, t.prompt, real));
   }
   return { ok: true, detail: `${created.length} task(s) launched`, tasks: created };
 }

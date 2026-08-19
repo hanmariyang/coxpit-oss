@@ -152,6 +152,45 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .gband.folded .gband-grid{display:none}
   .gband-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
   .attempt{color:var(--brand);opacity:.8}
+
+  /* ── goal workroom (v4.6) — 한 goal 을 여는 단일 방 ── */
+  .gband-open{margin-left:2px}
+  .room{width:min(920px,96vw);max-height:90vh;background:var(--surface);border:1px solid var(--line);
+    border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--shadow)}
+  .rh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,var(--brand-dim),transparent)}
+  .rh .rh-glyph{color:var(--brand);font-family:var(--mono);font-size:15px}
+  .rh .rh-t{font-weight:600;font-size:14px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rh .rh-n{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .rh .x{background:transparent;border:none;color:var(--muted);font-size:19px;cursor:pointer;
+    padding:2px 9px;border-radius:6px;line-height:1}
+  .rh .x:hover{color:var(--ink);background:var(--surface2)}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;padding:12px 18px;border-bottom:1px solid var(--line)}
+  .room .chip{cursor:pointer;transition:border-color .15s,filter .15s}
+  .room .chip:hover{filter:brightness(1.15)}
+  .room .chip .cid{font-weight:600}
+  .room .chip .cmeta{opacity:.7;text-transform:none;letter-spacing:0}
+  .room .chip.new{border-style:dashed}
+  .body{overflow:auto;flex:1;min-height:120px}
+  .feed{display:flex;flex-direction:column;gap:6px;padding:12px 18px;font-family:var(--mono);font-size:11.5px}
+  .feed .fl{display:flex;gap:9px;align-items:baseline;min-width:0}
+  .feed .fl .who{min-width:52px;flex:none;opacity:.9}
+  .feed .fl .ft{color:var(--muted);word-break:break-word;flex:1}
+  .feed .fl.mark .who{color:var(--brand)}
+  .feed .empty-note{color:var(--faint)}
+  .composer{border-top:1px solid var(--line);padding:12px 18px;display:flex;flex-direction:column;gap:8px}
+  .composer .comp-seg{flex:0 0 auto}
+  .composer .comp-hint{font-family:var(--mono);font-size:10.5px;color:var(--faint);letter-spacing:.02em}
+  .composer textarea{min-height:52px}
+  .verbs{display:flex;gap:8px;align-items:center}
+  .verbs .grow{flex:1}
+  .conv-menu{position:relative}
+  .conv-pop{position:absolute;bottom:calc(100% + 6px);right:0;z-index:5;background:var(--surface2);
+    border:1px solid var(--line-hi);border-radius:9px;box-shadow:var(--shadow);padding:4px;min-width:200px;display:none}
+  .conv-menu.open .conv-pop{display:block}
+  .conv-pop button{display:block;width:100%;text-align:left;background:transparent;border:none;
+    color:var(--muted);font-size:12.5px;padding:8px 10px;border-radius:6px;cursor:pointer}
+  .conv-pop button:hover{background:var(--surface);color:var(--ink)}
   /* ── active/archive view seg + archive list ── */
   .view-seg{padding:2px;gap:2px}
   .view-seg .seg-opt{padding:4px 12px;font-size:11.5px}
@@ -589,6 +628,41 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="overlay" id="groupRoomOverlay">
+  <div class="room">
+    <div class="rh">
+      <span class="rh-glyph">⌒</span>
+      <span class="rh-t" id="roomTitle">Goal</span>
+      <span class="rh-n" id="roomCount"></span>
+      <button class="x" id="roomClose" aria-label="close">×</button>
+    </div>
+    <div class="chips" id="roomChips"></div>
+    <div class="body">
+      <div class="feed" id="roomFeed"></div>
+    </div>
+    <div class="composer">
+      <div class="seg comp-seg" id="roomSeg" role="group" aria-label="workroom mode" hidden>
+        <button type="button" class="seg-opt on" data-rmode="work">✎ Work</button>
+        <button type="button" class="seg-opt" data-rmode="ask">? Ask</button>
+      </div>
+      <div class="comp-hint" id="roomHint"></div>
+      <textarea id="roomInput" placeholder="New attempt prompt, or a broadcast to the settled runs…"></textarea>
+      <div class="verbs" id="roomVerbs">
+        <button type="button" class="btn-ghost sm" id="roomNew">＋ New attempt</button>
+        <button type="button" class="btn-ghost sm" id="roomBroadcast">→ Broadcast</button>
+        <span class="grow"></span>
+        <div class="conv-menu" id="roomConvMenu">
+          <button type="button" class="btn sm" id="roomConverge">Converge ▾</button>
+          <div class="conv-pop">
+            <button type="button" id="roomReview">Review group</button>
+            <button type="button" id="roomIntegrate">Select runs to integrate</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="cmpOverlay">
   <div class="modal wide">
     <div class="modal-h">
@@ -1015,6 +1089,7 @@ function bandHTML(g, grpRuns){
     + '<span class="gband-t">'+title+'</span>'
     + '<span class="gband-n">'+taskIds.length+' task'+(taskIds.length>1?'s':'')+' · '+settled+' settled</span>'
     + '<span class="gband-sp"></span>'
+    + '<button class="btn-ghost sm gband-open" data-groom="'+g.id+'">⌒ Open workroom</button>'
     + '<button class="btn-ghost sm" data-gsel="'+g.id+'">Select runs</button>'
     + '<button class="btn-ghost sm" data-gclose="'+g.id+'">Close group</button>'
     + '<button class="gband-fold" data-gfold="'+g.id+'" title="fold">'+(folded?'▸':'▾')+'</button></div>'
@@ -1315,6 +1390,7 @@ function connectWS(){
     let ev; try{ ev = JSON.parse(m.data); }catch{ return; }
     // 아카이브 뷰는 정적 스냅샷 — 라이브 갱신으로 뒤엎지 않는다.
     if (boardView==='archive' && (ev.type==='run'||ev.type==='event'||ev.type==='task')) return;
+    roomOnWS(ev);   // 워크룸이 열려있으면 그룹 소속 run/event 를 방에 반영
     if (ev.type==='run'){
       const rid = ev.runId ?? ev.id;
       const known = runs.has(rid);
@@ -1466,6 +1542,8 @@ $('selGo').addEventListener('click', async ()=>{
 
 /* ── 그룹 밴드 액션 (fold / Select runs / Close group) ── */
 $('grid').addEventListener('click', async (e)=>{
+  const groom = e.target.closest('[data-groom]');
+  if (groom){ openRoom(Number(groom.dataset.groom)); return; }
   const fold = e.target.closest('[data-gfold]');
   if (fold){ const g=Number(fold.dataset.gfold); if(gfold.has(g)) gfold.delete(g); else gfold.add(g); saveGfold(); render(); return; }
   const gsel = e.target.closest('[data-gsel]');
@@ -1526,7 +1604,7 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); $('npOverlay').classList.remove('open'); $('brOverlay').classList.remove('open'); $('remoteOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); $('npOverlay').classList.remove('open'); $('brOverlay').classList.remove('open'); $('remoteOverlay').classList.remove('open'); closeRoom(); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
 $('mExport').addEventListener('click', ()=>{
   if (openRunId==null) return;
@@ -1727,6 +1805,188 @@ $('mCompare').addEventListener('click', ()=>{
   const r = runs.get(openRunId); if(!r) return;
   closeModal(); openCompare(r.taskId);
 });
+
+/* ── goal workroom (v4.6 L1) — 한 goal 을 여는 단일 방 ── */
+let roomGroupId = null;               // 열려있는 그룹 id (null = 닫힘)
+const roomRunSet = new Set();         // 이 그룹에 속한 runId — WS 필터용
+let roomRuns = [];                    // 마지막 aggregate 의 runs (chips/scope hint)
+const roomExtra = [];                 // goal-level 마커(spawn/broadcast) — 피드에 섞음
+/* run → 상태색 (chip / who) */
+function roomStatusColor(s){ return statusColor(s); }
+function roomChipHTML(r){
+  const s = r.status||'pending';
+  const meta = ['done','failed','stopped','merged'].includes(s)
+    ? (r.filesChanged? '+'+r.filesChanged+'f' : 'no changes')
+    : (r.agent||'agent')+(s==='running'?' · editing…':'');
+  return '<span class="chip'+(s==='running'?' running':'')+(r.isNew?' new':'')+'" data-roomrun="'+r.runId+'"'
+    + ' style="color:'+roomStatusColor(s)+';border-color:'+roomStatusColor(s)+'">'
+    + '<i></i><span class="cid">r'+r.runId+'</span> <span class="cmeta">'+esc(meta)+'</span></span>';
+}
+function roomRenderChips(){
+  $('roomChips').innerHTML = roomRuns.length
+    ? roomRuns.map(roomChipHTML).join('')
+    : '<span style="color:var(--faint);font-family:var(--mono);font-size:11.5px">no runs yet</span>';
+}
+function roomFeedLine(who, whoStatus, text, mark){
+  return '<div class="fl'+(mark?' mark':'')+'"><span class="who" style="color:'
+    + (mark?'var(--brand)':roomStatusColor(whoStatus))+'">'+esc(who)+'</span>'
+    + '<span class="ft">'+esc(text)+'</span></div>';
+}
+function roomRenderFeed(events){
+  // run 이벤트 + goal-level 마커를 시간(id/순서)대로. 간단히: 이벤트 먼저, 마커는 append.
+  const statusOf = (rid)=>{ const r = roomRuns.find(x=>x.runId===rid); return r? r.status : 'pending'; };
+  const rows = [];
+  for (const e of (events||[])){
+    const h = humanize({ kind:e.kind, payload:e.payload });
+    if (!h) continue;
+    const list = Array.isArray(h) ? h : [h];
+    for (const x of list) rows.push(roomFeedLine('r'+e.runId, statusOf(e.runId), x.k+' · '+x.t, false));
+  }
+  for (const m of roomExtra){
+    rows.push(roomFeedLine(m.who, 'pending', m.text, true));
+  }
+  $('roomFeed').innerHTML = rows.length ? rows.join('')
+    : '<div class="empty-note">no activity yet — spawn an attempt or wait for runs to report</div>';
+  $('roomFeed').scrollTop = $('roomFeed').scrollHeight;
+}
+function roomRenderHeaderAndHint(){
+  const g = groups.get(roomGroupId) || {};
+  const done = roomRuns.filter(r=>['done','failed','stopped','merged'].includes(r.status)).length;
+  const running = roomRuns.filter(r=>r.live).length;
+  $('roomTitle').textContent = 'Goal: '+(g.title||'');
+  $('roomCount').textContent = '· '+roomRuns.length+' run'+(roomRuns.length===1?'':'s')
+    +' · '+done+' done · '+running+' running';
+  const steerable = roomRuns.filter(r=>r.steerable).length;
+  $('roomHint').textContent = steerable+' steerable now · '+running+' still running';
+}
+async function openRoom(groupId){
+  roomGroupId = groupId;
+  roomExtra.length = 0; roomRunSet.clear(); roomRuns = [];
+  $('roomInput').value = '';
+  $('roomChips').innerHTML = '<span style="color:var(--faint);font-family:var(--mono);font-size:11.5px">loading…</span>';
+  $('roomFeed').innerHTML = '';
+  $('roomTitle').textContent = 'Goal';
+  $('roomCount').textContent = '';
+  $('roomHint').textContent = '';
+  $('groupRoomOverlay').classList.add('open');
+  await roomLoad();
+}
+async function roomLoad(){
+  if (roomGroupId==null) return;
+  let j;
+  try{ j = await fetch('/api/groups/'+roomGroupId).then(x=>x.json()); }
+  catch{ toast('workroom load failed', 'error'); return; }
+  if (!j || !j.group){ toast('group not found', 'error'); return; }
+  if (!groups.has(j.group.id)) groups.set(j.group.id, j.group);
+  roomRuns = j.runs||[];
+  roomRunSet.clear();
+  roomRuns.forEach(r=>roomRunSet.add(r.runId));
+  roomRenderChips();
+  roomRenderHeaderAndHint();
+  roomRenderFeed(j.events||[]);
+}
+function closeRoom(){ roomGroupId = null; $('groupRoomOverlay').classList.remove('open'); }
+/* chip 클릭 → 그 run 을 기존 run 모달로 */
+$('roomChips').addEventListener('click',(e)=>{
+  const c = e.target.closest('[data-roomrun]'); if(!c) return;
+  const rid = Number(c.dataset.roomrun);
+  closeRoom();
+  if (runs.has(rid)) openModal(rid);
+  else { // 아카이브 등 맵에 없는 run — 태스크로 하이드레이트 후 연다
+    fetch('/api/runs/'+rid).then(x=>x.json()).then(d=>{ if(d.run){ runs.set(rid, {...d.run, events:d.events||[]}); openModal(rid); } }).catch(()=>{});
+  }
+});
+$('roomClose').addEventListener('click', closeRoom);
+$('groupRoomOverlay').addEventListener('click',(e)=>{ if(e.target===$('groupRoomOverlay')) closeRoom(); });
+/* ＋ New attempt — 같은 그룹에 새 시도 발사 (현재 dry/real 토글 반영) */
+$('roomNew').addEventListener('click', async ()=>{
+  if (roomGroupId==null) return;
+  const prompt = $('roomInput').value.trim();
+  if (!prompt){ toast('write a prompt for the new attempt', 'error'); return; }
+  const real = $('taskReal').checked;
+  const btn = $('roomNew'); btn.disabled = true;
+  try{
+    const res = await fetch('/api/groups/'+roomGroupId+'/spawn',{method:'POST',
+      headers:{'content-type':'application/json'}, body:JSON.stringify({prompt, real})});
+    const j = await res.json().catch(()=>({}));
+    if (res.ok){
+      $('roomInput').value='';
+      (j.tasks||[]).forEach(t=>{ roomExtra.push({ who:'goal ＋', text:'new attempt r'+t.runId+' — '+prompt.slice(0,60) }); roomRunSet.add(t.runId); });
+      toast((j.tasks||[]).length+' attempt(s) launched'+(real?'':' (dry)'), 'ok');
+      roomRenderFeed([]); await roomLoad(); hydrate();
+    } else toast('spawn: '+(j.error||res.status), 'error');
+  } finally { btn.disabled = false; }
+});
+/* → Broadcast — 그룹의 정착 steerable run 전부에 후속 지시(라이브/드라이는 정직하게 skip) */
+$('roomBroadcast').addEventListener('click', async ()=>{
+  if (roomGroupId==null) return;
+  const message = $('roomInput').value.trim();
+  if (!message){ toast('write a broadcast message', 'error'); return; }
+  const btn = $('roomBroadcast'); btn.disabled = true;
+  try{
+    const res = await fetch('/api/groups/'+roomGroupId+'/steer',{method:'POST',
+      headers:{'content-type':'application/json'}, body:JSON.stringify({message, mode:roomMode})});
+    const j = await res.json().catch(()=>({}));
+    if (res.ok){
+      $('roomInput').value='';
+      roomExtra.push({ who:'goal →', text:message.slice(0,80)+'  ('+j.detail+')' });
+      toast('broadcast: '+j.detail, (j.skipped&&j.skipped.length)?undefined:'ok');
+      roomRenderFeed([]); await roomLoad();
+    } else toast('broadcast: '+(j.error||res.status), 'error');
+  } finally { btn.disabled = false; }
+});
+/* Converge ▾ — 기존 review/integrate 를 노출(재구현 아님) */
+$('roomConverge').addEventListener('click',(e)=>{ e.stopPropagation(); $('roomConvMenu').classList.toggle('open'); });
+document.addEventListener('click',()=>$('roomConvMenu').classList.remove('open'));
+$('roomReview').addEventListener('click', ()=>{
+  $('roomConvMenu').classList.remove('open');
+  // 그룹 태스크가 여럿이면 각 태스크가 자체 비교/리뷰를 가짐 — 첫 태스크의 Compare 로 진입.
+  const first = roomRuns[0];
+  if (!first){ toast('no runs to review', 'error'); return; }
+  closeRoom(); openCompare(first.taskId);
+});
+$('roomIntegrate').addEventListener('click', ()=>{
+  $('roomConvMenu').classList.remove('open');
+  const g = roomGroupId; closeRoom();
+  if (!selectMode) setSelectMode(true);
+  // 그룹의 정착·변경 run 전부 사전 선택(기존 밴드 Select runs 와 동일 규칙)
+  const tids = new Set([...tasks.values()].filter(t=>t.groupId===g).map(t=>t.id));
+  for (const r of [...runs.values()].sort((a,b)=>a.id-b.id)){
+    if (!tids.has(r.taskId)) continue;
+    const ok = ['done','failed','stopped'].includes(r.status) && (r.filesChanged||0)>0 && r.status!=='merged';
+    if (ok && !selected.has(r.id)){ selected.add(r.id); selOrder.push(r.id); }
+  }
+  $('selCnt').textContent = selected.size + ' selected';
+  render();
+  if (!selected.size) toast('no settled runs with changes in this group yet', 'error');
+});
+/* Work | Ask 세그 — L1 은 Work 만(Ask=L2), 토글은 숨김. steerMode 재사용 없이 방 전용. */
+let roomMode = 'work';
+document.querySelectorAll('#roomSeg .seg-opt').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    roomMode = b.dataset.rmode;
+    document.querySelectorAll('#roomSeg .seg-opt').forEach(x=>x.classList.toggle('on', x===b));
+  });
+});
+/* WS 라이브 — 그룹 소속 run/event 만 방에 반영 (connectWS 가 호출) */
+function roomOnWS(ev){
+  if (roomGroupId==null) return;
+  if (ev.type==='run'){
+    const rid = ev.runId ?? ev.id;
+    if (!roomRunSet.has(rid)) return;   // 이 방 소속만
+    roomLoad();                          // 상태·steerable 재계산은 aggregate 로 (정확)
+  } else if (ev.type==='event'){
+    if (!roomRunSet.has(ev.runId)) return;
+    const h = humanize({ kind:ev.kind, payload:ev.payload });
+    if (h){
+      const r = roomRuns.find(x=>x.runId===ev.runId);
+      const list = Array.isArray(h) ? h : [h];
+      const frag = list.map(x=>roomFeedLine('r'+ev.runId, r?r.status:'pending', x.k+' · '+x.t, false)).join('');
+      $('roomFeed').insertAdjacentHTML('beforeend', frag);
+      $('roomFeed').scrollTop = $('roomFeed').scrollHeight;
+    }
+  }
+}
 
 /* ── terminal — 초기크기 접속·자동 재연결(백오프)·unicode11·CJK 폰트 ── */
 let termWS = null, termObj = null, fitAddon = null, termResizeObs = null;
