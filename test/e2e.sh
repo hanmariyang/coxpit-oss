@@ -72,6 +72,11 @@ case "$BOARD_HTML" in *'id="viewSeg"'*) : ;; *) fail "active/archive view seg mi
 case "$BOARD_HTML" in *'arch-row'*) : ;; *) fail "archive row styles missing";; esac
 pass "board served (v4.1..v4.3 UI assets present)"
 
+# v4.4 — greenfield launcher affordances present in the board (UI contract)
+case "$BOARD_HTML" in *'id="npOverlay"'*) : ;; *) fail "greenfield new-project overlay missing";; esac
+case "$BOARD_HTML" in *'id="repoNew"'*) : ;; *) fail "greenfield New button missing";; esac
+pass "board serves greenfield New button + npOverlay"
+
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
 pass "local machine probe ready"
@@ -241,6 +246,45 @@ pass "per-launch model stored + invalid rejected 400"
 expect_code 409 -X POST "$B/api/tasks/$MTID/close" -H 'content-type: application/json' -d '{}'
 curl -s -X POST "$B/api/tasks/$MTID/close" -H 'content-type: application/json' -d '{"force":true}' | grep -q '"ok":true' || fail "force close"
 pass "close guard: unmerged output 409 -> force closes"
+
+# v4.4 A — 커밋 없는 repo(git init 만) 등록은 400 + NO_COMMITS (엉터리 defaultBranch 저장 금지)
+COMMITLESS="$WORK/commitless"
+mkdir -p "$COMMITLESS"; git -C "$COMMITLESS" init -qb main
+NC=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$COMMITLESS\"}")
+[ "$NC" = "400" ] || fail "commitless repo register should 400, got $NC"
+NCBODY=$(curl -s -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$COMMITLESS\"}")
+case "$NCBODY" in *NO_COMMITS*) : ;; *) fail "commitless register missing NO_COMMITS code: $NCBODY";; esac
+pass "commitless repo register refused (400 NO_COMMITS)"
+
+# v4.4 B — greenfield /api/repos/new: 미존재 경로 → 201 + defaultBranch main (빈 초기 커밋이 base)
+# (전부 동적 ID — 하드코딩 run 1/2 가 다 끝난 뒤라 안전)
+NP="$WORK/greenfield"
+NPRES=$(curl -s -X POST "$B/api/repos/new" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$NP\"}")
+case "$NPRES" in *'"ok":true'*) : ;; *) fail "greenfield new should succeed: $NPRES";; esac
+case "$NPRES" in *'"defaultBranch":"main"'*) : ;; *) fail "greenfield defaultBranch should be main: $NPRES";; esac
+[ -d "$NP/.git" ] || fail "greenfield did not git init the folder"
+NPID=$(echo "$NPRES" | python3 -c 'import sys,json;print(json.load(sys.stdin)["repo"]["id"])')
+# 그 repo 에 태스크 + dry run 1개 → 빈 초기 커밋이 worktree base 로 성립함을 증명
+NPT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$NPID,\"title\":\"greenfield-scaffold\",\"prompt\":\"scaffold\"}")
+NPTID=$(echo "$NPT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
+curl -sf -X POST "$B/api/tasks/$NPTID/run" -H 'content-type: application/json' -d '{"count":1}' | grep -q '"ok":true' || fail "greenfield run launch"
+NPRID=$(curl -s "$B/api/tasks/$NPTID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runs"][0]["id"])')
+NPD=""
+for i in $(seq 1 60); do
+  NPD=$(curl -s "$B/api/runs/$NPRID" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$NPD" ] && break; sleep 0.5
+done
+[ "$NPD" = '"status":"done"' ] || fail "greenfield run did not settle done: $NPD"
+curl -s "$B/api/runs/$NPRID/diff" | grep -q 'COXPIT_DRYRUN' || fail "greenfield diff missing dry-run file (empty base commit did not host worktree)"
+curl -s -X POST "$B/api/tasks/$NPTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+pass "greenfield: new project scaffolds on an empty initial commit (dry run settles + diff)"
+
+# v4.4 B 가드 — nonempty 폴더 409 · 커밋 있는 repo 409 · 상대경로 400
+NEDIR="$WORK/notempty"; mkdir -p "$NEDIR"; printf 'x\n' > "$NEDIR/file.txt"
+expect_code 409 -X POST "$B/api/repos/new" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$NEDIR\"}"
+expect_code 409 -X POST "$B/api/repos/new" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$REPO\"}"
+expect_code 400 -X POST "$B/api/repos/new" -H 'content-type: application/json' -d '{"machineSlug":"local","path":"relative/path"}'
+pass "greenfield guards (nonempty 409, existing repo 409, relative path 400)"
 
 # task close cleans everything (통합 태스크까지 닫아야 브랜치 0)
 # r1=merged·r2=exported(둘 다 안전) → task 1 은 force 없이 닫힘. 통합 태스크는 미머지라 force.

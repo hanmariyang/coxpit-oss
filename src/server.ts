@@ -339,7 +339,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!m) return reply.code(404).send({ error: 'machine not found' });
 
     // 기본 브랜치는 "지금 체크아웃된 브랜치"가 아니라 repo 의 진짜 기본값:
-    // origin/HEAD → 로컬 main/master → 현재 HEAD 순으로 감지.
+    // origin/HEAD → 로컬 main/master → 현재 HEAD(symbolic-ref, unborn 무에러) 순으로 감지.
+    // 마지막 세그먼트는 커밋 존재 여부(--verify HEAD) — 커밋 0개 repo 는 등록 거절.
     const g = `git -C ${shq(path)}`;
     const cmd =
       `${g} rev-parse --is-inside-work-tree 2>&1` +
@@ -348,7 +349,9 @@ export async function buildServer(): Promise<FastifyInstance> {
       ` && echo '---C---'` +
       ` && { ${g} show-ref --verify -q refs/heads/main && echo main || { ${g} show-ref --verify -q refs/heads/master && echo master; } || true; }` +
       ` && echo '---D---'` +
-      ` && ${g} rev-parse --abbrev-ref HEAD 2>&1`;
+      ` && { ${g} symbolic-ref --short HEAD 2>/dev/null || true; }` +   // unborn 에서도 무에러
+      ` && echo '---E---'` +
+      ` && { ${g} rev-parse --verify -q HEAD >/dev/null 2>&1 && echo yes || echo no; }`;
     const r = await runShellOn(m, cmd);
     const isRepo = r.ok && /(^|\n)true(\n|$)/.test(r.stdout);
     if (!isRepo) {
@@ -359,10 +362,75 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
     const seg = (a: string, b: string): string =>
       ((r.stdout.split(a)[1] ?? '').split(b)[0] ?? '').trim();
+    const hasCommit = (r.stdout.split('---E---')[1] ?? '').trim() === 'yes';
+    if (!hasCommit) {
+      return reply.code(400).send({
+        error: 'this repository has no commits yet',
+        code: 'NO_COMMITS',
+        hint: 'make an initial commit first — or use Start a new project to have coxpit do it',
+      });
+    }
     const originHead = seg('---B---', '---C---').replace(/^origin\//, '');
     const localMain = seg('---C---', '---D---');
-    const headNow = (r.stdout.split('---D---')[1] ?? '').trim();
+    const headNow = seg('---D---', '---E---');
     const branch = originHead || localMain || headNow || 'main';
+    const name = (b.name ?? '').trim() || path.split('/').filter(Boolean).pop() || path;
+
+    const ins = await db.insert(repos).values({
+      machineId: m.id, path, name, defaultBranch: branch,
+    }).returning();
+
+    return reply.code(201).send({ ok: true, repo: ins[0] });
+  });
+
+  // greenfield — "Start a new project": 빈/미존재/커밋없는 경로에만 git init + 빈 초기 커밋을
+  // 심고 등록한다. coxpit 이 git init 을 하는 유일한 자리 — 파일 있는 폴더는 절대 건드리지 않는다.
+  app.post('/api/repos/new', async (req, reply) => {
+    const b = (req.body ?? {}) as { machineSlug?: string; path?: string; name?: string };
+    const machineSlug = (b.machineSlug ?? '').trim();
+    const path = (b.path ?? '').trim();
+    if (!machineSlug || !path) return reply.code(400).send({ error: 'machineSlug and path required' });
+    if (!path.startsWith('/')) return reply.code(400).send({ error: 'path must be absolute' });
+
+    const mr = await db.select().from(machines).where(eq(machines.slug, machineSlug)).limit(1);
+    const m = mr[0];
+    if (!m) return reply.code(404).send({ error: 'machine not found' });
+
+    const g = `git -C ${shq(path)}`;
+    const probe =
+      `if [ ! -e ${shq(path)} ]; then echo MISSING;` +
+      ` elif [ ! -d ${shq(path)} ]; then echo NOTDIR;` +
+      ` elif [ -d ${shq(path)}/.git ]; then { ${g} rev-parse --verify -q HEAD >/dev/null 2>&1 && echo REPO_HAS_COMMITS || echo REPO_EMPTY; };` +
+      ` elif [ -z "$(ls -A ${shq(path)} 2>/dev/null)" ]; then echo EMPTYDIR;` +
+      ` else echo NONEMPTY; fi`;
+    const pr = await runShellOn(m, probe, 20000);
+    if (!pr.ok) return reply.code(400).send({ error: 'could not inspect path', detail: (pr.stdout || pr.stderr).trim().slice(0, 400) });
+    const kind = pr.stdout.trim().split('\n').pop()?.trim() ?? '';
+
+    if (kind === 'NOTDIR') return reply.code(400).send({ error: 'path is not a directory' });
+    if (kind === 'REPO_HAS_COMMITS') return reply.code(409).send({ error: 'already a repository with commits — use Register' });
+    if (kind === 'NONEMPTY') return reply.code(409).send({ error: 'folder is not empty — greenfield never touches existing files' });
+    if (kind !== 'MISSING' && kind !== 'EMPTYDIR' && kind !== 'REPO_EMPTY') {
+      return reply.code(400).send({ error: 'could not classify path', detail: (pr.stdout || pr.stderr).trim().slice(0, 400) });
+    }
+
+    // init(필요 시) + 빈 초기 커밋 — 이 커밋이 worktree 가 브랜치할 base.
+    // mergeRun 과 동일 관례: coxpit ident, gpgsign off.
+    const seed =
+      `mkdir -p ${shq(path)} && cd ${shq(path)}` +
+      ` && { [ -d .git ] || git init -b main; }` +
+      ` && git -c user.name='coxpit' -c user.email='coxpit@local' -c commit.gpgsign=false` +
+      ` commit --allow-empty -m 'coxpit: initial commit'`;
+    const sr = await runShellOn(m, seed, 20000);
+    if (!sr.ok) return reply.code(422).send({ error: 'could not initialize the project', detail: (sr.stdout || sr.stderr).trim().slice(0, 400) });
+
+    // REPO_EMPTY 는 기존 unborn 브랜치가 master 일 수 있음 — seed 후 실제 브랜치를 읽는다.
+    // init 케이스는 항상 main.
+    let branch = 'main';
+    if (kind === 'REPO_EMPTY') {
+      const br = await runShellOn(m, `git -C ${shq(path)} symbolic-ref --short HEAD 2>/dev/null || echo main`, 10000);
+      branch = br.stdout.trim().split('\n').pop()?.trim() || 'main';
+    }
     const name = (b.name ?? '').trim() || path.split('/').filter(Boolean).pop() || path;
 
     const ins = await db.insert(repos).values({

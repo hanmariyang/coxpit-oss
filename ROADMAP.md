@@ -156,7 +156,7 @@ it only serves ports 443/8443/10000 on the `.ts.net` name and must be enabled in
 the tailnet admin. Serve has none of those limits. A truly custom domain is only
 reachable via Cloudflare/reverse-proxy (the user's own domain + account).
 
-### v4.4 — greenfield (start a new project) *(spec ready — [design/v4.4-greenfield.md](design/v4.4-greenfield.md))*
+### v4.4 — greenfield (start a new project) *(code shipped — [design/v4.4-greenfield.md](design/v4.4-greenfield.md))*
 Also folds in two batch fixes: commitless-repo handling (the floor of greenfield)
 and stripping an ANSI code that leaks into session model names.
 Today coxpit needs a git work-tree with at least one commit — worktrees branch
@@ -164,26 +164,21 @@ off a base commit. So a brand-new project (empty folder, or `git init` with no
 commits) is unusable. Turn that limit into the feature it wants to be: **scaffold
 a new project across N agents and compare the foundation before you commit to one.**
 
-Flow:
-1. "Start a new project" in the launcher (or offered when Register hits a
-   commitless repo): take a folder path.
-2. coxpit runs `git init` (if needed) + an **empty initial commit**
-   (`git commit --allow-empty -m "coxpit: initial commit"`) — that empty commit
-   is the base the worktrees branch from.
-3. Register → write the task ("scaffold a Next.js + Tailwind app that …") →
-   the normal fleet flow: N agents each build the project in their own worktree.
-4. Compare the N scaffolds side by side → Merge this → the winner lands on the
-   empty `main`. Your project starts from the foundation you picked.
+- [x] Commitless-repo floor: Register detects the unborn branch without erroring
+      (`symbolic-ref` fallback) and refuses a zero-commit repo with a clear
+      `NO_COMMITS` 400 instead of silently storing a broken defaultBranch
+- [x] Start a new project: `POST /api/repos/new` runs `git init` (if needed) + an
+      **empty initial commit** as the base, only on empty/missing/commitless paths
+      — a populated folder is never initialized; the launcher gets a `New` button +
+      dialog, and the commitless-Register 400 offers the same greenfield flow
+- [x] The empty initial commit hosts the fleet: N agents each scaffold in their own
+      worktree off that base; compare → Merge this lands the winner on empty `main`
+- [x] ANSI model strip: session model names are sanitized at the source
+      (`providers.ts`) with a display belt in the board — no more `…-4-8[1m]`
 
-Guardrails:
-- Never `git init` a registered path silently — greenfield is an **explicit
-  action** ("start a new project here"), never a side effect of Register (don't
-  turn someone's folder into a repo by surprise).
-- The empty initial commit is the base; merge stays clean (base is a clean commit).
-- Floor vs ceiling: gracefully **handling** a commitless repo (clear "this repo
-  has no commits — make an initial commit first", and detect the unborn branch
-  without erroring) is the floor; this one-click greenfield start is the ceiling.
-  Ship the floor first; the flow above is the same code path plus a launcher entry.
+Guardrails held: greenfield is an **explicit action**, never a side effect of
+Register (someone's folder is never turned into a repo by surprise); the empty
+initial commit is a clean base so merge stays clean.
 
 ## Non-goals
 

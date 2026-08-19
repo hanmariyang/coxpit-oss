@@ -418,6 +418,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <select id="taskRepo"></select>
       <div class="row">
         <button type="button" class="btn-ghost sm" id="repoBrowse" style="flex:1">Browse…</button>
+        <button type="button" class="btn-ghost sm" id="repoNew" style="flex:0 0 auto" title="start a new project — empty folder in, scaffolded repo out">New</button>
         <button type="button" class="btn-ghost sm" id="repoManual" style="flex:0 0 auto" title="type an absolute path">Path</button>
         <button type="button" class="btn-ghost sm" id="repoBranch" style="flex:0 0 auto" title="change the base branch — merges, Sync base and PRs all target it">⎇</button>
         <button type="button" class="btn-ghost sm" id="repoRemove" style="flex:0 0 auto" title="remove selected repository from coxpit">×</button>
@@ -618,6 +619,23 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="overlay" id="npOverlay">
+  <div class="cfm">
+    <div class="cfm-b">
+      <div class="m">Start a new project</div>
+      <div class="s">Creates the folder if needed, then git init + an empty initial commit as the base. Never touches non-empty folders. Then: write a task like 'scaffold a … app', run a fleet of 2–3, and compare the foundations.</div>
+      <p class="flabel" style="margin-top:12px">new project path</p>
+      <input id="npPath" placeholder="/abs/path/to/new-project" />
+      <p class="flabel" style="margin-top:10px">name · optional</p>
+      <input id="npName" placeholder="defaults to the folder name" />
+    </div>
+    <div class="cfm-f">
+      <button class="btn-ghost sm" id="npCancel">Cancel</button>
+      <button class="btn sm" id="npOk">Start new project</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="brOverlay">
   <div class="cfm">
     <div class="cfm-b">
@@ -740,10 +758,16 @@ async function brwRegister(fullPath){
     toast('repo registered — pick it under Launch agents', 'ok');
     $('brwOverlay').classList.remove('open');
     await hydrate();
-  } else {
-    const j = await res.json().catch(()=>({}));
-    toast('register: '+(j.detail||j.error||res.status), 'error');
+    return;
   }
+  const j = await res.json().catch(()=>({}));
+  if (res.status === 400 && j.code === 'NO_COMMITS'){
+    const yes = await confirmUI('This folder has no commits yet — start a new project here?',
+      { sub: 'coxpit will create an empty initial commit as the base, then register the repo. The folder itself is untouched.', okLabel: 'Start new project' });
+    if (yes && await createNewProject(fullPath)) $('brwOverlay').classList.remove('open');
+    return;
+  }
+  toast('register: '+(j.detail||j.error||res.status), 'error');
 }
 $('repoBrowse').addEventListener('click', ()=>{
   const m = machines.find(x=>x.slug===$('repoMachine').value);
@@ -1402,7 +1426,7 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); $('brOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); $('npOverlay').classList.remove('open'); $('brOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
 $('mExport').addEventListener('click', ()=>{
   if (openRunId==null) return;
@@ -1780,11 +1804,19 @@ async function submitBench(){
 
 $('repoForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
-  const body = { machineSlug: $('repoMachine').value, path: $('repoPath').value.trim() };
-  if (!body.path) return;
+  const path = $('repoPath').value.trim();
+  const body = { machineSlug: $('repoMachine').value, path };
+  if (!path) return;
   const res = await fetch('/api/repos',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
-  if (res.ok){ $('repoPath').value=''; toast('repo registered', 'ok'); await hydrate(); }
-  else { const j = await res.json().catch(()=>({})); toast('repo: '+(j.detail||j.error||res.status), 'error'); }
+  if (res.ok){ $('repoPath').value=''; toast('repo registered', 'ok'); await hydrate(); return; }
+  const j = await res.json().catch(()=>({}));
+  if (res.status === 400 && j.code === 'NO_COMMITS'){
+    const yes = await confirmUI('This folder has no commits yet — start a new project here?',
+      { sub: 'coxpit will create an empty initial commit as the base, then register the repo. The folder itself is untouched.', okLabel: 'Start new project' });
+    if (yes && await createNewProject(path)) $('repoPath').value='';
+    return;
+  }
+  toast('repo: '+(j.detail||j.error||res.status), 'error');
 });
 $('taskForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
@@ -1873,6 +1905,42 @@ async function ghFetch(){
 }
 $('ghOk').addEventListener('click', ghFetch);
 $('ghUrl').addEventListener('keydown',(e)=>{ if(e.key==='Enter') ghFetch(); });
+
+/* ── greenfield — start a new project (empty folder in, scaffolded repo out) ── */
+// POST /api/repos/new; 성공 시 hydrate 후 새 repo 를 자동 선택하고 toast.
+async function createNewProject(path, name){
+  const body = { machineSlug: $('repoMachine').value, path };
+  if (name) body.name = name;
+  const res = await fetch('/api/repos/new',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
+  const j = await res.json().catch(()=>({}));
+  if (!res.ok){ toast(j.error||('new project: '+res.status), 'error'); return false; }
+  await hydrate();
+  if (j.repo){
+    $('taskRepo').value = String(j.repo.id);
+    syncSelect('taskRepo');
+  }
+  toast('project ready — write a scaffold task and Run fleet', 'ok');
+  return true;
+}
+$('repoNew').addEventListener('click', ()=>{
+  const m = machines.find(x=>x.slug===$('repoMachine').value);
+  $('npPath').value = ''; $('npName').value = '';
+  $('npOverlay').classList.add('open'); $('npPath').focus();
+});
+$('npCancel').addEventListener('click', ()=>$('npOverlay').classList.remove('open'));
+$('npOverlay').addEventListener('click',(e)=>{ if(e.target===$('npOverlay')) $('npOverlay').classList.remove('open'); });
+async function npStart(){
+  const path = $('npPath').value.trim();
+  if (!path){ toast('enter an absolute project path', 'error'); return; }
+  $('npOk').disabled = true; $('npOk').textContent = 'Starting…';
+  try{
+    const ok = await createNewProject(path, $('npName').value.trim());
+    if (ok) $('npOverlay').classList.remove('open');
+  } finally { $('npOk').disabled = false; $('npOk').textContent = 'Start new project'; }
+}
+$('npOk').addEventListener('click', npStart);
+$('npPath').addEventListener('keydown',(e)=>{ if(e.key==='Enter') npStart(); });
+$('npName').addEventListener('keydown',(e)=>{ if(e.key==='Enter') npStart(); });
 
 /* ── 읽기 전용 공유 링크 ── */
 $('mShare').addEventListener('click', async ()=>{
