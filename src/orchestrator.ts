@@ -8,14 +8,14 @@ import type { ChildProcess } from 'node:child_process';
 import { eq } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
-import { agentRuns, agentEvents, tasks, repos, machines, designCaptures } from './db/schema';
+import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots } from './db/schema';
 import { runShellOn, spawnShellOn, shq, type MachineTarget } from './exec';
 import { broadcast } from './hub';
 import { getProvider, type Provider } from './providers';
 
 /** 에이전트 실행 커맨드. 드라이런=모의 stream-json + 실제 파일 1건 변경. */
-function agentCommand(provider: Provider, prompt: string, real: boolean): string {
-  if (real) return provider.launchCmd(prompt);
+function agentCommand(provider: Provider, prompt: string, real: boolean, model = ''): string {
+  if (real) return provider.launchCmd(prompt, model || undefined);
   // 모의: init → assistant → (파일 변경) → result. claude stream-json 라인 형태
   // (드라이런은 프로바이더 불문 배관 리허설 — claude 파서가 처리한다).
   return [
@@ -142,7 +142,7 @@ export async function spawnSubtasks(parentRunId: number, title: string, prompt: 
   const runIds: number[] = [];
   for (let i = 0; i < n; i++) {
     const rIns = await db.insert(agentRuns).values({
-      taskId: task.id, machineId: pr.machineId, agent: pr.agent, status: 'pending',
+      taskId: task.id, machineId: pr.machineId, agent: pr.agent, model: pr.model, status: 'pending',
     }).returning();
     const run = rIns[0]!;
     broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, branch: '', filesChanged: 0 });
@@ -198,6 +198,7 @@ interface RunContext {
   prompt: string;
   real: boolean;
   agent: string;
+  model: string;
 }
 
 async function loadContext(runId: number): Promise<RunContext | null> {
@@ -237,6 +238,7 @@ async function loadContext(runId: number): Promise<RunContext | null> {
     prompt,
     real: config.agent.real,
     agent: run.agent,
+    model: run.model,
   };
 }
 
@@ -293,7 +295,7 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
       envPrefix = `export COXPIT_API=${shq(`http://127.0.0.1:${config.port}`)} COXPIT_TOKEN=${shq(tok)}; `;
       prompt += orchestrationNote();
     }
-    const cmd = `cd ${shq(wtPath)} && ${envPrefix}${pidPrefix}{ ${agentCommand(provider, prompt, useReal)}; }`;
+    const cmd = `cd ${shq(wtPath)} && ${envPrefix}${pidPrefix}{ ${agentCommand(provider, prompt, useReal, ctx.model)}; }`;
     // 파일 오케스트레이션 — 로컬 run 이 사는 동안 .coxpit/spawn.json 감시.
     // .coxpit/ 는 repo exclude 에 넣어 diff/머지를 오염시키지 않는다(멱등).
     let orchTimer: NodeJS.Timeout | null = null;
@@ -353,7 +355,31 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
   const status = wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed';
   const exitSummary = wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`;
   await setRun(runId, { status, endedAt: new Date(), filesChanged, exitSummary });
+  // 문서 산출물을 정착 시점에 스냅샷 — worktree 소멸(머지·Close) 후에도 렌더 뷰 유지. best-effort.
+  if (filesChanged > 0) void snapshotRunDocs(runId);
   void notifySettle(runId, status, filesChanged, exitSummary);
+}
+
+/**
+ * 변경 문서(md/html)를 DB 에 스냅샷. 최신 우선(기존 행 삭제 후 재삽입).
+ * 빈 읽기(worktree 이미 소멸 등)는 기존 스냅샷을 지우지 않는다.
+ */
+export async function snapshotRunDocs(runId: number): Promise<void> {
+  const d = await getRunDocs(runId).catch(() => null);
+  if (!d?.ok || d.docs.length === 0) return;
+  await db.delete(docSnapshots).where(eq(docSnapshots.runId, runId));
+  for (const doc of d.docs) await db.insert(docSnapshots).values({ runId, path: doc.path, kind: doc.kind, content: doc.content });
+}
+
+/** worktree(라이브) → 스냅샷 폴백 공용 로더. server 의 /api/runs/:id/docs·/share 가 사용. */
+export async function loadRunDocs(runId: number): Promise<{
+  docs: Array<{ path: string; kind: string; content: string }>; source: 'worktree' | 'snapshot';
+}> {
+  const live = await getRunDocs(runId).catch(() => null);
+  if (live?.ok && live.docs.length > 0) return { docs: live.docs, source: 'worktree' };
+  const snap = await db.select().from(docSnapshots).where(eq(docSnapshots.runId, runId));
+  if (snap.length > 0) return { docs: snap.map((s) => ({ path: s.path, kind: s.kind, content: s.content })), source: 'snapshot' };
+  return { docs: [], source: 'worktree' };
 }
 
 /** run 정착 웹훅(선택) — COXPIT_WEBHOOK_URL 로 JSON POST. 실패는 무해. */
@@ -409,7 +435,7 @@ export async function steerRun(runId: number, message: string, mode: 'work' | 'a
   const envPrefix = (!isRemote && config.agentOrch)
     ? `export COXPIT_API=${shq(`http://127.0.0.1:${config.port}`)} COXPIT_TOKEN=${shq(issueAgentToken(runId))}; `
     : '';
-  const resume = provider.resumeCmd(run.sessionId, finalMessage);
+  const resume = provider.resumeCmd(run.sessionId, finalMessage, run.model || undefined);
   const cmd = `cd ${shq(wt)} && ${envPrefix}${pidPrefix}{ ${resume}; }`;
   if (!isRemote && config.agentOrch) {
     const orchTimer = startOrchWatch(runId, wt, true);
@@ -907,11 +933,30 @@ export async function reconcileOrphanRuns(): Promise<number> {
   return stale.length;
 }
 
+/**
+ * Close 가드 — 태스크 닫으면 worktree 가 삭제되므로, 아직 살릴 곳 없는 산출물을 경고.
+ * 위험 = 정착(done/failed/stopped) ∧ 변경있음 ∧ 미머지 ∧ export·PR 이벤트 없음.
+ */
+export async function taskCloseRisk(taskId: number): Promise<Array<{ runId: number; filesChanged: number }>> {
+  const trs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, taskId));
+  const atRisk: Array<{ runId: number; filesChanged: number }> = [];
+  for (const r of trs) {
+    if (!['done', 'failed', 'stopped'].includes(r.status)) continue;
+    if (r.filesChanged <= 0) continue;
+    const evs = await db.select().from(agentEvents).where(eq(agentEvents.runId, r.id));
+    if (evs.some((e) => e.kind === 'export' || e.kind === 'pr')) continue; // 산출물이 이미 탈출함
+    atRisk.push({ runId: r.id, filesChanged: r.filesChanged });
+  }
+  return atRisk;
+}
+
 export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: string }> {
   const ctx = await loadContext(runId);
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
   if (!ctx || !run || !run.worktreePath) return { ok: false, detail: 'no worktree' };
+  // worktree 를 지우기 전에 문서 스냅샷(정착 안 하는 워크벤치·수정편집도 포착). best-effort.
+  await snapshotRunDocs(runId).catch(() => { /* 스냅샷 실패는 정리를 막지 않음 */ });
   // 원격에 잔존 에이전트가 있으면 worktree 제거 전에 죽인다(파일 잠금·좀비 방지).
   if (ctx.machine.kind !== 'local' && ctx.machine.address !== '') {
     await runShellOn(ctx.machine, remoteKillScript(run.worktreePath), 15000);

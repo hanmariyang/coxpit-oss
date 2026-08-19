@@ -13,7 +13,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, getRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -32,6 +32,31 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
 // ─── 읽기 전용 공유 페이지 (서버 렌더 스냅샷 — 스크립트 0, 액션 0) ───────────
 const escH = (x: unknown): string =>
   String(x ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
+/** 경량 마크다운 → HTML (보드 mdLite 의 서버측 판, 동일 문법). 입력은 먼저 escH. */
+function mdLiteHTML(src: string): string {
+  let s = escH(src);
+  s = s.replace(/```[a-z]*\n([\s\S]*?)```/g, (_m, c: string) =>
+    '<pre style="background:#0e1118;border:1px solid #222835;border-radius:7px;padding:8px 10px;overflow-x:auto">' + c + '</pre>');
+  s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  s = s.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  s = s.replace(/^# (.+)$/gm, '<h2>$1</h2>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  s = s.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>');
+  s = s.split(/\n{2,}/).map((b) => /^<(h2|h3|ul|pre)/.test(b.trim()) ? b : (b.trim() ? '<p>' + b.replace(/\n/g, '<br>') + '</p>' : '')).join('');
+  return s;
+}
+
+/** 공유 페이지 Documents 섹션 — md 는 mdLiteHTML, html 은 sandbox iframe. */
+function shareDocsHTML(docs: Array<{ path: string; kind: string; content: string }>): string {
+  if (!docs.length) return '';
+  const body = docs.map((d) => d.kind === 'md'
+    ? `<div class="doc"><div class="doc-h">${escH(d.path)}</div><div class="doc-b">${mdLiteHTML(d.content)}</div></div>`
+    : `<div class="doc"><div class="doc-h">${escH(d.path)}</div><iframe sandbox="" class="doc-frame" srcdoc="${escH(d.content)}"></iframe></div>`).join('');
+  return `<div class="sec">Documents</div>${body}`;
+}
 
 /** 보드 humanize 의 서버측 축약판 — 이벤트 한 줄을 {k, t} 로. null = 잡음. */
 function shareLine(kind: string, payload: string): { k: string; t: string } | null {
@@ -82,6 +107,7 @@ function sharePageHTML(
   taskTitle: string,
   events: Array<{ kind: string; payload: string }>,
   diff: string,
+  docs: Array<{ path: string; kind: string; content: string }> = [],
 ): string {
   const lines = events.map((e) => shareLine(e.kind, e.payload)).filter((x): x is { k: string; t: string } => !!x);
   const sc: Record<string, string> = { done: '#3fb970', merged: '#4ec9b0', failed: '#e5534b', error: '#e5534b', stopped: '#a371f7', running: '#4184e4', open: '#4ec9b0' };
@@ -107,6 +133,15 @@ function sharePageHTML(
     font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
   .f{color:#4ec9b0;font-weight:600}.h{color:#4184e4}.a{color:#3fb970}.d{color:#e5534b}
   .sum{background:#12151c;border:1px solid #222835;border-radius:10px;padding:12px 14px;color:#8792a2;font-size:13px}
+  .doc{margin-bottom:18px}
+  .doc-h{font-family:ui-monospace,monospace;font-size:10.5px;color:#4ec9b0;border-bottom:1px solid #222835;padding-bottom:5px;margin-bottom:8px;word-break:break-all}
+  .doc-b{font-size:13.5px;line-height:1.65;color:#8792a2}
+  .doc-b h1,.doc-b h2{font-size:15px;color:#dee4ec;margin:12px 0 6px}
+  .doc-b h3{font-size:13px;color:#dee4ec;margin:10px 0 4px}
+  .doc-b ul{margin:4px 0 8px;padding-left:18px}.doc-b li{margin-bottom:3px}
+  .doc-b strong{color:#dee4ec}.doc-b p{margin:0 0 8px}
+  .doc-b code{font-family:ui-monospace,monospace;font-size:.9em;background:#0e1118;padding:1px 5px;border-radius:4px;color:#4ec9b0}
+  .doc-frame{width:100%;height:420px;border:1px solid #222835;border-radius:8px;background:#fff}
   .ft{margin-top:40px;color:#3d4657;font-size:12px;font-family:ui-monospace,monospace}
   .ft a{color:#4ec9b0;text-decoration:none}
 </style></head><body><div class="wrap">
@@ -114,6 +149,7 @@ function sharePageHTML(
   <h1>${escH(taskTitle)}</h1>
   <div class="meta">branch ${escH(run.branch || '—')} · ${run.filesChanged} file(s) changed · agent ${escH(run.agent)}</div>
   ${run.exitSummary ? `<div class="sum">${escH(run.exitSummary)}</div>` : ''}
+  ${shareDocsHTML(docs)}
   <div class="sec">Timeline</div>
   <div class="tl">${lines.map((l) => `<div><span class="k">${escH(l.k)}</span><span class="t">${escH(l.t.slice(0, 220))}</span></div>`).join('') || '<span style="color:#5c6675">no events</span>'}</div>
   <div class="sec">Diff</div>
@@ -304,6 +340,26 @@ export async function buildServer(): Promise<FastifyInstance> {
     return { ok: true };
   });
 
+  // 기본 브랜치 변경 — merge·Sync base·PR 이 향할 대상. develop-flow repo 대응.
+  app.patch('/api/repos/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { defaultBranch?: string };
+    const branch = (b.defaultBranch ?? '').trim();
+    if (!/^[\w.\-/]{1,80}$/.test(branch)) return reply.code(400).send({ error: 'invalid branch name' });
+    const rp = await db.select().from(repos).where(eq(repos.id, id)).limit(1);
+    const repo = rp[0];
+    if (!repo) return reply.code(404).send({ error: 'not found' });
+    const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
+    const m = mr[0];
+    if (!m) return reply.code(404).send({ error: 'machine not found' });
+    // branch 는 charset 가드 통과(셸 메타문자 없음). 전체 ref 를 인용해 전달.
+    const check = await runShellOn(m,
+      `git -C ${shq(repo.path)} rev-parse --verify --quiet ${shq('refs/heads/' + branch)} >/dev/null && echo OK`, 10000);
+    if (!check.stdout.includes('OK')) return reply.code(400).send({ error: `branch '${branch}' not found in the repository` });
+    await db.update(repos).set({ defaultBranch: branch }).where(eq(repos.id, id));
+    return { ok: true, defaultBranch: branch };
+  });
+
   // 디렉토리 브라우저 — repo 등록용 파일 피커(로컬 머신 전용, 인증 게이트 뒤).
   app.get('/api/browse', async (req) => {
     const q = (req.query ?? {}) as { path?: string };
@@ -405,7 +461,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // N개의 에이전트 run 을 만들고 각자 오케스트레이션 시작(fire-and-forget).
   app.post('/api/tasks/:id/run', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const b = (req.body ?? {}) as { agent?: string; count?: number; real?: boolean };
+    const b = (req.body ?? {}) as { agent?: string; count?: number; real?: boolean; model?: string };
     const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     const task = tr[0];
     if (!task) return reply.code(404).send({ error: 'task not found' });
@@ -415,10 +471,15 @@ export async function buildServer(): Promise<FastifyInstance> {
     const count = Math.max(1, Math.min(8, Number(b.count) || 1));
     // 미지의 값은 기본 프로바이더로 정규화(런처 조작·API 오타 방어)
     const agent = getProvider(b.agent).id;
+    // 모델 지정(선택) — 셸 안전 문자만, 빈값 = CLI 기본
+    const model = (b.model ?? '').trim();
+    if (model && (model.length > 64 || !/^[\w.\-:/]*$/.test(model))) {
+      return reply.code(400).send({ error: 'invalid model name' });
+    }
     const created: Array<typeof agentRuns.$inferSelect> = [];
     for (let i = 0; i < count; i++) {
       const ins = await db.insert(agentRuns)
-        .values({ taskId: id, machineId: rp[0].machineId, agent, status: 'pending' })
+        .values({ taskId: id, machineId: rp[0].machineId, agent, model, status: 'pending' })
         .returning();
       created.push(ins[0]!);
     }
@@ -458,8 +519,14 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 태스크 닫기 — 살아있는 run 중지 후 소속 run 전체 worktree/브랜치 정리.
   app.post('/api/tasks/:id/close', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { force?: boolean };
     const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     if (!tr[0]) return reply.code(404).send({ error: 'task not found' });
+    // Close 가드 — 아직 살릴 곳 없는 산출물(미머지·미export·무PR)이 있으면 확인 요구.
+    if (!b.force) {
+      const atRisk = await taskCloseRisk(id);
+      if (atRisk.length) return reply.code(409).send({ error: 'unmerged output', atRisk });
+    }
     const trs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, id));
 
     let anyStopped = false;
@@ -603,12 +670,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     return getRunDiff(id);
   });
 
-  // Doc 모드 — 변경된 문서(md/html)를 내용째 (렌더 비교용, 읽기 전용)
+  // Doc 모드 — 변경된 문서(md/html) 내용째 (렌더 뷰). worktree 라이브 → 스냅샷 폴백.
   app.get('/api/runs/:id/docs', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
-    return getRunDocs(id);
+    const { docs, source } = await loadRunDocs(id);
+    return { ok: true, docs, source };
   });
 
   // ─── 에이전트 셀프 오케스트레이션 (run 별 Bearer 토큰 — authGate 예외, 여기서 자체 검증) ──
@@ -693,7 +761,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     const task = (await db.select().from(tasks).where(eq(tasks.id, run.taskId)).limit(1))[0];
     const evs = await db.select().from(agentEvents).where(eq(agentEvents.runId, run.id));
     const d = await getRunDiff(run.id).catch(() => ({ ok: false, diff: '', stat: '' }));
-    return reply.type('text/html').send(sharePageHTML(run, task?.title ?? `task ${run.taskId}`, evs, d.ok ? d.diff : ''));
+    const { docs } = await loadRunDocs(run.id);
+    return reply.type('text/html').send(sharePageHTML(run, task?.title ?? `task ${run.taskId}`, evs, d.ok ? d.diff : '', docs));
   });
 
   // 라이브 스트림 좌석 — 오케스트레이터가 run/event 를 여기로 broadcast.

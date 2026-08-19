@@ -60,6 +60,11 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Share affordance | `Share` ghost in run modal footer | mints/reuses one read-only link per run, copies to clipboard; the share page is server-rendered, script-free, action-free |
 | Swarm lineage | `↳ by rN` card meta + `swarm` timeline line | subtask cards carry their parent; the parent's timeline logs each spawn (`↳ spawned task #N`) |
 | Terminal input bar | `.term-ibar` + `.tkey` (touch/≤860px) | direct xterm typing breaks IME composition on software keyboards (jamo arrive decomposed) — the bar is a real input that composes natively and sends whole lines; esc·tab·^C·↑·↓ chord keys; safe-area padded |
+| Doc provenance | `.doc-src` line above the rendered docs | when the docs come from a snapshot (worktree gone after merge/close), a faint mono line says so — the reader knows they're seeing preserved output, not a live read |
+| Model input | `#taskModel` + `#modelHist` datalist (Task panel) | free text (CLI model names churn — no hardcoded list), empty = CLI default; last-5 recalled via localStorage; the card meta shows `⚙ model` when set |
+| Base branch dialog | `#brOverlay` (`.cfm` variant) + `#repoBranch` (⎇) in Context | merge · Sync base · PR all target it; validated against the repo (must exist); the repo `<option>` already shows the branch after the name |
+| Close guard | danger `confirmUI` on 409 from close | closing deletes worktrees — if any run has unmerged, unexported, non-PR changes the server 409s with `atRisk`; the dialog lists them (`rN · M files`) and only `force:true` proceeds |
+| Closed card | `.card.closed` (dim + hatched `.log` + CLOSED stamp) | a closed card must read as closed at a glance — desaturated, diagonal hatching over the timeline, a rotated CLOSED stamp; the status chip stays (done/merged history) |
 
 ## Interaction rules
 

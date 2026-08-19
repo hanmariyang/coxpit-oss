@@ -63,7 +63,10 @@ case "$BOARD_HTML" in *'openFromURL'*) : ;; *) fail "deep-link handler missing";
 case "$BOARD_HTML" in *'id="mDocsTgl"'*) : ;; *) fail "doc-mode toggle missing";; esac
 case "$BOARD_HTML" in *'dl-line'*) : ;; *) fail "clickable diff lines missing";; esac
 case "$BOARD_HTML" in *'id="termIbar"'*) : ;; *) fail "terminal input bar missing";; esac
-pass "board served (mobile drawer + deep-link + doc mode + diff comments)"
+case "$BOARD_HTML" in *'id="taskModel"'*) : ;; *) fail "model input missing";; esac
+case "$BOARD_HTML" in *'id="repoBranch"'*) : ;; *) fail "base branch button missing";; esac
+case "$BOARD_HTML" in *'card.closed .log::before'*) : ;; *) fail "closed-card hatching missing";; esac
+pass "board served (v4.1 model input + base branch + closed hatching)"
 
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
@@ -167,7 +170,18 @@ DOCS=$(curl -sf "$B/api/runs/2/docs")
 echo "$DOCS" | grep -q '"path":"REPORT.md"' || fail "docs missing REPORT.md: $DOCS"
 echo "$DOCS" | grep -q '"kind":"md"' || fail "docs kind should be md"
 echo "$DOCS" | grep -q 'Hello Doc' || fail "docs content missing"
+echo "$DOCS" | grep -q '"source":"worktree"' || fail "docs source should be worktree while alive"
 pass "doc mode: changed md returned with content"
+
+# v4.1 B — 공유 페이지가 문서를 렌더(run 2 는 REPORT.md 보유, worktree 라이브)
+SH2=$(curl -sf -X POST "$B/api/runs/2/share")
+STOK2=$(printf '%s' "$SH2" | { grep -o '"url":"/share/[^"]*"' || true; } | cut -d'"' -f4)
+[ -n "$STOK2" ] || fail "share2 create: $SH2"
+SPAGE2=$(curl -sf "$B$STOK2")
+case "$SPAGE2" in *'Documents'*) : ;; *) fail "share page missing Documents section";; esac
+case "$SPAGE2" in *'Hello Doc'*) : ;; *) fail "share page did not render the doc";; esac
+curl -sf -X DELETE "$B/api/runs/2/share" >/dev/null
+pass "share page renders changed documents"
 
 # v4.0 — 에이전트 오케스트레이션 토큰 가드 + GitHub 초안 검증 + 공유 링크
 expect_code 401 -X POST "$B/api/agent/subtasks" -H 'content-type: application/json' -d '{"title":"x","prompt":"y"}'
@@ -200,11 +214,42 @@ expect_code 409 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json
 expect_code 400 -X POST "$B/api/runs/2/steer" -H 'content-type: application/json' -d '{}'
 pass "steer guards (no session 409, ask mode plumbed, empty 400)"
 
+# v4.1 C+D — 런치별 모델 저장/검증 + close 가드 (신선 repo — main 에 COXPIT_DRYRUN.txt 부재 → dry 가 실제 변경)
+REPO2="$WORK/repo2"
+mkdir -p "$REPO2"; git -C "$REPO2" init -q -b main
+printf 'seed\n' > "$REPO2/README.md"; git -C "$REPO2" add -A
+git -C "$REPO2" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
+R2=$(curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$REPO2\"}")
+R2ID=$(echo "$R2" | python3 -c 'import sys,json;print(json.load(sys.stdin)["repo"]["id"])')
+MT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$R2ID,\"title\":\"model+guard\",\"prompt\":\"x\"}")
+MTID=$(echo "$MT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
+expect_code 400 -X POST "$B/api/tasks/$MTID/run" -H 'content-type: application/json' -d '{"model":"bad space"}'
+curl -sf -X POST "$B/api/tasks/$MTID/run" -H 'content-type: application/json' -d '{"count":1,"model":"test-model-x"}' | grep -q '"ok":true' || fail "model run launch"
+MD=""
+for i in $(seq 1 60); do
+  MD=$(curl -s "$B/api/tasks/$MTID" | { grep -o '"status":"done"' || true; } | head -1)
+  [ -n "$MD" ] && break; sleep 0.5
+done
+[ -n "$MD" ] || fail "model run did not settle"
+curl -s "$B/api/tasks/$MTID" | grep -q '"model":"test-model-x"' || fail "model not stored on run"
+pass "per-launch model stored + invalid rejected 400"
+# close 가드: 미머지·미export 산출물 있으면 409, force 로 닫힘
+expect_code 409 -X POST "$B/api/tasks/$MTID/close" -H 'content-type: application/json' -d '{}'
+curl -s -X POST "$B/api/tasks/$MTID/close" -H 'content-type: application/json' -d '{"force":true}' | grep -q '"ok":true' || fail "force close"
+pass "close guard: unmerged output 409 -> force closes"
+
 # task close cleans everything (통합 태스크까지 닫아야 브랜치 0)
+# r1=merged·r2=exported(둘 다 안전) → task 1 은 force 없이 닫힘. 통합 태스크는 미머지라 force.
 curl -sf -X POST "$B/api/tasks/1/close" | grep -q '"ok":true' || fail "close"
-curl -sf -X POST "$B/api/tasks/$ITID/close" | grep -q '"ok":true' || fail "close integration task"
+curl -sf -X POST "$B/api/tasks/$ITID/close" -H 'content-type: application/json' -d '{"force":true}' | grep -q '"ok":true' || fail "close integration task"
 [ -z "$(git -C "$REPO" branch --list 'coxpit/*')" ] || fail "branches not cleaned"
 pass "task close cleans worktrees + branches"
+
+# v4.1 A — 스냅샷이 cleanup(close) 후에도 문서 뷰를 살린다 (run 2 worktree 는 삭제됨)
+DOCS2=$(curl -sf "$B/api/runs/2/docs")
+echo "$DOCS2" | grep -q '"source":"snapshot"' || fail "docs should fall back to snapshot: $DOCS2"
+echo "$DOCS2" | grep -q 'Hello Doc' || fail "snapshot lost the doc content"
+pass "doc snapshot survives cleanup (worktree gone, snapshot serves)"
 
 # workbench: worktree+tmux 만들고 에이전트 없음 — 수동 변경 후 merge 레일 동작
 WB=$(curl -sf -X POST "$B/api/workbench" -H 'content-type: application/json' -d '{"repoId":1,"title":"wb test"}')
@@ -247,7 +292,7 @@ done
 WT=$(curl -s "$B/api/runs/1" | grep -oE '"worktreePath":"[^"]+"' | sed 's/.*:"//;s/"//')
 grep -q 'DESIGN CONTEXT' "$WT/AGENT_ARGS.txt" && grep -q 'nav.bar' "$WT/AGENT_ARGS.txt" && grep -q 'user words' "$WT/AGENT_ARGS.txt" \
   || fail "prompt injection missing"
-curl -s -X POST "$B/api/tasks/1/close" >/dev/null
+curl -s -X POST "$B/api/tasks/1/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 pass "design context injected into agent argv"
 
 # plan fan-out (mock planner): 목표 1 → 태스크 2 자동 생성·발사
@@ -264,7 +309,7 @@ done
 [ "$S" = '"status":"done"' ] || fail "planned run did not settle: $S"
 expect_code 400 -X POST "$B/api/plan" -H 'content-type: application/json' -d '{"repoId":1}'
 for TID in $(echo "$PLAN" | python3 -c 'import sys,json;[print(t["id"]) for t in json.load(sys.stdin)["tasks"]]'); do
-  curl -s -X POST "$B/api/tasks/$TID/close" >/dev/null
+  curl -s -X POST "$B/api/tasks/$TID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 done
 pass "plan fan-out launches planned tasks (mock planner)"
 
@@ -285,6 +330,11 @@ if (!lc.includes('exec --json') || !lc.includes('--sandbox')) throw new Error('l
 const rc = p.resumeCmd('th_123', 'next');
 if (!/exec --json --sandbox \S+ resume /.test(rc)) throw new Error('resumeCmd: ' + rc);
 if (getProvider('nope').id !== 'claude-code') throw new Error('unknown agent should fall back to claude');
+// v4.1 model 관통 — claude --model, codex -m (resume 은 -m 이 resume 앞)
+const cl = getProvider('claude-code');
+if (!cl.launchCmd('p', 'opus-x').includes("--model 'opus-x'")) throw new Error('claude model flag missing');
+if (cl.launchCmd('p').includes('--model')) throw new Error('empty model must not add flag');
+if (!/exec --json --sandbox \S+ -m 'gpt-x' resume /.test(p.resumeCmd('id', 'm', 'gpt-x'))) throw new Error('codex -m order');
 console.log('PROVIDER_OK');
 EOF
 PROV_OUT=$(node --import tsx "$WORK/prov.test.ts" 2>&1) || fail "codex provider seam: $PROV_OUT"
@@ -305,8 +355,15 @@ for i in $(seq 1 60); do
 done
 [ -n "$CD" ] || fail "codex run did not settle: $(curl -s "$B/api/tasks/$CTID")"
 curl -s "$B/api/tasks/$CTID" | grep -q '"agent":"codex"' || fail "run agent should be codex"
-curl -s -X POST "$B/api/tasks/$CTID/close" >/dev/null
+curl -s -X POST "$B/api/tasks/$CTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 pass "codex run via API settles with agent recorded (dry rehearsal)"
+
+# v4.1 E — repo 기본 브랜치 override (fixture 에 wip-side-branch 존재)
+curl -sf -X PATCH "$B/api/repos/1" -H 'content-type: application/json' -d '{"defaultBranch":"wip-side-branch"}' | grep -q '"defaultBranch":"wip-side-branch"' || fail "branch patch to existing failed"
+curl -s "$B/api/repos" | grep -q '"defaultBranch":"wip-side-branch"' || fail "branch patch not reflected"
+expect_code 400 -X PATCH "$B/api/repos/1" -H 'content-type: application/json' -d '{"defaultBranch":"no-such-branch"}'
+curl -sf -X PATCH "$B/api/repos/1" -H 'content-type: application/json' -d '{"defaultBranch":"main"}' >/dev/null
+pass "per-repo base branch override (existing 200, missing 400)"
 
 # auth gate (fresh daemon with pass)
 kill "$DPID" 2>/dev/null || true; sleep 0.5

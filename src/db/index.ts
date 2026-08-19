@@ -75,10 +75,19 @@ export async function ensureSchema(): Promise<void> {
       token TEXT NOT NULL UNIQUE,
       created_at INTEGER DEFAULT (unixepoch())
     );
+    CREATE TABLE IF NOT EXISTS doc_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id INTEGER NOT NULL,
+      path TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      created_at INTEGER DEFAULT (unixepoch())
+    );
   `);
   // 기존 DB 마이그레이션(멱등)
   try { await client.execute('ALTER TABLE tasks ADD COLUMN design_capture_id INTEGER'); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN session_id TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
   try { await client.execute('ALTER TABLE tasks ADD COLUMN parent_run_id INTEGER'); } catch { /* exists */ }
+  try { await client.execute("ALTER TABLE agent_runs ADD COLUMN model TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
 }

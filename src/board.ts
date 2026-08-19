@@ -164,6 +164,15 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .ev{display:flex;gap:9px;align-items:baseline;min-width:0}
   .ev .k{color:var(--brand);min-width:78px;flex:none;opacity:.85}
   .ev .t{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  /* ── closed card — 죽은 카드는 확실히 죽어 보이게(빗금 + CLOSED 스탬프) ── */
+  .card.closed{opacity:.6;filter:saturate(.45)}
+  .card.closed .log{position:relative}
+  .card.closed .log::after{content:'';position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(135deg,transparent 0 9px,rgba(255,255,255,.035) 9px 11px)}
+  .card.closed .log::before{content:'CLOSED';position:absolute;top:50%;left:50%;z-index:1;
+    transform:translate(-50%,-50%) rotate(-7deg);font-family:var(--mono);font-size:15px;
+    letter-spacing:.34em;color:var(--faint);border:1px solid var(--line-hi);
+    border-radius:6px;padding:4px 14px;background:rgba(11,13,18,.72)}
   /* ── select mode (integrate) ── */
   .toolbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px}
   .card.selmode{cursor:copy}
@@ -291,6 +300,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .cmp-review p{margin:0 0 8px}
 
   /* ── doc mode (rendered output) ─────────── */
+  .doc-src{font-family:var(--mono);font-size:10.5px;color:var(--faint);margin-bottom:10px}
   .doc-h{font-family:var(--mono);font-size:10.5px;color:var(--brand);padding:8px 0 4px;
     border-bottom:1px solid var(--line);margin-bottom:8px;word-break:break-all}
   .doc-md{font-size:13px;line-height:1.65;color:var(--muted);margin-bottom:16px;font-family:var(--sans)}
@@ -378,6 +388,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <div class="row">
         <button type="button" class="btn-ghost sm" id="repoBrowse" style="flex:1">Browse…</button>
         <button type="button" class="btn-ghost sm" id="repoManual" style="flex:0 0 auto" title="type an absolute path">Path</button>
+        <button type="button" class="btn-ghost sm" id="repoBranch" style="flex:0 0 auto" title="change the base branch — merges, Sync base and PRs all target it">⎇</button>
         <button type="button" class="btn-ghost sm" id="repoRemove" style="flex:0 0 auto" title="remove selected repository from coxpit">×</button>
       </div>
       <form id="repoForm" hidden>
@@ -404,6 +415,9 @@ export const BOARD_HTML = /* html */ `<!doctype html>
             <button type="button" class="seg-opt on" data-agent="claude-code">Claude</button>
             <button type="button" class="seg-opt" data-agent="codex">Codex</button>
           </div>
+          <p class="flabel">model · optional</p>
+          <input id="taskModel" placeholder="CLI default" list="modelHist" autocomplete="off" />
+          <datalist id="modelHist"></datalist>
           <p class="flabel">design capture · optional</p>
           <select id="taskCapture"><option value="">no design capture</option></select>
         </div>
@@ -561,6 +575,21 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     <div class="cfm-f">
       <button class="btn-ghost sm" id="ghCancel">Cancel</button>
       <button class="btn sm" id="ghOk">Fetch</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="brOverlay">
+  <div class="cfm">
+    <div class="cfm-b">
+      <div class="m">Base branch for this repository</div>
+      <div class="s">Merge, Sync base and PR mode all target this branch. Set it to match your repo's flow (e.g. <span style="color:var(--brand);font-family:var(--mono)">develop</span>). Must already exist in the repo.</div>
+      <p class="flabel" style="margin-top:12px">branch name</p>
+      <input id="brInput" placeholder="main" />
+    </div>
+    <div class="cfm-f">
+      <button class="btn-ghost sm" id="brCancel">Cancel</button>
+      <button class="btn sm" id="brOk">Save</button>
     </div>
   </div>
 </div>
@@ -862,13 +891,14 @@ function cardHTML(r){
   const evs = humanLines(r.events).slice(-8).map(h =>
     '<div class="ev"><span class="k">'+esc(h.k)+'</span><span class="t">'+esc(h.t).slice(0,140)+'</span></div>'
   ).join('') || '<div class="ev"><span class="t" style="color:var(--faint)">waiting…</span></div>';
-  const selCls = (selectMode?' selmode':'') + (selected.has(r.id)?' selected':'');
+  const selCls = (selectMode?' selmode':'') + (selected.has(r.id)?' selected':'') + (closed?' closed':'');
   return '<div class="card'+selCls+'" id="card-'+r.id+'">'
     + '<div class="card-h"><span class="rid">r'+r.id+'</span><span class="title">'+title+'</span>'
     + '<span class="selbox">✓</span>'+chipHTML(r.status)+'</div>'
     + '<div class="meta"><span>branch <b>'+esc(r.branch||'—')+'</b></span>'
     + '<span>files <b>'+(r.filesChanged??0)+'</b></span>'
     + '<span>'+esc(r.agent||'')+'</span>'
+    + (r.model ? '<span title="model">⚙ '+esc(r.model)+'</span>' : '')
     + (task && task.parentRunId ? '<span title="spawned by agent r'+task.parentRunId+'">↳ by r'+task.parentRunId+'</span>' : '')
     + (r.sessionId && ['done','failed','stopped'].includes(r.status)
         ? '<span class="resumable" title="agent session preserved — open the run and Send a next instruction to continue">↻ resumable</span>' : '')
@@ -942,6 +972,26 @@ $('repoRemove').addEventListener('click', async ()=>{
   if (res.ok){ toast('repo removed', 'ok'); hydrate(); }
   else toast('remove: '+(j.detail||res.status), 'error');
 });
+/* ── 기본 브랜치 변경 ── */
+$('repoBranch').addEventListener('click', ()=>{
+  const rid = $('taskRepo').value;
+  if (!rid){ toast('no repository selected', 'error'); return; }
+  const repo = repos.find(r=>String(r.id)===String(rid));
+  $('brInput').value = repo ? repo.defaultBranch : '';
+  $('brOverlay').classList.add('open'); $('brInput').focus();
+});
+$('brCancel').addEventListener('click', ()=>$('brOverlay').classList.remove('open'));
+$('brOverlay').addEventListener('click',(e)=>{ if(e.target===$('brOverlay')) $('brOverlay').classList.remove('open'); });
+async function brSave(){
+  const rid = $('taskRepo').value; const branch = $('brInput').value.trim();
+  if (!rid || !branch) return;
+  const res = await fetch('/api/repos/'+rid,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({defaultBranch:branch})});
+  const j = await res.json().catch(()=>({}));
+  if (res.ok){ $('brOverlay').classList.remove('open'); toast('base branch → '+j.defaultBranch, 'ok'); hydrate(); }
+  else toast('branch: '+(j.error||res.status), 'error');
+}
+$('brOk').addEventListener('click', brSave);
+$('brInput').addEventListener('keydown',(e)=>{ if(e.key==='Enter') brSave(); });
 $('repoManual').addEventListener('click', ()=>{
   const f = $('repoForm'); f.hidden = !f.hidden;
   if (!f.hidden) $('repoPath').focus();
@@ -1028,16 +1078,30 @@ function paintModal(){
 async function loadDiff(){
   if (openRunId==null || docMode) return;
   const pre = $('mDiff'); if (!pre) return;
+  const rid = openRunId;
   pre.textContent = 'loading…'; $('mStat').textContent='';
   try{
-    const d = await fetch('/api/runs/'+openRunId+'/diff').then(x=>x.json());
-    if (!d.ok){ pre.textContent = d.stat||'no worktree'; return; }
+    const d = await fetch('/api/runs/'+rid+'/diff').then(x=>x.json());
+    if (!d.ok){
+      pre.textContent = d.stat||'no worktree';
+      // worktree 는 없지만 스냅샷 문서가 있으면 Rendered 토글 노출(머지·Close 후 뷰어)
+      maybeShowDocsToggle(rid);
+      return;
+    }
     const files = d.stat ? d.stat.split('\\n').filter(Boolean).length : 0;
     $('mStat').textContent = files ? '· '+files+' file'+(files>1?'s':'') : '· clean';
-    // 변경분에 문서(md/html)가 있으면 Rendered 토글 노출
-    $('mDocsTgl').hidden = !/\\.(md|markdown|html?|htm)$/im.test(d.stat||'');
     pre.innerHTML = diffHTML(d.diff||'');
+    // 변경분에 문서(md/html)가 있으면 즉시 노출, 없으면 스냅샷 확인
+    if (/\\.(md|markdown|html?|htm)$/im.test(d.stat||'')) $('mDocsTgl').hidden = false;
+    else maybeShowDocsToggle(rid);
   }catch{ pre.textContent = 'diff failed'; }
+}
+/* worktree 에 라이브 문서가 없을 때만 — 스냅샷이라도 있으면 토글을 켠다 */
+async function maybeShowDocsToggle(rid){
+  try{
+    const j = await fetch('/api/runs/'+rid+'/docs').then(x=>x.json());
+    if (rid===openRunId && (j.docs||[]).length) $('mDocsTgl').hidden = false;
+  }catch{}
 }
 /* ── doc 모드 — diff 대신 렌더된 문서 산출물 ── */
 let docMode = false;
@@ -1053,7 +1117,9 @@ async function paintDocs(){
   $('mDiffWrap').innerHTML = '<span style="color:var(--faint)">rendering…</span>';
   try{
     const d = await fetch('/api/runs/'+openRunId+'/docs').then(x=>x.json());
-    $('mDiffWrap').innerHTML = docsHTML(d.docs||[]);
+    const src = d.source==='snapshot'
+      ? '<div class="doc-src">worktree gone — snapshot taken at settle</div>' : '';
+    $('mDiffWrap').innerHTML = src + docsHTML(d.docs||[]);
   }catch{ $('mDiffWrap').textContent = 'docs failed'; }
 }
 function setDocMode(on){
@@ -1125,7 +1191,7 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); $('brOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
 $('mExport').addEventListener('click', ()=>{
   if (openRunId==null) return;
@@ -1195,7 +1261,18 @@ $('mCloseTask').addEventListener('click', async ()=>{
   const yes = await confirmUI('Close this task?',
     { sub: 'Stops any live runs and removes every worktree and branch of the task.', danger: true, okLabel: 'Close task' });
   if (!yes) return;
-  await fetch('/api/tasks/'+r.taskId+'/close',{method:'POST'});
+  const close = (force)=>fetch('/api/tasks/'+r.taskId+'/close',{method:'POST',
+    headers:{'content-type':'application/json'}, body:JSON.stringify({force})});
+  let res = await close(false);
+  if (res.status===409){
+    const j = await res.json().catch(()=>({}));
+    const risk = (j.atRisk||[]).map(a=>'r'+a.runId+' · '+a.filesChanged+' file'+(a.filesChanged>1?'s':'')).join(' · ');
+    const ok = await confirmUI('Close and delete unmerged output?',
+      { danger:true, sub: risk+' — not merged, not exported. Worktrees are deleted on close.', okLabel:'Close anyway' });
+    if (!ok) return;
+    res = await close(true);
+  }
+  if (!res.ok){ toast('close failed ('+res.status+')', 'error'); return; }
   toast('task closed — all runs cleaned', 'ok');
   closeModal(); hydrate();
 });
@@ -1511,10 +1588,27 @@ $('taskForm').addEventListener('submit', async (e)=>{
     body:JSON.stringify({repoId,title,prompt:$('taskPrompt').value,designCaptureId:capId})}).then(x=>x.json());
   if (!t.ok){ toast('task create failed', 'error'); return; }
   tasks.set(t.task.id, t.task);
+  const model = $('taskModel').value.trim();
   await fetch('/api/tasks/'+t.task.id+'/run',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked, agent: selAgent})});
+    body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked, agent: selAgent, model})});
+  if (model) rememberModel(model);
   $('taskTitle').value=''; $('taskPrompt').value='';
 });
+
+/* ── model 최근값 기억(기기별, 최대 5) ── */
+function rememberModel(m){
+  try{
+    const h = JSON.parse(localStorage.getItem('coxpit.models')||'[]');
+    localStorage.setItem('coxpit.models', JSON.stringify([m, ...h.filter(x=>x!==m)].slice(0,5)));
+  }catch{}
+  paintModelHist();
+}
+function paintModelHist(){
+  let h = [];
+  try{ h = JSON.parse(localStorage.getItem('coxpit.models')||'[]'); }catch{}
+  $('modelHist').innerHTML = h.map(m=>'<option value="'+escA(m)+'"></option>').join('');
+}
+paintModelHist();
 
 /* ── agent mode segmented control (mirrors hidden #taskReal) ── */
 const segOpts = Array.from(document.querySelectorAll('#modeSeg .seg-opt'));

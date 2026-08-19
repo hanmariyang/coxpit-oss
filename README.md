@@ -22,7 +22,8 @@ Your machines. Your auth. Your code never leaves your network.
 - **Design Mode** — drag the `⌖ coxpit inspect` bookmarklet to your bar, click it on your running app, click any element: its selector, HTML and computed styles are captured and injected into the agents' prompt as design context.
 - **Self-orchestrating agents** — every local run can spawn its own sub-agents by writing `.coxpit/spawn.json` in its worktree (works under default permissions — no network, no escalation). The daemon launches each subtask as an isolated sub-run and maintains `.coxpit/subtasks.json` with live status. Orchestration moves inside the agent's own reasoning loop.
 - **Start from GitHub** — paste an issue/PR URL and the task form drafts itself from its title and body (gh CLI for private repos, public API otherwise). You review, pick a provider, Run fleet.
-- **Share a run** — one click mints a read-only snapshot link (timeline + diff, no auth, no actions). Show your fleet's work without opening your cockpit.
+- **Share a run** — one click mints a read-only snapshot link (timeline + diff, and the rendered docs, no auth, no actions). Show your fleet's work without opening your cockpit.
+- **The library** — a run's changed documents (Markdown/HTML) are snapshotted when it settles, so the Rendered view survives merge and Close task. Pick a model per launch (any name your CLI accepts), and a close guard warns before it deletes unmerged, unexported output.
 
 External tools are spawned, never vendored: `git`, `tmux`, your agent CLI. No editor bundled — terminal-first.
 
@@ -109,7 +110,7 @@ One daemon, one SQLite file, zero external services. Machines are reached over S
 
 ## Status
 
-`v4.0` — fleet, two providers (Claude Code · Codex), compare/merge + AI review + doc mode, terminal (full-screen, session tabs, mobile input bar), swarm (plan fan-out · integrate · agent self-orchestration), sessions (steer/ask · resume), mobile board with deep links, GitHub import, read-only share links — all shipped and e2e-tested (30 checks). Roadmap: ROADMAP.md.
+`v4.1` — fleet, two providers (Claude Code · Codex) with per-launch model choice, compare/merge + AI review + doc mode with settle-time snapshots, terminal (full-screen, session tabs, mobile input bar), swarm (plan fan-out · integrate · agent self-orchestration), sessions (steer/ask · resume), mobile board with deep links, GitHub import, read-only share links that render documents, a close guard, and per-repo base branch override — all shipped and e2e-tested (35 checks). Roadmap: ROADMAP.md.
 
 ## License
 

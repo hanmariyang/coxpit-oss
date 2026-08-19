@@ -72,20 +72,20 @@ Steer the fleet from a phone, for real. No native app — the board itself earns
       (timeline + diff, zero actions, revocable)
 - [ ] Public write-up + demo video: the "one person, one daemon" build story
 
-### v4.1 — the library *(next up)*
+### v4.1 — the library *(shipped)*
 What a run produced should outlive its worktree, and you should choose who produces it.
 
-- [ ] Document snapshots: capture changed docs (md/html) when a run settles, so the
+- [x] Document snapshots: capture changed docs (md/html) when a run settles, so the
       Rendered view survives merge + Close task — a run's output is part of its record
-- [ ] Share pages gain a Rendered section (the snapshot), making a share link a
+- [x] Share pages gain a Rendered section (the snapshot), making a share link a
       complete read-only document viewer
-- [ ] Per-launch model choice: pick the model next to the provider (claude `--model`,
+- [x] Per-launch model choice: pick the model next to the provider (claude `--model`,
       codex `-m`) — cheap models for exploration fleets, a strong one for the final run
-- [ ] Close-task guard: warn when closing a task whose runs have unmerged, unexported
+- [x] Close-task guard: warn when closing a task whose runs have unmerged, unexported
       changes (done-but-not-merged output is deleted with the worktree)
-- [ ] Per-repo base branch override: repos on a develop-flow reject main-targeted
+- [x] Per-repo base branch override: repos on a develop-flow reject main-targeted
       merges today — let the repo say where Merge this / Sync base / PR mode point
-- [ ] Closed cards read as closed: dim + desaturate, diagonal hatching over the
+- [x] Closed cards read as closed: dim + desaturate, diagonal hatching over the
       timeline area with a CLOSED stamp — status chips stay (history at a glance)
 
 ### v4.2 — the board knows its groups

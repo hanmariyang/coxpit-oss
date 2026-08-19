@@ -44,6 +44,16 @@ export const tasks = sqliteTable('tasks', {
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 
+/** 정착·정리 시점에 회수한 문서(md/html) 스냅샷 — worktree 소멸 후에도 렌더 뷰 유지. */
+export const docSnapshots = sqliteTable('doc_snapshots', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  runId: integer('run_id').notNull(),
+  path: text('path').notNull(),
+  kind: text('kind').notNull(), // 'md' | 'html'
+  content: text('content').notNull().default(''),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
 /** 읽기 전용 공유 링크 — run 스냅샷을 무인증으로 보여준다(토큰 = capability). */
 export const shareLinks = sqliteTable('share_links', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -64,6 +74,7 @@ export const agentRuns = sqliteTable('agent_runs', {
   status: text('status').notNull().default('pending'), // pending | running | waiting | done | error
   sessionId: text('session_id').notNull().default(''), // 에이전트 세션(steer 용 --resume 키)
   prUrl: text('pr_url').notNull().default(''), // PR 모드로 올린 pull request URL
+  model: text('model').notNull().default(''), // 런치별 모델 지정(빈값 = CLI 기본)
   filesChanged: integer('files_changed').notNull().default(0),
   startedAt: integer('started_at', { mode: 'timestamp' }),
   endedAt: integer('ended_at', { mode: 'timestamp' }),

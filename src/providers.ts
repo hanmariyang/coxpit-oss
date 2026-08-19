@@ -24,8 +24,9 @@ export interface Provider {
   id: string;
   label: string;
   bin: string;
-  launchCmd(prompt: string): string;
-  resumeCmd(sessionId: string, message: string): string;
+  /** model 비었으면 CLI 기본값 사용(플래그 미첨부). */
+  launchCmd(prompt: string, model?: string): string;
+  resumeCmd(sessionId: string, message: string, model?: string): string;
   /** null = 저장하지 않는 라인(스트림 잡음) */
   parseLine(raw: string): ParsedEvent | null;
 }
@@ -52,13 +53,14 @@ const claudeProvider: Provider = {
   id: 'claude-code',
   label: 'Claude Code',
   get bin() { return config.agent.bin; },
-  launchCmd(prompt: string): string {
+  launchCmd(prompt: string, model?: string): string {
     return `${config.agent.bin} -p ${shq(prompt)} --output-format stream-json --verbose` +
-      ` --permission-mode ${config.agent.perm}`;
+      ` --permission-mode ${config.agent.perm}` + (model ? ` --model ${shq(model)}` : '');
   },
-  resumeCmd(sessionId: string, message: string): string {
+  resumeCmd(sessionId: string, message: string, model?: string): string {
     return `${config.agent.bin} -p --resume ${shq(sessionId)} ${shq(message)}` +
-      ` --output-format stream-json --verbose --permission-mode ${config.agent.perm}`;
+      ` --output-format stream-json --verbose --permission-mode ${config.agent.perm}` +
+      (model ? ` --model ${shq(model)}` : '');
   },
   parseLine(raw: string): ParsedEvent | null {
     const s = raw.trim();
@@ -116,12 +118,14 @@ const codexProvider: Provider = {
   id: 'codex',
   label: 'Codex',
   get bin() { return config.codex.bin; },
-  launchCmd(prompt: string): string {
-    return `${config.codex.bin} exec --json --sandbox ${config.codex.sandbox} ${shq(prompt)}`;
+  launchCmd(prompt: string, model?: string): string {
+    return `${config.codex.bin} exec --json --sandbox ${config.codex.sandbox}` +
+      (model ? ` -m ${shq(model)}` : '') + ` ${shq(prompt)}`;
   },
-  resumeCmd(sessionId: string, message: string): string {
-    // --sandbox 는 exec 의 플래그(resume 서브커맨드는 안 받음) — 반드시 resume 앞에.
-    return `${config.codex.bin} exec --json --sandbox ${config.codex.sandbox} resume ${shq(sessionId)} ${shq(message)}`;
+  resumeCmd(sessionId: string, message: string, model?: string): string {
+    // --sandbox·-m 는 exec 의 플래그(resume 서브커맨드는 안 받음) — 반드시 resume 앞에.
+    return `${config.codex.bin} exec --json --sandbox ${config.codex.sandbox}` +
+      (model ? ` -m ${shq(model)}` : '') + ` resume ${shq(sessionId)} ${shq(message)}`;
   },
   parseLine(raw: string): ParsedEvent | null {
     const s = raw.trim();
