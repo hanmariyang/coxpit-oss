@@ -39,3 +39,11 @@ try {
   }
   throw e;
 }
+
+// 인증 켜졌는데 비번이 비면 fail-closed(전 요청 401) — 첫 실행자가 401 보고 당황하지 않게 명시.
+if (!config.auth.disabled && config.auth.pass === '') {
+  console.warn(
+    '[coxpit] auth is ON but COXPIT_AUTH_PASS is empty — every request will be rejected (401).\n' +
+    '[coxpit] Set COXPIT_AUTH_PASS to a password, or COXPIT_AUTH_DISABLED=1 for local dev.',
+  );
+}

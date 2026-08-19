@@ -29,9 +29,10 @@ Usage:
 Configuration is env-only (a .env file in the cwd is loaded):
   COXPIT_HOST            bind host (default 127.0.0.1)
   COXPIT_PORT            bind port (default 8210)
-  COXPIT_DB              SQLite (libSQL) file (default ./coxpit.db)
+  COXPIT_DB              SQLite (libSQL) file (default ~/.coxpit/coxpit.db)
   COXPIT_AUTH_USER       basic auth user (default admin)
-  COXPIT_AUTH_PASS       basic auth password (empty = open; set it)
+  COXPIT_AUTH_PASS       basic auth password (empty = all requests rejected;
+                         set it, or COXPIT_AUTH_DISABLED=1 for local dev)
   COXPIT_AUTH_DISABLED   1 disables auth (local dev only)
   COXPIT_SSH_KEY         private key for remote machines (else ssh defaults/agent)
   COXPIT_AGENT_REAL      1 = real agent CLI by default (credits!)

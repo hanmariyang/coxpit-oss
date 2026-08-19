@@ -70,7 +70,7 @@ Your keys and login never touch coxpit's config or database.
 |---|---|---|
 | `COXPIT_HOST` / `COXPIT_PORT` | `127.0.0.1` / `8210` | daemon bind |
 | `COXPIT_DB` | `~/.coxpit/coxpit.db` | SQLite (libSQL) file (a legacy `./coxpit.db` in the cwd is still honored) |
-| `COXPIT_AUTH_PASS` / `COXPIT_AUTH_USER` | — / `admin` | basic auth (empty pass = open; set it) |
+| `COXPIT_AUTH_PASS` / `COXPIT_AUTH_USER` | — / `admin` | basic auth. **Empty pass = all requests rejected** (fail-closed) — set it, or use `COXPIT_AUTH_DISABLED=1` for local dev |
 | `COXPIT_AUTH_DISABLED` | — | `1` disables auth (local dev only) |
 | `COXPIT_SSH_KEY` | — | private key for remote machines (else ssh defaults/agent) |
 | `COXPIT_AGENT_REAL` | — | `1` = real agent CLI by default (credits!) |
