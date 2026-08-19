@@ -82,6 +82,73 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     color:var(--faint);margin:2px 0 -2px}
   .btn[disabled]{opacity:.4;cursor:not-allowed;filter:none}
 
+  /* ── navigator rail (v5.0) — machine · repos · view nav · New ── */
+  aside.rail{padding:12px 10px;gap:4px;overflow-y:auto}
+  .rail .machine{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;
+    color:var(--ink);border:1px solid var(--line-hi);border-radius:8px;padding:7px 10px;margin-bottom:6px;
+    cursor:pointer;background:transparent;text-align:left;width:100%}
+  .rail .machine:hover{border-color:rgba(78,201,176,.4)}
+  .rail .machine .ic{width:14px;height:14px;color:var(--muted)}
+  .rail .machine .msp{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .rail .machine .mdot2{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
+  .rail .machine .mdot2.on{background:var(--s-done)}
+  .rlabel{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.13em;
+    color:var(--faint);margin:8px 6px 4px}
+  /* rail repo rows — #repoList + the add row(#repoAdd) 만 (라이브러리 캡처 .repo 는 건드리지 않음) */
+  #repoList .repo,.repo.add{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;cursor:pointer;
+    color:var(--muted);font-family:var(--sans);font-size:13px;border:none;background:transparent;
+    position:relative;width:100%;text-align:left}
+  #repoList .repo:hover,.repo.add:hover{background:var(--surface2);color:var(--ink)}
+  #repoList .repo.on{background:var(--brand-dim);color:var(--ink)}
+  #repoList .repo .ic,.repo.add .ic{width:15px;height:15px;color:var(--faint)}
+  #repoList .repo.on .ic{color:var(--brand)}
+  #repoList .repo .nm,.repo.add .nm{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:inherit}
+  #repoList .repo .cnt{font-family:var(--mono);font-size:10px;color:var(--brand);background:var(--brand-dim);
+    border-radius:99px;padding:1px 7px;flex:none}
+  #repoList .repo .attn{width:7px;height:7px;border-radius:50%;background:var(--s-failed);flex:none;
+    box-shadow:0 0 0 2px var(--surface)}
+  .repo.add{color:var(--faint);font-size:12px}
+  #repoList .repo .rowmenu{display:none;align-items:center;gap:2px;flex:none}
+  #repoList .repo:hover .rowmenu{display:flex}
+  #repoList .repo:hover .cnt{display:none}
+  #repoList .repo .rmbtn{background:none;border:none;color:var(--faint);cursor:pointer;padding:2px;
+    display:inline-flex;border-radius:5px}
+  #repoList .repo .rmbtn:hover{color:var(--ink);background:var(--line)}
+  #repoList .repo .rmbtn .ic{width:13px;height:13px;color:inherit}
+  .navi{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:var(--muted);
+    cursor:pointer;font-size:13px;border:none;background:transparent;width:100%;text-align:left;font-family:var(--sans)}
+  .navi:hover{background:var(--surface2)}
+  .navi.on{background:var(--surface2);color:var(--ink)}
+  .navi .ic{width:15px;height:15px}
+  .navi.on .ic{color:var(--brand)}
+  .navi .nsp{flex:1}
+  .navi .n{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  .railsp{flex:1;min-height:8px}
+  .newbtn{display:flex;align-items:center;justify-content:center;gap:7px;background:var(--brand);
+    color:var(--brand-ink);border:none;border-radius:var(--r-ctl);font-family:var(--sans);font-weight:700;
+    font-size:13px;padding:10px;cursor:pointer;margin-top:8px}
+  .newbtn:hover{filter:brightness(1.08)}
+  .newbtn[disabled]{opacity:.4;cursor:not-allowed;filter:none}
+  .newbtn .ic{width:16px;height:16px}
+  .newnote{font-family:var(--mono);font-size:9.5px;color:var(--faint);text-align:center;margin-top:5px}
+  /* machine menu (native select 대체) — 레일 컨텍스트 앵커 */
+  .mmenu{position:absolute;z-index:45;min-width:170px;background:var(--surface2);border:1px solid var(--line-hi);
+    border-radius:9px;box-shadow:var(--shadow);padding:4px;display:none}
+  .mmenu.open{display:block}
+  .mmenu .mopt{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:6px;
+    font-family:var(--mono);font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap}
+  .mmenu .mopt:hover{background:var(--surface);color:var(--ink)}
+  .mmenu .mopt.on{color:var(--brand)}
+  .mmenu .mopt .mdot2{width:6px;height:6px;border-radius:50%;background:var(--faint);flex:none}
+  .mmenu .mopt .mdot2.on{background:var(--s-done)}
+  /* New launcher overlay (Phase 1 임시 — Part B 가 시트로 교체) */
+  .lch{width:min(360px,94vw);max-height:86vh;overflow-y:auto;background:var(--surface);
+    border:1px solid var(--line-hi);border-radius:14px;box-shadow:var(--shadow);
+    display:flex;flex-direction:column;gap:16px;padding:18px 18px 20px}
+  .lch-h{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12px}
+  .lch-h .t{color:var(--ink);font-weight:700}.lch-h .r{color:var(--faint)}
+  .lch-h .sp{flex:1}.lch-h .x{color:var(--muted);cursor:pointer;background:none;border:none;padding:2px}
+
   /* ── repo browser ── */
   .brw{width:min(560px,94vw);max-height:78vh;background:var(--surface);border:1px solid var(--line);
     border-radius:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;overflow:hidden}
@@ -615,10 +682,6 @@ ${ICON_SPRITE}
   <button class="btn-ghost sm menu-btn" id="menuBtn" aria-label="open launcher">☰</button>
   <div class="brand"><span class="mark">coxpit</span><span class="sub">fleet console</span></div>
   <span class="daemon-badge" id="daemonBadge" style="display:none"></span>
-  <div class="seg view-seg" id="viewSeg">
-    <button type="button" class="seg-opt on" data-view="active">Active</button>
-    <button type="button" class="seg-opt" data-view="archive">Archive <span id="archN" class="seg-hint"></span></button>
-  </div>
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles"><svg class="ic"><use href="#i-bell-off"/></svg></button>
   <button class="btn-ghost sm" id="remoteBtn" title="reach this daemon from elsewhere (Tailscale · recipes)"><svg class="ic"><use href="#i-external-link"/></svg></button>
@@ -626,78 +689,38 @@ ${ICON_SPRITE}
 </header>
 <div class="scrim" id="scrim"></div>
 <div class="layout">
-  <aside>
-    <div class="sect">
-      <p class="sect-label">Context</p>
-      <p class="flabel">machine</p>
-      <select id="repoMachine"></select>
-      <p class="flabel">repository</p>
-      <select id="taskRepo"></select>
-      <div class="row">
-        <button type="button" class="btn-ghost sm" id="repoBrowse" style="flex:1">Browse…</button>
-        <button type="button" class="btn-ghost sm" id="repoNew" style="flex:0 0 auto" title="start a new project — empty folder in, scaffolded repo out">New</button>
-        <button type="button" class="btn-ghost sm" id="repoManual" style="flex:0 0 auto" title="type an absolute path">Path</button>
-        <button type="button" class="btn-ghost sm" id="repoBranch" style="flex:0 0 auto" title="change the base branch — merges, Sync base and PRs all target it"><svg class="ic"><use href="#i-branch"/></svg></button>
-        <button type="button" class="btn-ghost sm" id="repoRemove" style="flex:0 0 auto" title="remove selected repository from coxpit"><svg class="ic"><use href="#i-x"/></svg></button>
-      </div>
-      <form id="repoForm" hidden>
-        <div class="row">
-          <input id="repoPath" placeholder="/abs/path/to/repo" />
-          <button class="btn-ghost sm" type="submit" style="flex:0 0 auto">Register</button>
-        </div>
-      </form>
-    </div>
+  <aside class="rail">
+    <button type="button" class="machine" id="machineSwitch">
+      <svg class="ic"><use href="#i-server"/></svg>
+      <span class="msp" id="machineLbl">local</span>
+      <span class="mdot2" id="machineDot"></span>
+    </button>
+    <div class="mmenu" id="machineMenu"></div>
 
-    <div class="sect">
-      <p class="sect-label">Start</p>
-      <div class="seg" id="launchTabs">
-        <button type="button" class="seg-opt on" data-tab="task">Task</button>
-        <button type="button" class="seg-opt" data-tab="goal">Goal</button>
-        <button type="button" class="seg-opt" data-tab="bench">Workbench</button>
-      </div>
-      <form id="taskForm">
-        <div id="panelTask" style="display:flex;flex-direction:column;gap:8px">
-          <input id="taskTitle" placeholder="Task title" />
-          <textarea id="taskPrompt" placeholder="Prompt — target files, constraints, how to verify"></textarea>
-          <button type="button" class="btn-ghost sm" id="ghImport">From GitHub issue / PR…</button>
-          <div class="seg" id="provSeg" role="group" aria-label="agent provider">
-            <button type="button" class="seg-opt on" data-agent="claude-code">Claude</button>
-            <button type="button" class="seg-opt" data-agent="codex">Codex</button>
-          </div>
-          <p class="flabel">model · optional</p>
-          <input id="taskModel" placeholder="CLI default" list="modelHist" autocomplete="off" />
-          <datalist id="modelHist"></datalist>
-          <p class="flabel">design capture · optional</p>
-          <select id="taskCapture"><option value="">no design capture</option></select>
-          <p class="flabel">deliverables · optional (계약)</p>
-          <div class="ochips" id="taskOutputs" role="group" aria-label="declared deliverables">
-            <button type="button" class="ochip" data-out="answer">답변</button>
-            <button type="button" class="ochip" data-out="code">코드</button>
-            <button type="button" class="ochip" data-out="doc">문서</button>
-            <button type="button" class="ochip" data-out="page">페이지</button>
-            <button type="button" class="ochip" data-out="file">파일</button>
-          </div>
-        </div>
-        <div id="panelGoal" hidden style="flex-direction:column;gap:8px">
-          <textarea id="planGoal" placeholder="One goal — a planner agent reads the repo, splits it into independent tasks, and launches them all. Converge with Select runs → Integrate."></textarea>
-        </div>
-        <div id="panelBench" hidden style="flex-direction:column;gap:8px">
-          <input id="benchTitle" placeholder="Workbench name · optional" />
-          <p style="font-size:11.5px;color:var(--faint);margin:0;line-height:1.55">Isolated worktree + terminal. Work interactively — run <span style="color:var(--brand);font-family:var(--mono)">claude</span> inside, take hours — then decide the merge from the card.</p>
-        </div>
-        <div class="seg" id="modeSeg" role="group" aria-label="agent mode">
-          <button type="button" class="seg-opt" data-real="0">Dry run</button>
-          <button type="button" class="seg-opt" data-real="1">Real agent<span class="seg-hint">spends credits</span></button>
-        </div>
-        <input type="checkbox" id="taskReal" hidden />
-        <div class="row">
-          <input id="taskCount" class="narrow" type="number" min="1" max="8" value="1" title="agents — 1 for a job, N to explore variants" />
-          <button class="btn" type="submit" id="runFleetBtn"><svg class="ic"><use href="#i-play"/></svg> Run fleet</button>
-        </div>
-      </form>
-    </div>
+    <p class="rlabel">Repositories</p>
+    <div id="repoList"></div>
+    <button type="button" class="repo add" id="repoAdd">
+      <svg class="ic"><use href="#i-plus"/></svg><span class="nm">Add repository…</span>
+    </button>
 
-    <details class="sect" id="libraryBox">
+    <p class="rlabel">View</p>
+    <nav id="viewNav">
+      <button type="button" class="navi on" data-view="active">
+        <svg class="ic"><use href="#i-layers"/></svg><span>Active</span><span class="nsp"></span><span class="n" id="navActiveN"></span>
+      </button>
+      <button type="button" class="navi" data-view="goals">
+        <svg class="ic"><use href="#i-target"/></svg><span>Goals</span><span class="nsp"></span><span class="n" id="navGoalsN"></span>
+      </button>
+      <button type="button" class="navi" data-view="archive">
+        <svg class="ic"><use href="#i-archive"/></svg><span>Archive</span><span class="nsp"></span><span class="n" id="navArchiveN"></span>
+      </button>
+    </nav>
+
+    <div class="railsp"></div>
+    <button type="button" class="newbtn" id="newBtn"><svg class="ic"><use href="#i-plus"/></svg> New</button>
+    <p class="newnote">Task · Goal · Workbench</p>
+
+    <details class="sect" id="libraryBox" style="margin-top:12px">
       <summary class="sect-label" style="cursor:pointer;list-style:none">Library · design captures ▾</summary>
       <div id="captures" style="display:flex;flex-direction:column;gap:6px;margin-top:10px"></div>
       <a id="bmk" class="btn-ghost sm" style="text-decoration:none;text-align:center;display:block;padding:6px;margin-top:6px"
@@ -706,8 +729,87 @@ ${ICON_SPRITE}
       With auth on, append ?k=&lt;pass&gt; to the script URL.</span>
     </details>
   </aside>
+
+  <!-- New launcher (Phase 1 임시 overlay — Part B 가 type-tabbed sheet 로 교체) -->
+  <div class="overlay" id="launchOverlay">
+    <div class="lch" id="launchCard">
+      <div class="lch-h"><svg class="ic" style="color:var(--brand)"><use href="#i-plus"/></svg>
+        <span class="t">New</span><span class="r" id="launchRepoLbl"></span><span class="sp"></span>
+        <button type="button" class="x" id="launchClose" aria-label="close"><svg class="ic"><use href="#i-x"/></svg></button></div>
+      <div class="sect" style="gap:8px">
+        <p class="flabel">machine</p>
+        <select id="repoMachine"></select>
+        <p class="flabel">repository</p>
+        <select id="taskRepo"></select>
+        <div class="row">
+          <button type="button" class="btn-ghost sm" id="repoBrowse" style="flex:1">Browse…</button>
+          <button type="button" class="btn-ghost sm" id="repoNew" style="flex:0 0 auto" title="start a new project — empty folder in, scaffolded repo out">New</button>
+          <button type="button" class="btn-ghost sm" id="repoManual" style="flex:0 0 auto" title="type an absolute path">Path</button>
+          <button type="button" class="btn-ghost sm" id="repoBranch" style="flex:0 0 auto" title="change the base branch — merges, Sync base and PRs all target it"><svg class="ic"><use href="#i-branch"/></svg></button>
+          <button type="button" class="btn-ghost sm" id="repoRemove" style="flex:0 0 auto" title="remove selected repository from coxpit"><svg class="ic"><use href="#i-x"/></svg></button>
+        </div>
+        <form id="repoForm" hidden>
+          <div class="row">
+            <input id="repoPath" placeholder="/abs/path/to/repo" />
+            <button class="btn-ghost sm" type="submit" style="flex:0 0 auto">Register</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="sect">
+        <div class="seg" id="launchTabs">
+          <button type="button" class="seg-opt on" data-tab="task">Task</button>
+          <button type="button" class="seg-opt" data-tab="goal">Goal</button>
+          <button type="button" class="seg-opt" data-tab="bench">Workbench</button>
+        </div>
+        <form id="taskForm">
+          <div id="panelTask" style="display:flex;flex-direction:column;gap:8px">
+            <input id="taskTitle" placeholder="Task title" />
+            <textarea id="taskPrompt" placeholder="Prompt — target files, constraints, how to verify"></textarea>
+            <button type="button" class="btn-ghost sm" id="ghImport">From GitHub issue / PR…</button>
+            <div class="seg" id="provSeg" role="group" aria-label="agent provider">
+              <button type="button" class="seg-opt on" data-agent="claude-code">Claude</button>
+              <button type="button" class="seg-opt" data-agent="codex">Codex</button>
+            </div>
+            <p class="flabel">model · optional</p>
+            <input id="taskModel" placeholder="CLI default" list="modelHist" autocomplete="off" />
+            <datalist id="modelHist"></datalist>
+            <p class="flabel">design capture · optional</p>
+            <select id="taskCapture"><option value="">no design capture</option></select>
+            <p class="flabel">deliverables · optional (계약)</p>
+            <div class="ochips" id="taskOutputs" role="group" aria-label="declared deliverables">
+              <button type="button" class="ochip" data-out="answer">답변</button>
+              <button type="button" class="ochip" data-out="code">코드</button>
+              <button type="button" class="ochip" data-out="doc">문서</button>
+              <button type="button" class="ochip" data-out="page">페이지</button>
+              <button type="button" class="ochip" data-out="file">파일</button>
+            </div>
+          </div>
+          <div id="panelGoal" hidden style="flex-direction:column;gap:8px">
+            <textarea id="planGoal" placeholder="One goal — a planner agent reads the repo, splits it into independent tasks, and launches them all. Converge with Select runs → Integrate."></textarea>
+          </div>
+          <div id="panelBench" hidden style="flex-direction:column;gap:8px">
+            <input id="benchTitle" placeholder="Workbench name · optional" />
+            <p style="font-size:11.5px;color:var(--faint);margin:0;line-height:1.55">Isolated worktree + terminal. Work interactively — run <span style="color:var(--brand);font-family:var(--mono)">claude</span> inside, take hours — then decide the merge from the card.</p>
+          </div>
+          <div class="seg" id="modeSeg" role="group" aria-label="agent mode">
+            <button type="button" class="seg-opt" data-real="0">Dry run</button>
+            <button type="button" class="seg-opt" data-real="1">Real agent<span class="seg-hint">spends credits</span></button>
+          </div>
+          <input type="checkbox" id="taskReal" hidden />
+          <div class="row">
+            <input id="taskCount" class="narrow" type="number" min="1" max="8" value="1" title="agents — 1 for a job, N to explore variants" />
+            <button class="btn" type="submit" id="runFleetBtn"><svg class="ic"><use href="#i-play"/></svg> Run fleet</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
   <main>
-    <div class="toolbar"><button class="btn-ghost sm" id="selToggle">Select runs</button></div>
+    <div class="toolbar" style="display:flex;align-items:center;gap:12px">
+      <span id="boardHint" style="font-family:var(--mono);font-size:11px;color:var(--faint)"></span>
+      <span style="flex:1"></span>
+      <button class="btn-ghost sm" id="selToggle">Select runs</button></div>
     <div class="grid" id="grid"></div>
     <div class="empty" id="empty">
       <span class="glyph">▚▞▚</span>
@@ -982,6 +1084,9 @@ const runs = new Map();      // runId -> run object
 const tasks = new Map();     // taskId -> task
 const groups = new Map();    // groupId -> {id, kind, title}
 let repos = [], machines = [], captures = [];
+// v5.0 rail — 선택된 repo 로 보드 스코프(client-side). null = All repositories.
+let selectedRepo = null;
+try { const s = localStorage.getItem('coxpit.repo'); selectedRepo = s ? Number(s) : null; } catch {}
 let daemonPort = 8210;    // real config.port — filled from /api/fleet daemon block (recipes interpolate it)
 let remoteAuthOpen = false; // true = no password → Funnel guard on (from /api/fleet daemon.authOpen)
 
@@ -1255,11 +1360,16 @@ function bandHTML(g, grpRuns){
     + '<button class="gband-fold" data-gfold="'+g.id+'" title="fold">'+(folded?'▸':'▾')+'</button></div>'
     + '<div class="gband-grid">'+cards+'</div></div>';
 }
+// v5.0 — 레일에서 고른 repo 로 run 을 스코프(client-side). selectedRepo=null → 전체.
+function runInScope(r){
+  if (selectedRepo==null) return true;
+  const t = tasks.get(r.taskId);
+  return t ? t.repoId===selectedRepo : false;
+}
 function render(){
   if (boardView==='archive') return;   // 아카이브 뷰는 자체 리스트 — grid 안 건드림
-  const list = [...runs.values()].sort((a,b)=>b.id-a.id);
-  $('empty').style.display = list.length ? 'none' : 'flex';
-  if (!list.length){ paintOnboarding(); $('grid').innerHTML=''; return; }
+  const goalsOnly = boardView==='goals';   // Goals 뷰 = 그룹 밴드만
+  const list = [...runs.values()].filter(runInScope).sort((a,b)=>b.id-a.id);
   // 그룹 파티션 — grouped run 은 밴드로 클러스터, ungrouped 는 뒤에 flat.
   const byGroup = new Map(); const flat = [];
   for (const r of list){
@@ -1268,11 +1378,24 @@ function render(){
     if (gid==null) flat.push(r);
     else { if(!byGroup.has(gid)) byGroup.set(gid, []); byGroup.get(gid).push(r); }
   }
+  const visible = goalsOnly ? byGroup.size : list.length;
+  $('empty').style.display = visible ? 'none' : 'flex';
+  renderRail();   // 레일 카운트 배지·attention 을 라이브로 (paintNavCounts·boardHint 포함)
+  if (!visible){ paintOnboarding(goalsOnly); $('grid').innerHTML=''; return; }
   let html = '';
   for (const gid of [...byGroup.keys()].sort((a,b)=>b-a)) html += bandHTML(groups.get(gid), byGroup.get(gid));
-  html += flat.map(cardHTML).join('');
+  if (!goalsOnly) html += flat.map(cardHTML).join('');
   $('grid').innerHTML = html;
+  paintBoardHint();
   if (termRunId!=null) termTabsRender();   // 터미널 열려있으면 세션 탭도 동기화
+}
+// 보드 상단 힌트: <repo> · <view> · N runs (스코프 반영)
+function paintBoardHint(){
+  const el = $('boardHint'); if(!el) return;
+  const scope = selectedRepo!=null ? (repos.find(r=>r.id===selectedRepo)||{}).name || 'repo' : 'All repositories';
+  const label = boardView==='goals' ? 'Goals' : 'Active';
+  const n = [...runs.values()].filter(runInScope).length;
+  el.textContent = scope + ' · ' + label + ' · ' + n + ' run' + (n===1?'':'s');
 }
 
 /* ── active / archive view ─────────────────────────────── */
@@ -1281,7 +1404,7 @@ let archOffset = 0, archTotal = 0;
 const ARCH_LIMIT = 50;
 function setView(v){
   boardView = v;
-  document.querySelectorAll('#viewSeg .seg-opt').forEach(b=>{
+  document.querySelectorAll('#viewNav .navi').forEach(b=>{
     const on = b.dataset.view===v;
     b.classList.toggle('on', on); b.setAttribute('aria-pressed', on?'true':'false');
   });
@@ -1289,11 +1412,19 @@ function setView(v){
   $('archive').hidden = !archive;
   $('grid').style.display = archive ? 'none' : '';
   $('empty').style.display = archive ? 'none' : ($('grid').innerHTML ? 'none' : 'flex');
-  document.querySelector('.toolbar').style.display = archive ? 'none' : '';
-  if (archive){ paintArchRepos(); archFetch(true); reclaimRefresh(); }
+  document.querySelector('.toolbar').style.display = archive ? 'none' : 'flex';
+  if (archive){ paintArchRepos(); $('archRepo').value = selectedRepo!=null ? String(selectedRepo) : ''; archFetch(true); reclaimRefresh(); }
   else render();
 }
-document.querySelectorAll('#viewSeg .seg-opt').forEach(b=>b.addEventListener('click', ()=>setView(b.dataset.view)));
+document.querySelectorAll('#viewNav .navi').forEach(b=>b.addEventListener('click', ()=>setView(b.dataset.view)));
+// 뷰 nav 카운트 — Active=스코프 run 수, Goals=스코프 그룹 수, Archive=닫힌 태스크 수(hydrate)
+function paintNavCounts(){
+  const scoped = [...runs.values()].filter(runInScope);
+  $('navActiveN').textContent = scoped.length || '';
+  const gset = new Set();
+  for (const r of scoped){ const t = tasks.get(r.taskId); if (t && t.groupId!=null && groups.has(t.groupId)) gset.add(t.groupId); }
+  $('navGoalsN').textContent = gset.size || '';
+}
 function paintArchRepos(){
   const sel = $('archRepo'); const cur = sel.value;
   sel.innerHTML = '<option value="">all repos</option>' + repos.map(r=>'<option value="'+r.id+'">'+esc(r.name)+'</option>').join('');
@@ -1385,7 +1516,15 @@ function chkRow(name, ok, val){
   return '<div class="chk '+cls+'"><span class="st">'+st+'</span><span class="nm">'+esc(name)+'</span>'
     + '<span class="v">'+esc(val||'')+'</span></div>';
 }
-function paintOnboarding(){
+function paintOnboarding(goalsOnly){
+  // 스코프/뷰 필터 때문에 비어 보이는 경우(전체엔 run 이 있음) → 가벼운 안내만.
+  const totalRuns = runs.size;
+  if (totalRuns && (goalsOnly || selectedRepo!=null)){
+    const msg = goalsOnly ? 'No goal groups here' : 'No runs in this repository';
+    $('empty').innerHTML = '<span class="glyph">▚▞▚</span><span>'+esc(msg)+'</span>'
+      + '<span style="color:#3d4657">'+(selectedRepo!=null?'switch to <b>All repositories</b> or hit ＋ New':'plan a Goal with ＋ New')+'</span>';
+    return;
+  }
   const r = readiness;
   const agentBin = r && r.agent ? r.agent.bin : 'claude';
   let checks;
@@ -1454,7 +1593,7 @@ function upsertRun(patch){
 async function hydrate(){
   const r = await fetch('/api/fleet?view=active').then(x=>x.json());
   machines = r.machines||[]; repos = r.repos||[]; captures = r.captures||[];
-  if (r.counts){ const n = r.counts.closedTasks||0; $('archN').textContent = n ? '· '+n : ''; }
+  if (r.counts){ const n = r.counts.closedTasks||0; $('navArchiveN').textContent = n ? String(n) : ''; }
   tasks.clear();
   (r.tasks||[]).forEach(t => tasks.set(t.id, t));
   groups.clear();
@@ -1474,6 +1613,8 @@ async function hydrate(){
   paintSidebar(); render();
 }
 function paintSidebar(){
+  // 스코프 정합 — 사라진 repo 를 물고 있으면 스코프 해제
+  if (selectedRepo!=null && !repos.some(r=>r.id===selectedRepo)){ selectedRepo = null; try{ localStorage.removeItem('coxpit.repo'); }catch{} }
   $('machines').innerHTML = machines.map(m =>
     '<span class="mchip"><span class="mdot '+(m.online?'on':'')+'"></span><b>'+esc(m.slug)+'</b></span>').join('');
   $('repoMachine').innerHTML = machines.map(m=>'<option value="'+esc(m.slug)+'">'+esc(m.slug)+'</option>').join('');
@@ -1481,8 +1622,12 @@ function paintSidebar(){
   $('taskRepo').innerHTML = repos.length
     ? repos.map(r=>'<option value="'+r.id+'">'+esc(r.name)+' · '+esc(r.defaultBranch)+'</option>').join('')
     : '<option value="">register a repo — Browse… ↓</option>';
-  if (prevRepo && repos.some(r=>String(r.id)===prevRepo)) $('taskRepo').value = prevRepo;
+  // 런처 타겟 기본값 = 스코프된 repo(있으면), 아니면 직전 선택 유지
+  if (selectedRepo!=null && repos.some(r=>r.id===selectedRepo)) $('taskRepo').value = String(selectedRepo);
+  else if (prevRepo && repos.some(r=>String(r.id)===prevRepo)) $('taskRepo').value = prevRepo;
   $('runFleetBtn').disabled = !repos.length;
+  $('newBtn').disabled = !repos.length && false; // New 는 항상 열림(repo 등록 UI 포함)
+  renderRail();
   const capSel = $('taskCapture');
   const cur = capSel.value;
   capSel.innerHTML = '<option value="">no design capture</option>' + captures.map(c=>
@@ -1497,34 +1642,104 @@ function paintSidebar(){
   $('bmk').href = "javascript:(function(){var s=document.createElement('script');s.src='"
     + location.origin + "/design/bookmarklet.js';document.body.appendChild(s)})()";
 }
+/* ── v5.0 navigator rail — machine switcher · repo list(counts+attention+scope) · nav counts ── */
+const FAILED_STATES = ['failed','error'];
+function railCounts(){
+  // repoId → { active, attn } — /api/fleet active runs 를 client-side 로 그룹
+  const m = new Map();
+  for (const r of runs.values()){
+    const t = tasks.get(r.taskId); if (!t) continue;
+    const rec = m.get(t.repoId) || { active:0, attn:false };
+    rec.active++;
+    if (FAILED_STATES.includes(r.status)) rec.attn = true;
+    m.set(t.repoId, rec);
+  }
+  return m;
+}
+function renderRail(){
+  // machine switcher — 첫 online 머신(없으면 첫 머신) 을 표시, 선택은 #repoMachine 이 보관
+  const cur = $('repoMachine').value || (machines[0] && machines[0].slug) || 'local';
+  const cm = machines.find(x=>x.slug===cur) || machines[0];
+  $('machineLbl').textContent = cm ? cm.slug : 'local';
+  $('machineDot').classList.toggle('on', !!(cm && cm.online));
+  $('machineMenu').innerHTML = machines.map(m=>
+    '<div class="mopt'+(m.slug===cur?' on':'')+'" data-m="'+escA(m.slug)+'">'
+    + '<span class="mdot2'+(m.online?' on':'')+'"></span>'+esc(m.slug)+'</div>').join('')
+    || '<div class="mopt">no machines</div>';
+  // repo list
+  const cnt = railCounts();
+  let html = '';
+  if (repos.length){
+    html += '<button type="button" class="repo'+(selectedRepo==null?' on':'')+'" data-repo="all">'
+      + ic('layers')+'<span class="nm">All repositories</span></button>';
+    for (const r of repos){
+      const c = cnt.get(r.id) || { active:0, attn:false };
+      const on = selectedRepo===r.id;
+      html += '<button type="button" class="repo'+(on?' on':'')+'" data-repo="'+r.id+'" title="'+escA(r.path||r.name)+'">'
+        + ic('folder')+'<span class="nm">'+esc(r.name)+'</span>'
+        + (c.attn ? '<span class="attn" title="a run needs a hand"></span>' : '')
+        + (c.active>0 ? '<span class="cnt">'+c.active+'</span>' : '')
+        + '<span class="rowmenu">'
+        +   '<button type="button" class="rmbtn" data-rbranch="'+r.id+'" title="base branch">'+ic('branch')+'</button>'
+        +   '<button type="button" class="rmbtn" data-rremove="'+r.id+'" title="remove">'+ic('x')+'</button>'
+        + '</span></button>';
+    }
+  } else {
+    // empty state — 첫 repo 추가 CTA
+    html += '<div style="padding:10px 6px;font-size:12px;color:var(--faint);line-height:1.6">'
+      + 'No repositories yet.<br><b style="color:var(--brand)">Add your first repository</b> to start.</div>';
+  }
+  $('repoList').innerHTML = html;
+  paintNavCounts();
+  paintBoardHint();
+}
+// 스코프 설정 — 레일 repo 클릭
+function setScope(repoId){
+  selectedRepo = repoId;
+  try { if (repoId==null) localStorage.removeItem('coxpit.repo'); else localStorage.setItem('coxpit.repo', String(repoId)); } catch {}
+  if (repoId!=null) $('taskRepo').value = String(repoId), syncSelect('taskRepo');
+  renderRail();
+  if (boardView!=='archive') render();
+  else { paintArchRepos(); $('archRepo').value = repoId!=null ? String(repoId) : ''; syncSelect('archRepo'); archFetch(true); }
+}
+$('repoList').addEventListener('click', (e)=>{
+  const br = e.target.closest('button[data-rbranch]');
+  if (br){ e.stopPropagation(); openBranchFor(Number(br.dataset.rbranch)); return; }
+  const rm = e.target.closest('button[data-rremove]');
+  if (rm){ e.stopPropagation(); removeRepoById(Number(rm.dataset.rremove)); return; }
+  const row = e.target.closest('.repo[data-repo]'); if(!row) return;
+  setScope(row.dataset.repo==='all' ? null : Number(row.dataset.repo));
+});
 $('captures').addEventListener('click', async (e)=>{
   const b = e.target.closest('button[data-delcap]'); if(!b) return;
   await fetch('/api/design/'+b.dataset.delcap,{method:'DELETE'});
   hydrate();
 });
-$('repoRemove').addEventListener('click', async ()=>{
-  const rid = $('taskRepo').value;
+async function removeRepoById(rid){
   if (!rid){ toast('no repository selected', 'error'); return; }
   const yes = await confirmUI('Remove the selected repository from coxpit?',
     { sub: 'The repo itself is untouched — only the registration is removed. Refused while it has open tasks.', danger: true, okLabel: 'Remove' });
   if (!yes) return;
   const res = await fetch('/api/repos/'+rid,{method:'DELETE'});
   const j = await res.json().catch(()=>({}));
-  if (res.ok){ toast('repo removed', 'ok'); hydrate(); }
+  if (res.ok){ if (selectedRepo===Number(rid)) setScope(null); toast('repo removed', 'ok'); hydrate(); }
   else toast('remove: '+(j.detail||res.status), 'error');
-});
+}
+$('repoRemove').addEventListener('click', ()=>removeRepoById($('taskRepo').value));
 /* ── 기본 브랜치 변경 ── */
-$('repoBranch').addEventListener('click', ()=>{
-  const rid = $('taskRepo').value;
+let brRepoId = null;
+function openBranchFor(rid){
   if (!rid){ toast('no repository selected', 'error'); return; }
+  brRepoId = rid;
   const repo = repos.find(r=>String(r.id)===String(rid));
   $('brInput').value = repo ? repo.defaultBranch : '';
   $('brOverlay').classList.add('open'); $('brInput').focus();
-});
+}
+$('repoBranch').addEventListener('click', ()=>openBranchFor($('taskRepo').value));
 $('brCancel').addEventListener('click', ()=>$('brOverlay').classList.remove('open'));
 $('brOverlay').addEventListener('click',(e)=>{ if(e.target===$('brOverlay')) $('brOverlay').classList.remove('open'); });
 async function brSave(){
-  const rid = $('taskRepo').value; const branch = $('brInput').value.trim();
+  const rid = brRepoId; const branch = $('brInput').value.trim();
   if (!rid || !branch) return;
   const res = await fetch('/api/repos/'+rid,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({defaultBranch:branch})});
   const j = await res.json().catch(()=>({}));
@@ -2729,7 +2944,7 @@ async function submitGoal(){
     const res = await fetch('/api/plan',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({repoId, goal, real})});
     const j = await res.json().catch(()=>({}));
-    if (res.ok){ toast(j.tasks.length+' task(s) planned & launched', 'ok'); $('planGoal').value=''; hydrate(); }
+    if (res.ok){ toast(j.tasks.length+' task(s) planned & launched', 'ok'); $('planGoal').value=''; closeLaunch(); hydrate(); }
     else toast('plan: '+(j.detail||j.error||res.status), 'error');
   } finally { btn.disabled = false; btn.textContent = L_LABEL[lTab]; }
 }
@@ -2743,6 +2958,7 @@ async function submitBench(){
   if (!res.ok){ toast('workbench: '+(j.detail||j.error||res.status), 'error'); return; }
   toast('workbench open — terminal attached', 'ok');
   $('benchTitle').value='';
+  closeLaunch();
   await hydrate();
   openTerm(j.runId);   // 바로 터미널로
 }
@@ -2782,6 +2998,7 @@ $('taskForm').addEventListener('submit', async (e)=>{
     body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked, agent: selAgent, model})});
   if (model) rememberModel(model);
   $('taskTitle').value=''; $('taskPrompt').value=''; clearOutputs();
+  closeLaunch();
 });
 /* ── deliverable 계약 칩 — 선택된 타입 배열을 tasks.outputs 로 보낸다(기본=빈=오늘의 동작) ── */
 const OUTPUT_ORDER = ['answer','code','doc','page','file'];
@@ -3068,6 +3285,41 @@ const asideEl = document.querySelector('aside');
 function setDrawer(on){ asideEl.classList.toggle('open', on); $('scrim').classList.toggle('on', on); }
 $('menuBtn').addEventListener('click', ()=>setDrawer(!asideEl.classList.contains('open')));
 $('scrim').addEventListener('click', ()=>setDrawer(false));
+
+/* ── v5.0 rail interactions — machine switcher · New launcher · Add repository ── */
+function openLaunch(){
+  const r = repos.find(x=>x.id===selectedRepo);
+  $('launchRepoLbl').textContent = r ? ('· '+r.name) : (repos.length ? '· all repositories' : '· register a repo first');
+  $('launchOverlay').classList.add('open');
+  setDrawer(false);
+}
+function closeLaunch(){ $('launchOverlay').classList.remove('open'); }
+$('newBtn').addEventListener('click', openLaunch);
+$('launchClose').addEventListener('click', closeLaunch);
+$('launchOverlay').addEventListener('click', (e)=>{ if(e.target===$('launchOverlay')) closeLaunch(); });
+// Add repository — 기존 Browse 피커(New-folder/Path 내장)를 연다
+$('repoAdd').addEventListener('click', ()=>{ openLaunch(); $('repoBrowse').click(); });
+// machine switcher — 컴팩트 버튼 + 메뉴(기존 #repoMachine 이 선택 상태 보관)
+function positionMachineMenu(){
+  const b = $('machineSwitch').getBoundingClientRect();
+  const mm = $('machineMenu');
+  mm.style.left = b.left + 'px';
+  mm.style.top = (b.bottom + 4) + 'px';
+}
+$('machineSwitch').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  const mm = $('machineMenu');
+  const was = mm.classList.contains('open');
+  closeDropdowns(); mm.classList.remove('open');
+  if (!was){ positionMachineMenu(); mm.classList.add('open'); }
+});
+$('machineMenu').addEventListener('click', (e)=>{
+  const o = e.target.closest('.mopt[data-m]'); if(!o) return;
+  $('repoMachine').value = o.dataset.m; syncSelect('repoMachine');
+  $('machineMenu').classList.remove('open');
+  renderRail();
+});
+document.addEventListener('click', ()=>$('machineMenu').classList.remove('open'));
 
 /* 딥링크 — /?run=N 이면 하이드레이션 후 그 run 모달을 연다 (웹훅 링크·알림용) */
 function openFromURL(){

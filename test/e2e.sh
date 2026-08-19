@@ -67,9 +67,23 @@ case "$BOARD_HTML" in *'id="repoBranch"'*) : ;; *) fail "base branch button miss
 case "$BOARD_HTML" in *'card.closed .log::before'*) : ;; *) fail "closed-card hatching missing";; esac
 case "$BOARD_HTML" in *'gband-h'*) : ;; *) fail "group band markup missing";; esac
 case "$BOARD_HTML" in *'attemptHTML'*) : ;; *) fail "attempt counter missing";; esac
-case "$BOARD_HTML" in *'id="viewSeg"'*) : ;; *) fail "active/archive view seg missing";; esac
 case "$BOARD_HTML" in *'arch-row'*) : ;; *) fail "archive row styles missing";; esac
 pass "board served (v4.1..v4.3 UI assets present)"
+
+# v5.0 Part A — navigator rail (machine switcher · repo list · view nav · New)
+case "$BOARD_HTML" in *'id="repoList"'*) : ;; *) fail "rail repo list (#repoList) missing";; esac
+case "$BOARD_HTML" in *'id="viewNav"'*) : ;; *) fail "rail view nav (#viewNav) missing";; esac
+case "$BOARD_HTML" in *'id="newBtn"'*) : ;; *) fail "rail New button (#newBtn) missing";; esac
+case "$BOARD_HTML" in *'class="machine"'*) : ;; *) fail "rail machine switcher (.machine) missing";; esac
+case "$BOARD_HTML" in *'data-view="active"'*) : ;; *) fail "view nav Active entry missing";; esac
+case "$BOARD_HTML" in *'data-view="goals"'*) : ;; *) fail "view nav Goals entry missing";; esac
+case "$BOARD_HTML" in *'data-view="archive"'*) : ;; *) fail "view nav Archive entry missing";; esac
+case "$BOARD_HTML" in *'id="repoAdd"'*) : ;; *) fail "rail Add-repository button (#repoAdd) missing";; esac
+case "$BOARD_HTML" in *'function renderRail'*) : ;; *) fail "rail render (renderRail) missing";; esac
+case "$BOARD_HTML" in *'function setScope'*) : ;; *) fail "repo scoping (setScope) missing";; esac
+# view nav moved OUT of the header — the old #viewSeg must be gone
+case "$BOARD_HTML" in *'id="viewSeg"'*) fail "old header view seg (#viewSeg) still present — should move to #viewNav";; *) : ;; esac
+pass "board serves v5.0 navigator rail (#repoList + #viewNav Active/Goals/Archive + #newBtn + .machine; #viewSeg gone)"
 
 # v4.4 — greenfield launcher affordances present in the board (UI contract)
 case "$BOARD_HTML" in *'id="npOverlay"'*) : ;; *) fail "greenfield new-project overlay missing";; esac
@@ -113,6 +127,27 @@ case "$BOARD_HTML" in *'.ic{width:1em'*) : ;; *) fail ".ic CSS (currentColor str
 # replaced system emoji must be gone from the served board (spot-check a couple)
 case "$BOARD_HTML" in *'🔗'*|*'♻'*|*'🔕'*|*'◆ 리뷰'*) fail "replaced emoji still present in served board";; *) : ;; esac
 pass "board inlines Lucide sprite + .ic usage; replaced emoji gone"
+
+# v5.0 — rail icons (server/layers/target/archive) added to the sprite
+case "$BOARD_HTML" in *'id="i-server"'*) : ;; *) fail "icon sprite: #i-server (machine switcher) missing";; esac
+case "$BOARD_HTML" in *'id="i-layers"'*) : ;; *) fail "icon sprite: #i-layers (Active) missing";; esac
+case "$BOARD_HTML" in *'id="i-target"'*) : ;; *) fail "icon sprite: #i-target (Goals) missing";; esac
+case "$BOARD_HTML" in *'id="i-archive"'*) : ;; *) fail "icon sprite: #i-archive (Archive) missing";; esac
+pass "board sprite carries v5.0 rail icons (server/layers/target/archive)"
+
+# v5.0 — the served board's inline client JS parses (SyntaxError in the giant template literal blanks the board)
+BHFILE="$WORK/board.html"
+printf '%s' "$BOARD_HTML" > "$BHFILE"
+node -e '
+  const fs=require("fs");
+  const html=fs.readFileSync(process.argv[1],"utf8");
+  const m=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(x=>x[1]);
+  const js=m[m.length-1];
+  if(!js||js.length<1000){console.error("client script extract failed");process.exit(2);}
+  fs.writeFileSync(process.argv[2],js);
+' "$BHFILE" "$WORK/board-client.js" || fail "could not extract board client script"
+node --check "$WORK/board-client.js" || fail "board client JS has a syntax error (board would blank)"
+pass "served board client JS parses (node --check)"
 
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
