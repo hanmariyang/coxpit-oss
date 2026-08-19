@@ -12,6 +12,7 @@ file-level changes, UI classes, edge cases, e2e additions, and a definition of d
 | [v4.4-greenfield.md](v4.4-greenfield.md) | v4.4 | start-a-new-project (git init + empty base → fleet scaffolds) · commitless-repo floor (backlog B1) · ANSI model strip (backlog B2) | spec ready |
 | [v4.5-remote-access.md](v4.5-remote-access.md) | v4.5 | detect Tailscale → one-click Serve/Funnel + URL · recipes for Cloudflare/proxy | shipped |
 | [v4.6-goal-workroom.md](v4.6-goal-workroom.md) | v4.6 | a room per Goal — aggregate sibling runs · spawn attempts · broadcast steer (settled) · converge · read-only Ask coordinator | shipped |
+| [v4.7-deliverables-workroom.md](v4.7-deliverables-workroom.md) | v4.7 | deliverable contract + output cards (real per-type viewers) · converge cockpit (per-run review/fix/merge/close) | spec ready |
 
 Sequencing: **4.1 → 4.2 → 4.3 were one release each.** **4.4 + 4.5 ship together
 as a single tag (4.5.0)** — develop each as its own e2e-green commit on main, then
