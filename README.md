@@ -25,6 +25,7 @@ Your machines. Your auth. Your code never leaves your network.
 - **Start a new project** — point coxpit at an empty (or missing) folder and it runs `git init` + an empty initial commit as the base, then a fleet of agents scaffolds the project in parallel — compare the foundations, merge the one you like onto an empty `main`. Populated folders are never touched.
 - **Share a run** — one click mints a read-only snapshot link (timeline + diff, and the rendered docs, no auth, no actions). Show your fleet's work without opening your cockpit.
 - **The library** — a run's changed documents (Markdown/HTML) are snapshotted when it settles, so the Rendered view survives merge and Close task. Pick a model per launch (any name your CLI accepts), and a close guard warns before it deletes unmerged, unexported output.
+- **Remote access** — one-click Tailscale Serve puts the board on a private `https://<machine>.<tailnet>.ts.net` name (tailnet-only, HTTPS, no port); Funnel (public) is a guarded toggle that refuses to run without a password. No Tailscale? Copy-paste a Cloudflare Tunnel or Caddy reverse-proxy recipe with your port pre-filled. coxpit detects and drives your own tool — it never hosts a relay or bundles tailscale/cloudflared.
 
 External tools are spawned, never vendored: `git`, `tmux`, your agent CLI. No editor bundled — terminal-first.
 

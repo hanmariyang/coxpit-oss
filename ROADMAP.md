@@ -126,14 +126,14 @@ Today every URL is an IP:port. Make reaching the daemon from elsewhere easy
 *without* coxpit running a relay — always the user's own Tailscale/Cloudflare.
 Guardrail: coxpit never hosts a tunnel; it detects the tool and drives it.
 
-- [ ] Onboarding "Remote access" card: detect Tailscale; one-click **Serve**
+- [x] Onboarding "Remote access" card: detect Tailscale; one-click **Serve**
       (`https://<machine>.<tailnet>.ts.net`, tailnet-only, HTTPS, no port — safe
       by default), show + copy the URL
-- [ ] **Funnel** (public) behind an explicit toggle + a warning that it exposes
+- [x] **Funnel** (public) behind an explicit toggle + a warning that it exposes
       shells, so basic auth must be on
-- [ ] Copy-paste recipes for non-Tailscale users (Cloudflare Tunnel, Caddy
+- [x] Copy-paste recipes for non-Tailscale users (Cloudflare Tunnel, Caddy
       reverse proxy) with the daemon's port pre-filled — guidance, not magic
-- [ ] The limit is honest: coxpit can hand you a `*.ts.net` name easily; a
+- [x] The limit is honest: coxpit can hand you a `*.ts.net` name easily; a
       *custom* domain (`coxpit.yourbrand.com`) stays a Cloudflare/proxy recipe
 
 **URL shapes by method** (examples):

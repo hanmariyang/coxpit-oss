@@ -77,6 +77,12 @@ case "$BOARD_HTML" in *'id="npOverlay"'*) : ;; *) fail "greenfield new-project o
 case "$BOARD_HTML" in *'id="repoNew"'*) : ;; *) fail "greenfield New button missing";; esac
 pass "board serves greenfield New button + npOverlay"
 
+# v4.5 — remote access card assets present (UI contract) + recipe port interpolation
+case "$BOARD_HTML" in *'id="remoteOverlay"'*) : ;; *) fail "remote access overlay missing";; esac
+case "$BOARD_HTML" in *'id="remoteBtn"'*) : ;; *) fail "remote access header button missing";; esac
+case "$BOARD_HTML" in *'reverse_proxy 127.0.0.1:'*) : ;; *) fail "caddy recipe port interpolation missing";; esac
+pass "board serves remote access card (#remoteOverlay + recipe port)"
+
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
 pass "local machine probe ready"

@@ -241,6 +241,52 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .setup-steps li{margin-bottom:7px}
   .setup-steps b{color:var(--ink)}
 
+  /* ── remote access card (v4.5) ──────────── */
+  .rmt{font-size:13px;color:var(--muted)}
+  .rmt-line{margin:2px 0 10px;line-height:1.55}
+  .rmt-name{font-family:var(--mono);font-size:12px;color:var(--ink);background:#0e1118;
+    border:1px solid var(--line);border-radius:6px;padding:2px 7px;word-break:break-all}
+  .rmt-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+  .rmt-row .rmt-l{flex:1;min-width:0}
+  .rmt-row .rmt-t{color:var(--ink);font-weight:600;font-size:13px}
+  .rmt-row .rmt-d{color:var(--faint);font-size:11.5px;margin-top:2px}
+  .rmt-row.risky .rmt-t{color:var(--s-failed)}
+  .rmt-url{display:flex;align-items:center;gap:7px;margin:6px 0 2px}
+  .rmt-url code{flex:1;min-width:0;font-family:var(--mono);font-size:11.5px;color:var(--brand);
+    background:#0e1118;border:1px solid var(--line);border-radius:6px;padding:5px 8px;
+    overflow-x:auto;white-space:nowrap}
+  .rmt-warn{color:var(--s-failed);font-size:11.5px;margin:5px 0 2px;line-height:1.5}
+  .rmt-note{color:var(--faint);font-size:11.5px;margin:4px 0 2px;line-height:1.5}
+  /* toggle switch — quiet until on (brand) or risky (red) */
+  .tgl{position:relative;width:38px;height:22px;flex:none;background:var(--surface2);
+    border:1px solid var(--line);border-radius:999px;cursor:pointer;transition:background .15s,border-color .15s}
+  .tgl::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+    background:var(--muted);transition:transform .15s,background .15s}
+  .tgl.on{background:var(--brand-dim);border-color:var(--brand)}
+  .tgl.on::after{transform:translateX(16px);background:var(--brand)}
+  .tgl.risky.on{background:rgba(226,91,103,.16);border-color:var(--s-failed)}
+  .tgl.risky.on::after{background:var(--s-failed)}
+  .tgl[aria-disabled="true"]{opacity:.4;cursor:not-allowed}
+  .rmt-cp{font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--surface2);
+    border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer;flex:none}
+  .rmt-cp:hover{color:var(--ink);border-color:var(--line-hi)}
+  /* collapsible recipes / url table */
+  .rmt-more{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+  .rmt-more summary{cursor:pointer;font-size:12.5px;color:var(--muted);list-style:none;user-select:none}
+  .rmt-more summary::-webkit-details-marker{display:none}
+  .rmt-more summary::before{content:'▸ ';color:var(--faint)}
+  .rmt-more[open] summary::before{content:'▾ '}
+  .rmt-more pre{margin:8px 0 4px;padding:10px 12px;background:#0e1118;border:1px solid var(--line);
+    border-radius:8px;font-family:var(--mono);font-size:11px;color:var(--muted);overflow-x:auto;white-space:pre}
+  .rmt-cap{color:var(--faint);font-size:11px;margin:2px 0 10px;line-height:1.5}
+  .rmt-tbl{width:100%;border-collapse:collapse;margin:8px 0 2px;font-size:11.5px}
+  .rmt-tbl th,.rmt-tbl td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);
+    color:var(--muted);vertical-align:top}
+  .rmt-tbl th{color:var(--faint);font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.1em}
+  .rmt-tbl code{font-family:var(--mono);font-size:10.5px;color:var(--brand);white-space:nowrap}
+  .rmt-tbl .star{color:var(--brand)}
+  /* header 🔗 affordance shares the ghost-button look */
+
   /* ── toasts ─────────────────────────────── */
   .toasts{position:fixed;top:66px;right:18px;z-index:60;display:flex;flex-direction:column;gap:8px;
     max-width:380px}
@@ -405,6 +451,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   </div>
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles">🔕</button>
+  <button class="btn-ghost sm" id="remoteBtn" title="reach this daemon from elsewhere (Tailscale · recipes)">🔗</button>
   <div class="machines" id="machines"></div>
 </header>
 <div class="scrim" id="scrim"></div>
@@ -636,6 +683,19 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="overlay" id="remoteOverlay">
+  <div class="cfm" style="width:min(560px,94vw)">
+    <div class="cfm-b">
+      <div class="m">Remote access</div>
+      <div class="s">Reach this daemon from your other devices — coxpit detects your Tailscale and drives it, or hands a copy-paste recipe. It never hosts a relay.</div>
+      <div id="remoteBody" class="rmt" style="margin-top:14px">loading…</div>
+    </div>
+    <div class="cfm-f">
+      <button class="btn-ghost sm" id="remoteClose">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="brOverlay">
   <div class="cfm">
     <div class="cfm-b">
@@ -684,6 +744,8 @@ const runs = new Map();      // runId -> run object
 const tasks = new Map();     // taskId -> task
 const groups = new Map();    // groupId -> {id, kind, title}
 let repos = [], machines = [], captures = [];
+let daemonPort = 8210;    // real config.port — filled from /api/fleet daemon block (recipes interpolate it)
+let remoteAuthOpen = false; // true = no password → Funnel guard on (from /api/fleet daemon.authOpen)
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -1059,7 +1121,11 @@ function paintOnboarding(){
     + '<li><b>Register a repo</b> — absolute path, in the left sidebar</li>'
     + '<li><b>Write a task</b> — title + a prompt that names the target files</li>'
     + '<li><b>Run fleet</b> — try <b>Dry run</b> first (free rehearsal), then <b>Real agent</b></li>'
-    + '</ol></div></div>';
+    + '</ol></div>'
+    + '<div class="setup-sec"><p class="setup-label">Remote access</p>'
+    + '<div id="rmtOnboard" class="rmt">checking Tailscale…</div></div>'
+    + '</div>';
+  loadRemote();
 }
 function cardHTML(r){
   const task = tasks.get(r.taskId);
@@ -1106,6 +1172,8 @@ async function hydrate(){
   (r.runs||[]).forEach(rn => runs.set(rn.id, { ...rn, events: rn.events||[] }));
   if (r.daemon) {
     const d = r.daemon;
+    if (d.port) daemonPort = d.port;
+    remoteAuthOpen = !!d.authOpen;
     const db = String(d.dbPath||'').replace(/^\\/(?:Users|home)\\/[^/]+/, '~');
     const el = $('daemonBadge');
     el.innerHTML = 'daemon <b>v'+esc(String(d.version||'?'))+'</b> · :'+esc(String(d.port||'?'));
@@ -1428,7 +1496,7 @@ $('grid').addEventListener('click',(e)=>{
 });
 $('mClose').addEventListener('click', closeModal);
 $('overlay').addEventListener('click',(e)=>{ if(e.target===$('overlay')) closeModal(); });
-document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); $('npOverlay').classList.remove('open'); $('brOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ closeDropdowns(); cfmClose(false); $('brwOverlay').classList.remove('open'); $('expOverlay').classList.remove('open'); $('ghOverlay').classList.remove('open'); $('npOverlay').classList.remove('open'); $('brOverlay').classList.remove('open'); $('remoteOverlay').classList.remove('open'); closeTerm(); closeModal(); cmpTaskId=null; $('cmpOverlay').classList.remove('open'); } });
 $('mRefreshDiff').addEventListener('click', loadDiff);
 $('mExport').addEventListener('click', ()=>{
   if (openRunId==null) return;
@@ -1955,6 +2023,156 @@ $('mShare').addEventListener('click', async ()=>{
   try{ await navigator.clipboard.writeText(url); copied = true; }catch{}
   toast((j.existing?'share link (existing)':'share link created')+(copied?' — copied':'')+': '+url, 'ok');
 });
+
+/* ── remote access (v4.5) — detect Tailscale, drive Serve/Funnel, or hand a recipe.
+   coxpit never hosts a relay: it detects and drives the user's own tool. ── */
+let remoteData = null, remoteBusy = false;
+
+// clipboard write with a synchronous execCommand fallback (clipboard API alone is
+// unreliable outside secure/focused contexts — mirrors the terminal copy helper).
+function copyText(text){
+  let ok = false;
+  try{ if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text); ok = true; } }catch{}
+  try{
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.top='-1000px';
+    document.body.appendChild(ta); ta.select();
+    if (document.execCommand('copy')) ok = true;
+    document.body.removeChild(ta);
+  }catch{}
+  return ok;
+}
+
+// recipe text with the daemon's REAL port interpolated (guidance, not magic).
+function cfRecipe(){
+  return 'cloudflared tunnel --url http://localhost:'+daemonPort+'\\n'
+    + '# or a named tunnel + Cloudflare Access policy (recommended — exposes shells)';
+}
+function caddyRecipe(){
+  return 'coxpit.example.com {\\n  reverse_proxy 127.0.0.1:'+daemonPort+'\\n}';
+}
+function urlTableHTML(){
+  const rows = [
+    ['local', 'http://127.0.0.1:'+daemonPort, 'same machine'],
+    ['LAN', 'http://192.168.x.y:'+daemonPort, 'home network'],
+    ['Tailscale IP', 'http://100.x.y.z:'+daemonPort, 'your tailnet'],
+    ['MagicDNS', 'http://&lt;machine&gt;.&lt;tailnet&gt;.ts.net:'+daemonPort, 'your tailnet'],
+    ['Serve ⭐', 'https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net', 'your tailnet · HTTPS'],
+    ['Funnel', 'https://&lt;machine&gt;.&lt;tailnet&gt;.ts.net', 'public internet'],
+    ['Cloudflare', 'https://coxpit.yourdomain.com', 'public (+ CF Access)'],
+    ['reverse proxy', 'https://coxpit.yourdomain.com', 'public'],
+  ];
+  let body = '';
+  for (const row of rows){
+    const star = row[0].indexOf('⭐') >= 0 ? ' class="star"' : '';
+    body += '<tr'+star+'><td>'+esc(row[0])+'</td><td><code>'+row[1]+'</code></td><td>'+esc(row[2])+'</td></tr>';
+  }
+  return '<table class="rmt-tbl"><tr><th>method</th><th>url shape</th><th>who reaches it</th></tr>'+body+'</table>'
+    + '<div class="rmt-cap">coxpit hands you a <code style="color:var(--brand)">*.ts.net</code> name in one click; a <b>custom</b> domain stays a Cloudflare/proxy recipe.</div>';
+}
+function recipesHTML(){
+  return '<details class="rmt-more"><summary>Recipes — Cloudflare Tunnel &amp; reverse proxy</summary>'
+    + '<pre>'+esc(cfRecipe())+'</pre>'
+    + '<div class="rmt-cap">public = shells exposed; keep coxpit auth on.</div>'
+    + '<pre>'+esc(caddyRecipe())+'</pre>'
+    + '<div class="rmt-cap">public = shells exposed; keep coxpit auth on.</div>'
+    + '</details>';
+}
+
+// authOpen: no password set → Funnel would expose shells to the internet.
+function remoteCardHTML(rd){
+  if (!rd) return '<div class="rmt-line">checking Tailscale…</div>' + recipesHTML();
+  const authOpen = !!rd.authOpen;
+  let h = '';
+  if (rd.tailscale === 'missing'){
+    h += '<div class="rmt-line">Install Tailscale to reach this daemon by name from your other devices — or use a reverse-proxy recipe below. '
+      + '<a href="https://tailscale.com/download" target="_blank" rel="noopener" style="color:var(--brand)">tailscale.com/download</a></div>';
+  } else if (rd.tailscale === 'stopped'){
+    h += '<div class="rmt-line">Tailscale is installed but not running. Start it, then <a href="#" id="rmtRefresh" style="color:var(--brand)">refresh</a>.</div>';
+  } else {
+    // running
+    h += '<div class="rmt-line">This machine on your tailnet: <span class="rmt-name">'+esc(rd.dnsName||'')+'</span></div>';
+    const serveUrl = 'https://'+(rd.dnsName||'');
+    // Serve row (safe default)
+    h += '<div class="rmt-row"><div class="rmt-l"><div class="rmt-t">Serve</div>'
+      + '<div class="rmt-d">your tailnet only · HTTPS · no port</div></div>'
+      + '<div class="tgl'+(rd.serve?' on':'')+'" id="rmtServe" role="switch" aria-checked="'+(rd.serve?'true':'false')+'"></div></div>';
+    if (rd.serve){
+      h += '<div class="rmt-url"><code>'+esc(serveUrl)+'</code>'
+        + '<button class="rmt-cp" data-copy="'+escA(serveUrl)+'">Copy</button></div>';
+    }
+    // Funnel row (risky)
+    h += '<div class="rmt-row risky"><div class="rmt-l"><div class="rmt-t">Funnel · Public internet</div>'
+      + '<div class="rmt-d">'+(authOpen?'set COXPIT_AUTH_PASS first — Funnel exposes shells':'anyone with the URL can reach this — auth is your only gate')+'</div></div>'
+      + '<div class="tgl risky'+(rd.funnel?' on':'')+'" id="rmtFunnel" role="switch" aria-checked="'+(rd.funnel?'true':'false')+'"'+(authOpen?' aria-disabled="true"':'')+'></div></div>';
+    if (rd.funnel){
+      h += '<div class="rmt-url"><code>'+esc(serveUrl)+'</code>'
+        + '<button class="rmt-cp" data-copy="'+escA(serveUrl)+'">Copy</button></div>';
+      h += '<div class="rmt-warn">anyone with the URL can reach this — auth is your only gate.</div>';
+    }
+  }
+  h += recipesHTML();
+  h += '<details class="rmt-more"><summary>how URLs differ</summary>'+urlTableHTML()+'</details>';
+  return h;
+}
+
+async function loadRemote(){
+  // /api/remote stays a pure RemoteState; the auth-open flag comes from /api/fleet
+  // (remoteAuthOpen) so the Funnel toggle can disable itself before any POST.
+  try{
+    const rd = await fetch('/api/remote').then(x=>x.json());
+    remoteData = rd; remoteData.authOpen = remoteAuthOpen;
+    paintRemote();
+  }catch{ remoteData = { tailscale:'missing', serve:false, funnel:false, authOpen: remoteAuthOpen }; paintRemote(); }
+}
+
+function paintRemote(){
+  const html = remoteCardHTML(remoteData);
+  const ov = $('remoteBody'); if (ov) ov.innerHTML = html;
+  const ob = $('rmtOnboard'); if (ob) ob.innerHTML = html;
+  wireRemote($('remoteOverlay'));
+  wireRemote(document.getElementById('empty'));
+}
+
+function wireRemote(scope){
+  if (!scope) return;
+  scope.querySelectorAll('[data-copy]').forEach(b=>{
+    if (b.dataset.wired) return; b.dataset.wired='1';
+    b.addEventListener('click', ()=>{
+      const ok = copyText(b.getAttribute('data-copy')||'');
+      toast(ok?'URL copied':'copy failed — select it manually', ok?'ok':'error');
+    });
+  });
+  const rf = scope.querySelector('#rmtRefresh');
+  if (rf && !rf.dataset.wired){ rf.dataset.wired='1'; rf.addEventListener('click',(e)=>{ e.preventDefault(); loadRemote(); }); }
+  const sv = scope.querySelector('#rmtServe');
+  if (sv && !sv.dataset.wired){ sv.dataset.wired='1'; sv.addEventListener('click', ()=>toggleRemote('serve', !(remoteData&&remoteData.serve))); }
+  const fn = scope.querySelector('#rmtFunnel');
+  if (fn && !fn.dataset.wired){ fn.dataset.wired='1'; fn.addEventListener('click', ()=>{
+    if (fn.getAttribute('aria-disabled')==='true'){ toast('set COXPIT_AUTH_PASS first — Funnel exposes shells', 'error'); return; }
+    toggleRemote('funnel', !(remoteData&&remoteData.funnel));
+  }); }
+}
+
+async function toggleRemote(which, on){
+  if (remoteBusy) return; remoteBusy = true;
+  try{
+    const res = await fetch('/api/remote/'+which,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({on})});
+    const j = await res.json().catch(()=>({}));
+    if (!res.ok){
+      if (j.code==='NO_AUTH'){ remoteAuthOpen = true; if (remoteData) remoteData.authOpen = true; paintRemote(); toast('set COXPIT_AUTH_PASS first — Funnel exposes shells', 'error'); }
+      else toast(which+': '+(j.error||res.status), 'error');
+      return;
+    }
+    remoteData = j; remoteData.authOpen = remoteAuthOpen;
+    paintRemote();
+    toast(which+(on?' on':' off'), 'ok');
+  } finally { remoteBusy = false; }
+}
+
+$('remoteBtn').addEventListener('click', ()=>{ $('remoteOverlay').classList.add('open'); loadRemote(); });
+$('remoteClose').addEventListener('click', ()=>$('remoteOverlay').classList.remove('open'));
+$('remoteOverlay').addEventListener('click',(e)=>{ if(e.target===$('remoteOverlay')) $('remoteOverlay').classList.remove('open'); });
 
 /* ── mobile drawer ── */
 const asideEl = document.querySelector('aside');
