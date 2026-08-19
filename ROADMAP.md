@@ -117,6 +117,41 @@ is separation, not scrolling.
 - [x] Closed = archived immediately (design supersedes the earlier N-day timer —
       simpler, and v4.1 hatching already covers the "just closed" glance)
 
+### v4.4 — remote access *(candidate · ideation)*
+Today every URL is an IP:port. Make reaching the daemon from elsewhere easy
+*without* coxpit running a relay — always the user's own Tailscale/Cloudflare.
+Guardrail: coxpit never hosts a tunnel; it detects the tool and drives it.
+
+- [ ] Onboarding "Remote access" card: detect Tailscale; one-click **Serve**
+      (`https://<machine>.<tailnet>.ts.net`, tailnet-only, HTTPS, no port — safe
+      by default), show + copy the URL
+- [ ] **Funnel** (public) behind an explicit toggle + a warning that it exposes
+      shells, so basic auth must be on
+- [ ] Copy-paste recipes for non-Tailscale users (Cloudflare Tunnel, Caddy
+      reverse proxy) with the daemon's port pre-filled — guidance, not magic
+- [ ] The limit is honest: coxpit can hand you a `*.ts.net` name easily; a
+      *custom* domain (`coxpit.yourbrand.com`) stays a Cloudflare/proxy recipe
+
+**URL shapes by method** (examples):
+
+| method | URL example | who reaches it | custom name | TLS | setup |
+|---|---|---|---|---|---|
+| local | `http://127.0.0.1:8210` | same machine | ✕ | ✕ | none |
+| LAN | `http://192.168.0.12:8210` | home network | ✕ | ✕ | none |
+| Tailscale IP | `http://100.x.y.z:8210` | your tailnet | ✕ | ✕ | none |
+| Tailscale MagicDNS | `http://<machine>.<tailnet>.ts.net:8210` | your tailnet | machine name only | ✕ | none (already on) |
+| **Tailscale Serve** ⭐ | `https://<machine>.<tailnet>.ts.net` | your tailnet | machine name only | ✓ auto | one command |
+| Tailscale Funnel | `https://<machine>.<tailnet>.ts.net` | **public** | machine name only | ✓ auto | command + admin enable |
+| Cloudflare Tunnel | `https://coxpit.yourdomain.com` | public (+ CF Access) | ✓ full | ✓ | CF acct + domain + config |
+| reverse proxy (Caddy) | `https://coxpit.yourdomain.com` | public | ✓ full | ✓ auto | public IP + DNS + proxy |
+
+Notes: Tailscale names are fixed to `<machine>.<tailnet>.ts.net` (the machine
+part is renameable in the Tailscale admin; the tailnet suffix is not). Funnel is
+public with no Tailscale-side auth → the daemon's own basic auth is the gate;
+it only serves ports 443/8443/10000 on the `.ts.net` name and must be enabled in
+the tailnet admin. Serve has none of those limits. A truly custom domain is only
+reachable via Cloudflare/reverse-proxy (the user's own domain + account).
+
 ## Non-goals
 
 - Vendoring or wrapping agent CLIs — external tools stay external (`git`, `tmux`, the agent)
