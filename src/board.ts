@@ -178,6 +178,17 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .feed .fl .ft{color:var(--muted);word-break:break-word;flex:1}
   .feed .fl.mark .who{color:var(--brand)}
   .feed .empty-note{color:var(--faint)}
+  .conv{display:flex;flex-direction:column;gap:12px;padding:12px 18px;font-size:12.5px}
+  .conv .empty-note{color:var(--faint);font-family:var(--mono);font-size:11.5px}
+  .conv .turn{display:flex;flex-direction:column;gap:3px}
+  .conv .turn .role{font-family:var(--mono);font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+  .conv .turn.you .role{color:var(--muted)}
+  .conv .turn.coord .role{color:var(--brand)}
+  .conv .turn .msg{color:var(--ink);white-space:pre-wrap;word-break:break-word;line-height:1.55}
+  .conv .turn.you .msg{color:var(--muted)}
+  .conv .turn .ro-note{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.02em}
+  .send-only{display:flex;gap:8px;align-items:center}
+  .send-only .ro-hint{flex:1;font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.02em}
   .composer{border-top:1px solid var(--line);padding:12px 18px;display:flex;flex-direction:column;gap:8px}
   .composer .comp-seg{flex:0 0 auto}
   .composer .comp-hint{font-family:var(--mono);font-size:10.5px;color:var(--faint);letter-spacing:.02em}
@@ -639,9 +650,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     <div class="chips" id="roomChips"></div>
     <div class="body">
       <div class="feed" id="roomFeed"></div>
+      <div class="conv" id="roomConv" hidden></div>
     </div>
     <div class="composer">
-      <div class="seg comp-seg" id="roomSeg" role="group" aria-label="workroom mode" hidden>
+      <div class="seg comp-seg" id="roomSeg" role="group" aria-label="workroom mode">
         <button type="button" class="seg-opt on" data-rmode="work">✎ Work</button>
         <button type="button" class="seg-opt" data-rmode="ask">? Ask</button>
       </div>
@@ -658,6 +670,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
             <button type="button" id="roomIntegrate">Select runs to integrate</button>
           </div>
         </div>
+      </div>
+      <div class="send-only" id="roomSend" hidden>
+        <span class="ro-hint">read-only — switch to Work to act</span>
+        <button type="button" class="btn sm" id="roomAsk">Ask</button>
       </div>
     </div>
   </div>
@@ -1811,6 +1827,8 @@ let roomGroupId = null;               // 열려있는 그룹 id (null = 닫힘)
 const roomRunSet = new Set();         // 이 그룹에 속한 runId — WS 필터용
 let roomRuns = [];                    // 마지막 aggregate 의 runs (chips/scope hint)
 const roomExtra = [];                 // goal-level 마커(spawn/broadcast) — 피드에 섞음
+const roomTurns = [];                 // Ask 대화 턴 [{role:'you'|'coord', text}] — 읽기 전용
+let roomMode = 'work';                // 'work' | 'ask' — 방 composer 모드(스틸모드와 무관, 방 전용)
 /* run → 상태색 (chip / who) */
 function roomStatusColor(s){ return statusColor(s); }
 function roomChipHTML(r){
@@ -1849,6 +1867,21 @@ function roomRenderFeed(events){
     : '<div class="empty-note">no activity yet — spawn an attempt or wait for runs to report</div>';
   $('roomFeed').scrollTop = $('roomFeed').scrollHeight;
 }
+/* Ask 대화(읽기 전용) — you / coordinator 턴. 코디네이터 답 아래 read-only 노트. */
+function roomRenderConv(){
+  if (!roomTurns.length){
+    $('roomConv').innerHTML = '<div class="empty-note">read-only coordinator — ask what these attempts are doing. it never acts.</div>';
+    return;
+  }
+  $('roomConv').innerHTML = roomTurns.map(t=>{
+    const role = t.role==='you' ? 'you' : 'coordinator';
+    const note = t.role==='coord'
+      ? '<span class="ro-note">read-only — switch to Work to act</span>' : '';
+    return '<div class="turn '+t.role+'"><span class="role">'+esc(role)+'</span>'
+      + '<span class="msg">'+esc(t.text)+'</span>'+note+'</div>';
+  }).join('');
+  $('roomConv').scrollTop = $('roomConv').scrollHeight;
+}
 function roomRenderHeaderAndHint(){
   const g = groups.get(roomGroupId) || {};
   const done = roomRuns.filter(r=>['done','failed','stopped','merged'].includes(r.status)).length;
@@ -1856,18 +1889,44 @@ function roomRenderHeaderAndHint(){
   $('roomTitle').textContent = 'Goal: '+(g.title||'');
   $('roomCount').textContent = '· '+roomRuns.length+' run'+(roomRuns.length===1?'':'s')
     +' · '+done+' done · '+running+' running';
+  roomRenderHint();
+}
+/* Work=정직한 steer 스코프, Ask=읽기 전용 안내. 모드에 따라 힌트/뷰/composer 전환. */
+function roomRenderHint(){
+  if (roomMode==='ask'){
+    $('roomHint').textContent = 'read-only coordinator · reads run diffs, never acts';
+    return;
+  }
+  const running = roomRuns.filter(r=>r.live).length;
   const steerable = roomRuns.filter(r=>r.steerable).length;
   $('roomHint').textContent = steerable+' steerable now · '+running+' still running';
 }
+/* feed↔conv, verbs↔send-only 를 roomMode 로 스왑. */
+function roomApplyMode(){
+  const ask = roomMode==='ask';
+  $('roomFeed').hidden = ask;
+  $('roomConv').hidden = !ask;
+  $('roomVerbs').hidden = ask;
+  $('roomSend').hidden = !ask;
+  $('roomInput').placeholder = ask
+    ? 'Ask the coordinator about these attempts (read-only)…'
+    : 'New attempt prompt, or a broadcast to the settled runs…';
+  document.querySelectorAll('#roomSeg .seg-opt').forEach(x=>x.classList.toggle('on', x.dataset.rmode===roomMode));
+  roomRenderHint();
+  if (ask) roomRenderConv();
+}
 async function openRoom(groupId){
   roomGroupId = groupId;
-  roomExtra.length = 0; roomRunSet.clear(); roomRuns = [];
+  roomExtra.length = 0; roomRunSet.clear(); roomRuns = []; roomTurns.length = 0;
+  roomMode = 'work';
   $('roomInput').value = '';
   $('roomChips').innerHTML = '<span style="color:var(--faint);font-family:var(--mono);font-size:11.5px">loading…</span>';
   $('roomFeed').innerHTML = '';
+  $('roomConv').innerHTML = '';
   $('roomTitle').textContent = 'Goal';
   $('roomCount').textContent = '';
   $('roomHint').textContent = '';
+  roomApplyMode();
   $('groupRoomOverlay').classList.add('open');
   await roomLoad();
 }
@@ -1960,13 +2019,36 @@ $('roomIntegrate').addEventListener('click', ()=>{
   render();
   if (!selected.size) toast('no settled runs with changes in this group yet', 'error');
 });
-/* Work | Ask 세그 — L1 은 Work 만(Ask=L2), 토글은 숨김. steerMode 재사용 없이 방 전용. */
-let roomMode = 'work';
+/* Work | Ask 세그 — Work=행동(spawn/broadcast/converge), Ask=읽기 전용 코디네이터. 방 전용 모드. */
 document.querySelectorAll('#roomSeg .seg-opt').forEach(b=>{
   b.addEventListener('click', ()=>{
     roomMode = b.dataset.rmode;
-    document.querySelectorAll('#roomSeg .seg-opt').forEach(x=>x.classList.toggle('on', x===b));
+    roomApplyMode();
   });
+});
+/* ? Ask — 그룹 스코프 읽기 전용 코디네이터. 절대 발사·steer·쓰기 없음 (POST /ask). */
+$('roomAsk').addEventListener('click', async ()=>{
+  if (roomGroupId==null) return;
+  const message = $('roomInput').value.trim();
+  if (!message){ toast('write a question for the coordinator', 'error'); return; }
+  const real = $('taskReal').checked;
+  const btn = $('roomAsk'); btn.disabled = true;
+  roomTurns.push({ role:'you', text:message });
+  roomRenderConv();
+  $('roomInput').value='';
+  try{
+    const res = await fetch('/api/groups/'+roomGroupId+'/ask',{method:'POST',
+      headers:{'content-type':'application/json'}, body:JSON.stringify({message, real})});
+    const j = await res.json().catch(()=>({}));
+    if (res.ok && j.answer){
+      roomTurns.push({ role:'coord', text:j.answer });
+    } else {
+      roomTurns.push({ role:'coord', text:'(ask failed — '+(j.error||res.status)+')' });
+      toast('ask: '+(j.error||res.status), 'error');
+    }
+    roomRenderConv();
+  } catch { toast('ask request failed', 'error'); }
+  finally { btn.disabled = false; }
 });
 /* WS 라이브 — 그룹 소속 run/event 만 방에 반영 (connectWS 가 호출) */
 function roomOnWS(ev){

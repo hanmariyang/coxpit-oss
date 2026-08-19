@@ -813,6 +813,117 @@ export async function reviewTask(taskId: number, real: boolean): Promise<{ ok: b
   }
 }
 
+/**
+ * Ask 코디네이터 — 읽기 전용, 재개 가능한 그룹 스코프 Q&A.
+ * 그룹의 형제 run 들에서 {title,status,agent,filesChanged} + 정착 run 의 bounded diff 요약을
+ * 모아 컨텍스트로 주고, 질문에 답만 한다. worktree 를 열지도, run 을 발사하지도, 파일을 쓰지도,
+ * steer 하지도 않는다 — getRunDiff(읽기)와 텍스트 반환뿐. (reviewTask 를 대화형·재개형으로 변형)
+ *
+ * 세션: 첫 호출은 1회용(`bin -p <prompt> --output-format json`)으로 session_id 를 캡처해
+ * task_groups.coord_session_id 에 저장. 이후 호출은 provider.resumeCmd 로 진짜 대화를 잇는다.
+ * 드라이(real=false / COXPIT_AGENT_REAL off)는 결정적 mock + 합성 세션 id 반환(크레딧 0, e2e 안전).
+ */
+export async function askGroupCoordinator(
+  groupId: number, message: string, real: boolean,
+): Promise<{ ok: boolean; detail: string; answer?: string }> {
+  const gr = await db.select().from(taskGroups).where(eq(taskGroups.id, groupId)).limit(1);
+  const group = gr[0];
+  if (!group) return { ok: false, detail: 'group not found' };
+  const msg = message.trim();
+  if (!msg) return { ok: false, detail: 'empty message' };
+
+  // 그룹의 형제 run 들(태스크 조인) — bounded 컨텍스트만.
+  const gts = await db.select().from(tasks).where(eq(tasks.groupId, groupId));
+  const rows: Array<{ run: typeof agentRuns.$inferSelect; task: typeof tasks.$inferSelect }> = [];
+  for (const t of gts) {
+    const trs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, t.id));
+    for (const run of trs) rows.push({ run, task: t });
+  }
+  rows.sort((a, b) => a.run.id - b.run.id);
+
+  // repo/machine 은 그룹의 아무 태스크에서 상속(형제는 같은 repo 공유). read-only 는 repo 본체에서.
+  const anyTask = rows[0]?.task ?? gts[0];
+  let machine: MachineTarget | null = null;
+  let repoPath = '';
+  if (anyTask) {
+    const rp = await db.select().from(repos).where(eq(repos.id, anyTask.repoId)).limit(1);
+    const repo = rp[0];
+    if (repo) {
+      repoPath = repo.path;
+      const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
+      const m = mr[0];
+      if (m) machine = { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser };
+    }
+  }
+
+  // bounded 컨텍스트: run 요약 + 정착 run 의 diff 요약(각 ~1500자, 합 ~12k 상한).
+  const SETTLED = ['done', 'failed', 'stopped', 'merged'];
+  const sections: string[] = [];
+  let budget = 12000;
+  for (const { run, task } of rows) {
+    let sec = `### run r${run.id} — ${task.title.slice(0, 80)}\n`
+      + `status: ${run.status} · agent: ${run.agent} · files changed: ${run.filesChanged}`;
+    if (SETTLED.includes(run.status) && budget > 0) {
+      const d = await getRunDiff(run.id).catch(() => ({ ok: false, diff: '', stat: '' }));
+      const raw = (d.ok ? (d.diff || d.stat || '(no changes)') : '(worktree gone — diff unavailable)');
+      const cap = Math.min(1500, Math.max(0, budget));
+      const clip = raw.slice(0, cap);
+      budget -= clip.length;
+      sec += `\nDiff summary:\n\`\`\`diff\n${clip}\n\`\`\``;
+    }
+    sections.push(sec);
+  }
+
+  const preamble =
+    `You are a READ-ONLY coordinator for a goal with these parallel attempts. `
+    + `Answer the question about their state and diffs. Do NOT propose running commands, `
+    + `do NOT modify files, do NOT suggest editing anything — you can only observe and explain.`;
+  const context = `Goal: ${group.title}\n\n${sections.join('\n\n') || '(no runs yet)'}`;
+
+  // 드라이: 결정적 mock 답변 + 합성 세션 id(첫 호출 시 저장, 이후 재사용). e2e 크레딧 0.
+  if (!real) {
+    const done = rows.filter((r) => SETTLED.includes(r.run.status)).length;
+    const running = rows.filter((r) => r.run.status === 'running').length;
+    const answer = `[dry coordinator] ${rows.length} attempt(s) · ${done} settled · ${running} running.\n`
+      + `Q: ${msg.slice(0, 120)}\n`
+      + `(rehearsal answer — read-only; run with Real agent for a substantive reply.)`;
+    if (!group.coordSessionId) {
+      const synth = 'dry-coord-' + randomBytes(6).toString('hex');
+      await db.update(taskGroups).set({ coordSessionId: synth }).where(eq(taskGroups.id, groupId));
+    }
+    return { ok: true, detail: 'rehearsal answer', answer };
+  }
+
+  if (!machine || !repoPath) return { ok: false, detail: 'group has no repo to run the coordinator from' };
+
+  // 첫 호출 = 1회용(session_id 캡처), 이후 = resume(대화 이어가기). 둘 다 파일 미변경 read-only.
+  const provider = getProvider('claude-code');
+  let cmd: string;
+  const resuming = !!group.coordSessionId;
+  if (resuming) {
+    // resume 은 stream-json 을 내지만 여기선 마지막 result 만 필요 — json 으로 강제 재래핑 불가하므로
+    // 세션 id 는 이미 있으니 resumeCmd(대화)로 잇고, 최종 텍스트는 result 라인에서 추출한다.
+    cmd = `cd ${shq(repoPath)} && ${provider.resumeCmd(group.coordSessionId, `${preamble}\n\n${context}\n\nQuestion: ${msg}`)} --output-format json`;
+  } else {
+    const oneShot = `${preamble}\n\n${context}\n\nQuestion: ${msg}`;
+    cmd = `cd ${shq(repoPath)} && ${config.agent.bin} -p ${shq(oneShot)} --output-format json`;
+  }
+  const r = await runShellOn(machine, cmd, 300000);
+  if (!r.ok) return { ok: false, detail: 'coordinator failed: ' + (r.stderr || r.stdout).trim().slice(0, 300) };
+  try {
+    const envelope = JSON.parse(r.stdout.trim()) as { result?: string; session_id?: string };
+    const answer = (envelope.result ?? '').trim();
+    if (!answer) throw new Error('empty answer');
+    // 첫 호출에서만 세션 각인(이후엔 유지). resume 응답도 같은 세션이라 덮어써도 무해.
+    if (typeof envelope.session_id === 'string' && envelope.session_id && envelope.session_id !== group.coordSessionId) {
+      await db.update(taskGroups).set({ coordSessionId: envelope.session_id }).where(eq(taskGroups.id, groupId));
+    }
+    return { ok: true, detail: resuming ? 'resumed' : 'answered', answer };
+  } catch (e) {
+    return { ok: false, detail: 'could not parse coordinator answer: ' + String(e).slice(0, 200) };
+  }
+}
+
 export interface IntegrateResult {
   runId: number;
   status: 'merged' | 'conflict' | 'skipped';

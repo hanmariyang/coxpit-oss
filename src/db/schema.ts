@@ -37,6 +37,7 @@ export const taskGroups = sqliteTable('task_groups', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   kind: text('kind').notNull().default('goal'), // 'goal' | 'swarm'
   title: text('title').notNull(),
+  coordSessionId: text('coord_session_id').notNull().default(''), // L2 — 읽기전용 Ask 코디네이터의 재개 세션(--resume 키)
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 

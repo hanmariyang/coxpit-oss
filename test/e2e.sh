@@ -492,9 +492,26 @@ expect_code 400 -X POST "$B/api/groups/$WGID/steer" -H 'content-type: applicatio
 expect_code 404 -X POST "$B/api/groups/999999/steer" -H 'content-type: application/json' -d '{"message":"x"}'
 pass "workroom broadcast: dry/no-session runs skipped honestly (empty 400, missing 404)"
 
+# B4 (L2) ask — 읽기 전용 코디네이터(dry): ok+비어있지 않은 answer, 2회차가 coord_session_id 지속/재사용
+ASK1=$(curl -sf -X POST "$B/api/groups/$WGID/ask" -H 'content-type: application/json' -d '{"message":"what are these attempts doing?","real":false}')
+echo "$ASK1" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d["ok"] is True, d;assert isinstance(d["answer"],str) and d["answer"].strip(), d' || fail "ask1 shape: $ASK1"
+# 첫 호출 후 그룹에 coord_session_id 각인(aggregate 로 노출)
+CS1=$(curl -sf "$B/api/groups/$WGID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["group"]["coordSessionId"])')
+[ -n "$CS1" ] || fail "coord_session_id not persisted after first ask: '$CS1'"
+# 2회차 — 여전히 ok+answer, 세션은 재사용(동일값 유지, dry 는 합성 세션 고정)
+ASK2=$(curl -sf -X POST "$B/api/groups/$WGID/ask" -H 'content-type: application/json' -d '{"message":"any risks?","real":false}')
+echo "$ASK2" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d["ok"] is True, d;assert isinstance(d["answer"],str) and d["answer"].strip(), d' || fail "ask2 shape: $ASK2"
+CS2=$(curl -sf "$B/api/groups/$WGID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["group"]["coordSessionId"])')
+[ "$CS2" = "$CS1" ] || fail "coord_session_id not reused across calls: '$CS1' vs '$CS2'"
+expect_code 400 -X POST "$B/api/groups/$WGID/ask" -H 'content-type: application/json' -d '{}'
+expect_code 404 -X POST "$B/api/groups/999999/ask" -H 'content-type: application/json' -d '{"message":"x"}'
+pass "workroom ask (L2): read-only coordinator answers + persists/reuses coord_session_id (empty 400, missing 404)"
+
 # UI contract — workroom overlay + seg toggle + Open workroom control in the band
 case "$BOARD_HTML" in *'id="groupRoomOverlay"'*) : ;; *) fail "workroom overlay missing";; esac
 case "$BOARD_HTML" in *'id="roomSeg"'*) : ;; *) fail "workroom Work|Ask seg missing";; esac
+case "$BOARD_HTML" in *'id="roomConv"'*) : ;; *) fail "workroom Ask conversation missing";; esac
+case "$BOARD_HTML" in *'id="roomAsk"'*) : ;; *) fail "workroom Ask send button missing";; esac
 case "$BOARD_HTML" in *'data-groom='*) : ;; *) fail "Open workroom control missing";; esac
 case "$BOARD_HTML" in *'Open workroom'*) : ;; *) fail "Open workroom label missing";; esac
 pass "board serves goal workroom (#groupRoomOverlay + seg + Open workroom entry)"

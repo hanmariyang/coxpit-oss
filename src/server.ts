@@ -13,7 +13,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -799,7 +799,7 @@ export async function buildServer(): Promise<FastifyInstance> {
           .sort((a, b) => a.id - b.id).slice(-200)
       : [];
     return {
-      group: { id: g.group.id, kind: g.group.kind, title: g.group.title },
+      group: { id: g.group.id, kind: g.group.kind, title: g.group.title, coordSessionId: g.group.coordSessionId },
       runs,
       events: evs.map((e) => ({ runId: e.runId, kind: e.kind, payload: e.payload, ts: e.ts })),
     };
@@ -853,6 +853,20 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   // NOTE(v4.6): queuing a broadcast to apply to running runs once they settle is
   // explicitly out of scope for L1 — running runs are reported as skipped, not queued.
+
+  // B4 (L2) — "? Ask": 그룹 스코프 읽기 전용 코디네이터. run 발사·steer·파일 쓰기 절대 없음.
+  // askGroupCoordinator 는 getRunDiff(읽기)와 텍스트 반환뿐 — launch/steer/write 경로를 부르지 않는다.
+  app.post('/api/groups/:id/ask', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { message?: string; real?: boolean };
+    const message = (b.message ?? '').trim();
+    if (!message) return reply.code(400).send({ error: 'message required' });
+    const g = await groupRuns(id);
+    if (!g) return reply.code(404).send({ error: 'group not found' });
+    const res = await askGroupCoordinator(id, message, b.real === true);
+    if (!res.ok) return reply.code(422).send({ error: res.detail });
+    return { ok: true, answer: res.answer };
+  });
 
   // 통합 — 여러 run(태스크 무관)을 base 에 순차 머지, 충돌은 통합 에이전트 자동 발사.
   app.post('/api/integrate', async (req, reply) => {
