@@ -60,7 +60,6 @@ BOARD_HTML=$(curl -s "$B/")
 case "$BOARD_HTML" in *'<title>coxpit'*) : ;; *) fail "board not served";; esac
 case "$BOARD_HTML" in *'id="menuBtn"'*) : ;; *) fail "mobile drawer button missing";; esac
 case "$BOARD_HTML" in *'openFromURL'*) : ;; *) fail "deep-link handler missing";; esac
-case "$BOARD_HTML" in *'id="mDocsTgl"'*) : ;; *) fail "doc-mode toggle missing";; esac
 case "$BOARD_HTML" in *'dl-line'*) : ;; *) fail "clickable diff lines missing";; esac
 case "$BOARD_HTML" in *'id="termIbar"'*) : ;; *) fail "terminal input bar missing";; esac
 case "$BOARD_HTML" in *'id="taskModel"'*) : ;; *) fail "model input missing";; esac
@@ -87,6 +86,21 @@ case "$BOARD_HTML" in *'id="remoteOverlay"'*) : ;; *) fail "remote access overla
 case "$BOARD_HTML" in *'id="remoteBtn"'*) : ;; *) fail "remote access header button missing";; esac
 case "$BOARD_HTML" in *'reverse_proxy 127.0.0.1:'*) : ;; *) fail "caddy recipe port interpolation missing";; esac
 pass "board serves remote access card (#remoteOverlay + recipe port)"
+
+# v4.7 P2 — run modal outputs cards + real viewers + request UI (UI contract)
+case "$BOARD_HTML" in *'id="mContract"'*) : ;; *) fail "contract strip missing";; esac
+case "$BOARD_HTML" in *'id="outCards"'*) : ;; *) fail "output cards container missing";; esac
+case "$BOARD_HTML" in *'id="outDetail"'*) : ;; *) fail "output detail viewer missing";; esac
+case "$BOARD_HTML" in *'id="outBack"'*) : ;; *) fail "output detail back link missing";; esac
+case "$BOARD_HTML" in *'산출물 목록'*) : ;; *) fail "output back label missing";; esac
+case "$BOARD_HTML" in *'function openOutCard'*) : ;; *) fail "openOutCard viewer dispatch missing";; esac
+case "$BOARD_HTML" in *'function pickDefaultCard'*) : ;; *) fail "default-card heuristic missing";; esac
+case "$BOARD_HTML" in *'/outputs'*) : ;; *) fail "outputs fetch missing";; esac
+case "$BOARD_HTML" in *'/file?path='*) : ;; *) fail "file preview src missing";; esac
+case "$BOARD_HTML" in *'id="taskOutputs"'*) : ;; *) fail "task-compose deliverables selector missing";; esac
+case "$BOARD_HTML" in *'function selectedOutputs'*) : ;; *) fail "selectedOutputs collector missing";; esac
+case "$BOARD_HTML" in *'class="ochip" data-out="answer"'*) : ;; *) fail "deliverable chips missing";; esac
+pass "board serves outputs cards + real viewers + request-side deliverables selector"
 
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
@@ -606,6 +620,12 @@ case "$FTRAV" in 200) fail "file .. traversal must NOT return 200 (got $FTRAV)";
 FIN=$(curl -s -o /dev/null -w '%{http_code}' "$B/api/runs/$DRID_RUN/file?path=COXPIT_DRYRUN.txt")
 [ "$FIN" = "200" ] || fail "in-worktree file should serve 200, got $FIN"
 pass "file guard: .. traversal rejected (non-200), in-worktree file served (200)"
+# /output — P2 뷰어가 소비하는 콘텐츠: answer→{kind:md}, code→{kind:diff,diffUrl}
+OANS=$(curl -sf "$B/api/runs/$DRID_RUN/output?type=answer")
+echo "$OANS" | python3 -c 'import sys,json;o=json.load(sys.stdin);assert o["kind"]=="md" and "content" in o,o' || fail "answer viewer content wrong: $OANS"
+OCODE=$(curl -sf "$B/api/runs/$DRID_RUN/output?type=code")
+echo "$OCODE" | python3 -c 'import sys,json;o=json.load(sys.stdin);assert o["kind"]=="diff" and o["diffUrl"].endswith("/diff"),o' || fail "code viewer diffUrl wrong: $OCODE"
+pass "output viewers: answer->md content, code->diff url (P2 renderers)"
 curl -s -X POST "$B/api/tasks/$DTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 
 # v4.1 E — repo 기본 브랜치 override (fixture 에 wip-side-branch 존재)

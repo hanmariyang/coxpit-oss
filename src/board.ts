@@ -125,6 +125,13 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .seg-opt.on{background:var(--surface2);color:var(--ink)}
   .seg-opt[data-real="1"].on{background:var(--brand);color:var(--brand-ink)}
   .seg-hint{font-family:var(--mono);font-size:9.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
+  /* ── deliverable 계약 칩(Task compose) ── */
+  .ochips{display:flex;flex-wrap:wrap;gap:5px}
+  .ochip{background:transparent;color:var(--muted);border:1px solid var(--line);cursor:pointer;
+    font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:999px;
+    transition:border-color .15s,color .15s,background .15s}
+  .ochip:hover{color:var(--ink);border-color:var(--line-hi)}
+  .ochip.on{background:var(--brand-dim);color:var(--brand);border-color:rgba(78,201,176,.4)}
 
   /* ── buttons ────────────────────────────── */
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;cursor:pointer;
@@ -436,9 +443,59 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .doc-md p{margin:0 0 8px}
   .doc-frame{width:100%;height:420px;border:1px solid var(--line);border-radius:8px;background:#fff;margin-bottom:16px}
   .pane-tgl{margin-left:auto;font-size:10px;padding:2px 9px;text-transform:none;letter-spacing:0}
-  /* run 모달의 diff 라인 = steer 참조 클릭 타깃 */
-  #mDiffWrap .dl-line{cursor:pointer;border-radius:3px}
-  #mDiffWrap .dl-line:hover{background:rgba(78,201,176,.09)}
+  /* run 모달의 diff 라인 = steer 참조 클릭 타깃(code 카드 상세) */
+  #outDetail .dl-line{cursor:pointer;border-radius:3px}
+  #outDetail .dl-line:hover{background:rgba(78,201,176,.09)}
+
+  /* ── v4.7 산출물 계약(contract strip) — 모달 헤더 아래 요청 산출물 요약 ── */
+  .contract{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:9px 18px;
+    border-bottom:1px solid var(--line);background:var(--surface2);
+    font-family:var(--mono);font-size:10.5px;color:var(--faint);line-height:1.5}
+  .contract[hidden]{display:none}
+  .contract .clabel{letter-spacing:.04em;text-transform:none}
+  .contract .csep{color:var(--line-hi)}
+  .req{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;
+    border:1px solid var(--line);color:var(--muted);text-transform:none;letter-spacing:.02em}
+  .req.ok{color:var(--s-done);border-color:rgba(88,179,104,.4)}
+  .req.warn{color:var(--s-preparing);border-color:rgba(214,162,73,.45)}
+  .req.aux{color:var(--faint);border-style:dashed}
+  .req .rg{font-size:11px;line-height:1}
+
+  /* ── v4.7 출력 카드 목록(오른쪽 컬럼) ── */
+  #outWrap{display:flex;flex-direction:column;min-height:0;flex:1}
+  #outCards{display:flex;flex-direction:column;gap:8px;padding:12px 16px;overflow:auto;flex:1;min-height:0}
+  .ocard{display:flex;align-items:center;gap:10px;padding:11px 13px;border:1px solid var(--line);
+    border-radius:var(--r-card);background:var(--surface);cursor:pointer;
+    transition:border-color .16s,transform .16s}
+  .ocard:hover{border-color:#323b4e;transform:translateY(-1px)}
+  .ocard.miss{opacity:.72;border-style:dashed;cursor:default}
+  .ocard.miss:hover{transform:none;border-color:var(--line)}
+  .ocard .og{font-size:15px;line-height:1;flex:0 0 auto;width:20px;text-align:center;color:var(--muted)}
+  .ocard .ob{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  .ocard .ot{font-family:var(--sans);font-size:12.5px;color:var(--ink);font-weight:600;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ocard .om{font-family:var(--mono);font-size:10px;color:var(--faint);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ocard .obadge{font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;
+    padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--faint);flex:0 0 auto}
+  .ocard .obadge.req{color:var(--brand);border-color:rgba(78,201,176,.4)}
+  .ocard .obadge.warn{color:var(--s-preparing);border-color:rgba(214,162,73,.45)}
+  .ocard .oc{color:var(--faint);font-size:13px;flex:0 0 auto}
+  .ocards-empty{color:var(--faint);font-family:var(--mono);font-size:11px;padding:22px 4px;text-align:center}
+
+  /* ── v4.7 출력 카드 상세 뷰어 ── */
+  #outDetail{display:none;flex-direction:column;min-height:0;flex:1}
+  #outDetail.on{display:flex}
+  #outWrap.detailing #outCards{display:none}
+  .oback{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;
+    color:var(--muted);cursor:pointer;padding:9px 16px;border-bottom:1px solid var(--line);
+    background:var(--surface2);flex:0 0 auto}
+  .oback:hover{color:var(--brand)}
+  .odetail-c{overflow:auto;padding:12px 16px;flex:1;min-height:0}
+  .oimg{max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .odl{display:inline-block;margin-top:6px;font-family:var(--mono);font-size:11.5px;color:var(--brand);
+    text-decoration:none;border:1px solid var(--line);border-radius:var(--r-ctl);padding:6px 11px}
+  .odl:hover{border-color:var(--brand)}
 
   /* ── terminal ───────────────────────────── */
   .term-body{flex:1;min-height:0;background:#0b0d12;padding:8px 4px 4px 10px}
@@ -549,6 +606,14 @@ export const BOARD_HTML = /* html */ `<!doctype html>
           <datalist id="modelHist"></datalist>
           <p class="flabel">design capture · optional</p>
           <select id="taskCapture"><option value="">no design capture</option></select>
+          <p class="flabel">deliverables · optional (계약)</p>
+          <div class="ochips" id="taskOutputs" role="group" aria-label="declared deliverables">
+            <button type="button" class="ochip" data-out="answer">답변</button>
+            <button type="button" class="ochip" data-out="code">코드</button>
+            <button type="button" class="ochip" data-out="doc">문서</button>
+            <button type="button" class="ochip" data-out="page">페이지</button>
+            <button type="button" class="ochip" data-out="file">파일</button>
+          </div>
         </div>
         <div id="panelGoal" hidden style="flex-direction:column;gap:8px">
           <textarea id="planGoal" placeholder="One goal — a planner agent reads the repo, splits it into independent tasks, and launches them all. Converge with Select runs → Integrate."></textarea>
@@ -605,15 +670,21 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <span class="chip" id="mChip"><i></i><span id="mChipTxt"></span></span>
       <button class="x" id="mClose" aria-label="close">×</button>
     </div>
+    <div class="contract" id="mContract" hidden></div>
     <div class="modal-b">
       <div class="pane">
         <div class="pane-h">Timeline</div>
         <div class="pane-c tl" id="mTimeline"></div>
       </div>
       <div class="pane">
-        <div class="pane-h" style="display:flex;align-items:center;gap:8px">Diff <span id="mStat" style="text-transform:none;letter-spacing:0"></span>
-          <button class="btn-ghost sm pane-tgl" id="mDocsTgl" hidden>Rendered</button></div>
-        <div class="pane-c" id="mDiffWrap"><pre class="diff" id="mDiff">loading…</pre></div>
+        <div class="pane-h" style="display:flex;align-items:center;gap:8px">Outputs <span id="mStat" style="text-transform:none;letter-spacing:0"></span></div>
+        <div id="outWrap">
+          <div id="outCards"><div class="ocards-empty">loading…</div></div>
+          <div id="outDetail">
+            <div class="oback" id="outBack">‹ 산출물 목록</div>
+            <div class="odetail-c" id="outDetailC"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="modal-f" id="steerRow" style="border-top:1px solid var(--line)">
@@ -626,7 +697,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     </div>
     <div class="modal-f">
       <button class="btn-ghost sm" id="mTerm">Terminal</button>
-      <button class="btn-ghost sm" id="mRefreshDiff">Refresh diff</button>
+      <button class="btn-ghost sm" id="mRefreshDiff">Refresh outputs</button>
       <button class="btn-ghost sm" id="mCompare">Compare runs</button>
       <button class="btn-ghost sm" id="mExport">Export files…</button>
       <button class="btn-ghost sm" id="mSync">Sync base</button>
@@ -1452,36 +1523,141 @@ function paintModal(){
     '<div class="ev"><span class="k">'+esc(h.k)+'</span><span class="t">'+esc(h.t)+'</span></div>'
   ).join('') || '<span style="color:var(--faint)">no events yet</span>';
 }
-async function loadDiff(){
-  if (openRunId==null || docMode) return;
-  const pre = $('mDiff'); if (!pre) return;
+/* ── v4.7 산출물 계약 · 출력 카드 — 오른쪽 컬럼(diff/Rendered 토글을 흡수) ──
+   /outputs 로 카드 목록을 받아 렌더하고, 클릭하면 타입별 실뷰어를 오른쪽에 띄운다.
+   answer/doc → mdLite · page → sandbox iframe · code → 기존 diff 렌더러 · file → 이미지/다운로드. */
+let outCards = [];                 // 이 run 의 마지막 카드 목록(RunOutputCard[])
+const OUT_GLYPH = { answer:'✦', code:'‹›', doc:'▤', page:'◱', file:'⎘' };
+const OUT_LABEL = { answer:'답변', code:'코드', doc:'문서', page:'페이지', file:'파일' };
+function contractHTML(cards){
+  const declared = cards.filter(c=>c.required);
+  const aux = cards.filter(c=>!c.required && c.present);
+  if (!declared.length && !aux.length) return '';   // 계약도 부수도 없으면 스트립 숨김
+  let h = '<span class="clabel">요청 산출물(계약):</span>';
+  if (declared.length){
+    h += declared.map(c=>{
+      const ok = c.present;
+      return '<span class="req '+(ok?'ok':'warn')+'"><span class="rg">'+(ok?'✓':'!')+'</span>'
+        + esc(OUT_LABEL[c.type]||c.type)+'</span>';
+    }).join('');
+  } else h += '<span class="req aux">없음</span>';
+  if (aux.length){
+    h += '<span class="csep">—</span><span class="clabel">부수:</span>'
+      + aux.map(c=>'<span class="req aux">'+esc(OUT_LABEL[c.type]||c.type)+'</span>').join('');
+  }
+  return h;
+}
+function outCardHTML(c, i){
+  const miss = !c.present;
+  const badge = c.required
+    ? '<span class="obadge '+(c.present?'req':'warn')+'">요청됨</span>'
+    : '<span class="obadge">부수</span>';
+  const glyph = OUT_GLYPH[c.type] || '•';
+  const meta = miss ? '산출물 미충족 — '+esc(c.meta||'') : esc(c.meta||'');
+  return '<div class="ocard'+(miss?' miss':'')+'" data-oi="'+i+'">'
+    + '<span class="og">'+esc(glyph)+'</span>'
+    + '<span class="ob"><span class="ot">'+esc(c.title||c.type)+'</span>'
+    + '<span class="om">'+meta+'</span></span>'
+    + badge
+    + (miss?'':'<span class="oc">›</span>')
+    + '</div>';
+}
+/* run 형태로 기본 카드 선택 — 코드 변경 없고 answer/doc 있으면 그걸, 코드 위주면 code,
+   아니면 첫 present 선언 카드(없으면 첫 present 카드). 미충족 카드는 절대 자동 오픈 안 함. */
+function pickDefaultCard(cards){
+  const present = cards.filter(c=>c.present);
+  if (!present.length) return -1;
+  const hasCode = present.some(c=>c.type==='code');
+  const docish = present.find(c=>c.type==='answer' || c.type==='doc');
+  if (!hasCode && docish) return cards.indexOf(docish);
+  if (hasCode){
+    const codeCard = present.find(c=>c.type==='code');
+    // 코드 위주라도 선언된 문서/답변이 있으면 그 계약을 우선(코드는 언제나 카드로 접근 가능)
+    const declaredDoc = present.find(c=>c.required && (c.type==='answer'||c.type==='doc'||c.type==='page'));
+    if (declaredDoc) return cards.indexOf(declaredDoc);
+    return cards.indexOf(codeCard);
+  }
+  const declared = present.find(c=>c.required);
+  return cards.indexOf(declared || present[0]);
+}
+async function loadDiff(){   // 이름은 유지(모달 refresh·정착 이벤트가 호출) — 이제 outputs 를 로드
+  if (openRunId==null) return;
   const rid = openRunId;
-  pre.textContent = 'loading…'; $('mStat').textContent='';
+  $('outCards').innerHTML = '<div class="ocards-empty">loading…</div>';
+  $('mStat').textContent='';
+  showOutCards();   // 상세에서 목록으로
   try{
-    const d = await fetch('/api/runs/'+rid+'/diff').then(x=>x.json());
-    if (!d.ok){
-      pre.textContent = d.stat||'no worktree';
-      // worktree 는 없지만 스냅샷 문서가 있으면 Rendered 토글 노출(머지·Close 후 뷰어)
-      maybeShowDocsToggle(rid);
-      return;
+    const j = await fetch('/api/runs/'+rid+'/outputs').then(x=>x.json());
+    if (rid !== openRunId) return;
+    outCards = (j.outputs)||[];
+    $('mContract').innerHTML = contractHTML(outCards);
+    $('mContract').hidden = !$('mContract').innerHTML;
+    const nPresent = outCards.filter(c=>c.present).length;
+    $('mStat').textContent = nPresent ? '· '+nPresent+' output'+(nPresent>1?'s':'') : '· none';
+    if (!outCards.length){ $('outCards').innerHTML = '<div class="ocards-empty">no outputs yet</div>'; return; }
+    $('outCards').innerHTML = outCards.map(outCardHTML).join('');
+    const def = pickDefaultCard(outCards);
+    if (def>=0) openOutCard(def);
+  }catch{ $('outCards').innerHTML = '<div class="ocards-empty">outputs failed</div>'; }
+}
+function showOutCards(){
+  $('outWrap').classList.remove('detailing');
+  $('outDetail').classList.remove('on');
+}
+function showOutDetail(){
+  $('outWrap').classList.add('detailing');
+  $('outDetail').classList.add('on');
+}
+async function openOutCard(i){
+  const c = outCards[i]; if (!c || !c.present) return;
+  const rid = openRunId;
+  const box = $('outDetailC');
+  box.innerHTML = '<span style="color:var(--faint);font-family:var(--mono);font-size:11px">rendering…</span>';
+  showOutDetail();
+  try{
+    if (c.type==='answer' || c.type==='doc'){
+      const q = '/api/runs/'+rid+'/output?type='+c.type+(c.path?'&path='+encodeURIComponent(c.path):'');
+      const j = await fetch(q).then(x=>x.json());
+      if (rid!==openRunId) return;
+      box.innerHTML = (c.path?'<div class="doc-h">'+esc(c.path)+'</div>':'')
+        + '<div class="doc-md">'+mdLite(j.content||'')+'</div>';
+    } else if (c.type==='page'){
+      const q = '/api/runs/'+rid+'/output?type=page'+(c.path?'&path='+encodeURIComponent(c.path):'');
+      const j = await fetch(q).then(x=>x.json());
+      if (rid!==openRunId) return;
+      box.innerHTML = (c.path?'<div class="doc-h">'+esc(c.path)+'</div>':'')
+        + '<iframe class="doc-frame" sandbox="" srcdoc="'+escA(j.content||'')+'"></iframe>';
+    } else if (c.type==='code'){
+      box.innerHTML = '<pre class="diff" id="mDiff">loading…</pre>';
+      const d = await fetch('/api/runs/'+rid+'/diff').then(x=>x.json());
+      if (rid!==openRunId) return;
+      const pre = $('mDiff'); if (!pre) return;
+      if (!d.ok){ pre.textContent = d.stat||'no worktree — diff unavailable'; return; }
+      pre.innerHTML = diffHTML(d.diff||'');
+    } else if (c.type==='file'){
+      const raw = '/api/runs/'+rid+'/file?path='+encodeURIComponent(c.path||'');
+      const isImg = /\\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(c.path||'');
+      if (isImg){
+        box.innerHTML = '<div class="doc-h">'+esc(c.path||'')+'</div>'
+          + '<img class="oimg" src="'+escA(raw)+'" alt="'+escA(c.path||'')+'">';
+      } else {
+        const isText = /\\.(txt|md|json|csv|log|ya?ml|ini|cfg|xml|ts|js|py|sh)$/i.test(c.path||'');
+        let extra = '';
+        if (isText){
+          try{
+            const r = await fetch(raw);
+            if (rid===openRunId && r.ok){
+              const t = await r.text();
+              extra = '<pre class="diff" style="margin-top:8px">'+esc(t.slice(0,20000))+'</pre>';
+            }
+          }catch{}
+        }
+        box.innerHTML = '<div class="doc-h">'+esc(c.path||'')+'</div>'
+          + '<a class="odl" href="'+escA(raw)+'" download>↓ download</a>' + extra;
+      }
     }
-    const files = d.stat ? d.stat.split('\\n').filter(Boolean).length : 0;
-    $('mStat').textContent = files ? '· '+files+' file'+(files>1?'s':'') : '· clean';
-    pre.innerHTML = diffHTML(d.diff||'');
-    // 변경분에 문서(md/html)가 있으면 즉시 노출, 없으면 스냅샷 확인
-    if (/\\.(md|markdown|html?|htm)$/im.test(d.stat||'')) $('mDocsTgl').hidden = false;
-    else maybeShowDocsToggle(rid);
-  }catch{ pre.textContent = 'diff failed'; }
+  }catch{ box.innerHTML = '<span style="color:var(--faint)">viewer failed</span>'; }
 }
-/* worktree 에 라이브 문서가 없을 때만 — 스냅샷이라도 있으면 토글을 켠다 */
-async function maybeShowDocsToggle(rid){
-  try{
-    const j = await fetch('/api/runs/'+rid+'/docs').then(x=>x.json());
-    if (rid===openRunId && (j.docs||[]).length) $('mDocsTgl').hidden = false;
-  }catch{}
-}
-/* ── doc 모드 — diff 대신 렌더된 문서 산출물 ── */
-let docMode = false;
 function docsHTML(docs){
   if (!docs.length) return '<span style="color:var(--faint)">no changed docs (md/html) in this worktree</span>';
   return docs.map(d=>'<div class="doc-h">'+esc(d.path)+'</div>'
@@ -1489,25 +1665,15 @@ function docsHTML(docs){
         ? '<div class="doc-md">'+mdLite(d.content)+'</div>'
         : '<iframe class="doc-frame" sandbox="" srcdoc="'+escA(d.content)+'"></iframe>')).join('');
 }
-async function paintDocs(){
-  if (openRunId==null) return;
-  $('mDiffWrap').innerHTML = '<span style="color:var(--faint)">rendering…</span>';
-  try{
-    const d = await fetch('/api/runs/'+openRunId+'/docs').then(x=>x.json());
-    const src = d.source==='snapshot'
-      ? '<div class="doc-src">worktree gone — snapshot taken at settle</div>' : '';
-    $('mDiffWrap').innerHTML = src + docsHTML(d.docs||[]);
-  }catch{ $('mDiffWrap').textContent = 'docs failed'; }
-}
-function setDocMode(on){
-  docMode = on;
-  $('mDocsTgl').textContent = on ? 'Diff' : 'Rendered';
-  if (on) paintDocs();
-  else { $('mDiffWrap').innerHTML = '<pre class="diff" id="mDiff">loading…</pre>'; loadDiff(); }
-}
-$('mDocsTgl').addEventListener('click', ()=>setDocMode(!docMode));
-/* diff 라인 클릭 → steer 입력에 참조 인용 (정착 run 에서만 — steerRow 표시 중일 때) */
-$('mDiffWrap').addEventListener('click', (e)=>{
+/* 출력 카드 클릭 → 상세 뷰어 */
+$('outCards').addEventListener('click', (e)=>{
+  const card = e.target.closest ? e.target.closest('.ocard') : null;
+  if (!card || card.classList.contains('miss')) return;
+  openOutCard(Number(card.dataset.oi));
+});
+$('outBack').addEventListener('click', showOutCards);
+/* code 카드 diff 라인 클릭 → steer 입력에 참조 인용 (정착 run 에서만 — steerRow 표시 중일 때) */
+$('outDetail').addEventListener('click', (e)=>{
   const t = e.target.closest ? e.target.closest('.dl-line') : null;
   if (!t) return;
   if ($('steerRow').style.display === 'none') return;
@@ -1518,9 +1684,11 @@ $('mDiffWrap').addEventListener('click', (e)=>{
 });
 async function openModal(id){
   openRunId = id;
-  if (docMode){ docMode=false; $('mDocsTgl').textContent='Rendered'; $('mDiffWrap').innerHTML='<pre class="diff" id="mDiff">loading…</pre>'; }
-  $('mDocsTgl').hidden = true;
-  paintModal(); $('overlay').classList.add('open'); loadDiff();
+  outCards = [];
+  showOutCards();
+  $('mContract').hidden = true; $('mContract').innerHTML = '';
+  $('outCards').innerHTML = '<div class="ocards-empty">loading…</div>';
+  paintModal(); $('overlay').classList.add('open'); loadDiff();   // loadDiff = /outputs 로드
   // fleet 는 run 당 최근 40 이벤트만 내림 — 모달은 전체 타임라인을 다시 가져온다.
   try{
     const j = await fetch('/api/runs/'+id).then(x=>x.json());
@@ -2269,15 +2437,29 @@ $('taskForm').addEventListener('submit', async (e)=>{
   const title = $('taskTitle').value.trim();
   if (!repoId || !title){ toast(!repoId?'register a repo first':'task title required', 'error'); return; }
   const capId = Number($('taskCapture').value) || undefined;
+  const outputs = selectedOutputs();
   const t = await fetch('/api/tasks',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({repoId,title,prompt:$('taskPrompt').value,designCaptureId:capId})}).then(x=>x.json());
+    body:JSON.stringify({repoId,title,prompt:$('taskPrompt').value,designCaptureId:capId,outputs})}).then(x=>x.json());
   if (!t.ok){ toast('task create failed', 'error'); return; }
   tasks.set(t.task.id, t.task);
   const model = $('taskModel').value.trim();
   await fetch('/api/tasks/'+t.task.id+'/run',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked, agent: selAgent, model})});
   if (model) rememberModel(model);
-  $('taskTitle').value=''; $('taskPrompt').value='';
+  $('taskTitle').value=''; $('taskPrompt').value=''; clearOutputs();
+});
+/* ── deliverable 계약 칩 — 선택된 타입 배열을 tasks.outputs 로 보낸다(기본=빈=오늘의 동작) ── */
+const OUTPUT_ORDER = ['answer','code','doc','page','file'];
+function selectedOutputs(){
+  const on = new Set(Array.from(document.querySelectorAll('#taskOutputs .ochip.on')).map(b=>b.dataset.out));
+  return OUTPUT_ORDER.filter(t=>on.has(t));
+}
+function clearOutputs(){ document.querySelectorAll('#taskOutputs .ochip.on').forEach(b=>b.classList.remove('on')); }
+document.querySelectorAll('#taskOutputs .ochip').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    const on = b.classList.toggle('on');
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
 });
 
 /* ── model 최근값 기억(기기별, 최대 5) ── */
