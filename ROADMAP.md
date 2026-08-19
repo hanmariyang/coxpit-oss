@@ -152,6 +152,33 @@ it only serves ports 443/8443/10000 on the `.ts.net` name and must be enabled in
 the tailnet admin. Serve has none of those limits. A truly custom domain is only
 reachable via Cloudflare/reverse-proxy (the user's own domain + account).
 
+### v4.5 — greenfield (start a new project) *(candidate · ideation)*
+Today coxpit needs a git work-tree with at least one commit — worktrees branch
+off a base commit. So a brand-new project (empty folder, or `git init` with no
+commits) is unusable. Turn that limit into the feature it wants to be: **scaffold
+a new project across N agents and compare the foundation before you commit to one.**
+
+Flow:
+1. "Start a new project" in the launcher (or offered when Register hits a
+   commitless repo): take a folder path.
+2. coxpit runs `git init` (if needed) + an **empty initial commit**
+   (`git commit --allow-empty -m "coxpit: initial commit"`) — that empty commit
+   is the base the worktrees branch from.
+3. Register → write the task ("scaffold a Next.js + Tailwind app that …") →
+   the normal fleet flow: N agents each build the project in their own worktree.
+4. Compare the N scaffolds side by side → Merge this → the winner lands on the
+   empty `main`. Your project starts from the foundation you picked.
+
+Guardrails:
+- Never `git init` a registered path silently — greenfield is an **explicit
+  action** ("start a new project here"), never a side effect of Register (don't
+  turn someone's folder into a repo by surprise).
+- The empty initial commit is the base; merge stays clean (base is a clean commit).
+- Floor vs ceiling: gracefully **handling** a commitless repo (clear "this repo
+  has no commits — make an initial commit first", and detect the unborn branch
+  without erroring) is the floor; this one-click greenfield start is the ceiling.
+  Ship the floor first; the flow above is the same code path plus a launcher entry.
+
 ## Non-goals
 
 - Vendoring or wrapping agent CLIs — external tools stay external (`git`, `tmux`, the agent)
