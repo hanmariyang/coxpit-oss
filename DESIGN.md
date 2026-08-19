@@ -65,6 +65,9 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | Base branch dialog | `#brOverlay` (`.cfm` variant) + `#repoBranch` (⎇) in Context | merge · Sync base · PR all target it; validated against the repo (must exist); the repo `<option>` already shows the branch after the name |
 | Close guard | danger `confirmUI` on 409 from close | closing deletes worktrees — if any run has unmerged, unexported, non-PR changes the server 409s with `atRisk`; the dialog lists them (`rN · M files`) and only `force:true` proceeds |
 | Closed card | `.card.closed` (dim + hatched `.log` + CLOSED stamp) | a closed card must read as closed at a glance — desaturated, diagonal hatching over the timeline, a rotated CLOSED stamp; the status chip stays (done/merged history) |
+| Group band | `.gband` (`grid-column:1/-1`) around sibling cards | goal (`⌁`) / swarm (`↳`) siblings cluster under a header (title · N tasks · M settled) with fold/Select runs/Close group — a **dashed border**, never a left accent bar or a color fill; cards inside stay first-class, single-run tasks never band |
+| Attempt counter | `.attempt` in card meta | any task with >1 run shows `run i/n` so same-title cards read as attempts, not duplicates; brand-tinted, mono |
+| Group actions | band header buttons (delegated on `#grid`) | Select runs reuses the existing select mode + selbar (no new merge path); Close group loops the same close endpoint honoring the v4.1 guard, aggregating every `atRisk` into one confirm; fold state persists in localStorage across WS repaints |
 
 ## Interaction rules
 

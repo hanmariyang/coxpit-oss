@@ -66,7 +66,9 @@ case "$BOARD_HTML" in *'id="termIbar"'*) : ;; *) fail "terminal input bar missin
 case "$BOARD_HTML" in *'id="taskModel"'*) : ;; *) fail "model input missing";; esac
 case "$BOARD_HTML" in *'id="repoBranch"'*) : ;; *) fail "base branch button missing";; esac
 case "$BOARD_HTML" in *'card.closed .log::before'*) : ;; *) fail "closed-card hatching missing";; esac
-pass "board served (v4.1 model input + base branch + closed hatching)"
+case "$BOARD_HTML" in *'gband-h'*) : ;; *) fail "group band markup missing";; esac
+case "$BOARD_HTML" in *'attemptHTML'*) : ;; *) fail "attempt counter missing";; esac
+pass "board served (v4.1 model/branch/hatching + v4.2 group band/attempt)"
 
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
@@ -308,10 +310,29 @@ for i in $(seq 1 40); do
 done
 [ "$S" = '"status":"done"' ] || fail "planned run did not settle: $S"
 expect_code 400 -X POST "$B/api/plan" -H 'content-type: application/json' -d '{"repoId":1}'
+pass "plan fan-out launches planned tasks (mock planner)"
+
+# v4.2 A — plan 형제들이 한 goal 그룹을 공유, fleet.groups 에 goal 행, 수동 태스크는 ungrouped
+GTIDS=$(echo "$PLAN" | python3 -c 'import sys,json;print(" ".join(str(t["id"]) for t in json.load(sys.stdin)["tasks"]))')
+GOUT=$(python3 - "$B" $GTIDS <<'PYEOF'
+import sys,json,urllib.request as R
+B=sys.argv[1]; tids=[int(x) for x in sys.argv[2:]]
+fleet=json.load(R.urlopen(B+"/api/fleet"))
+tasks={t["id"]:t for t in fleet["tasks"]}
+gids={tasks[t]["groupId"] for t in tids}
+assert len(gids)==1 and None not in gids, ("plan siblings must share one group", gids)
+groups={g["id"]:g for g in fleet.get("groups",[])}
+assert groups.get(gids.pop(),{}).get("kind")=="goal", "group kind should be goal"
+req=R.Request(B+"/api/tasks",data=json.dumps({"repoId":1,"title":"solo","prompt":"x"}).encode(),headers={"content-type":"application/json"},method="POST")
+assert json.load(R.urlopen(req))["task"]["groupId"] is None, "manual task must be ungrouped"
+print("GROUPS_OK")
+PYEOF
+) || fail "group model check: $GOUT"
+case "$GOUT" in *GROUPS_OK*) : ;; *) fail "group model: $GOUT";; esac
 for TID in $(echo "$PLAN" | python3 -c 'import sys,json;[print(t["id"]) for t in json.load(sys.stdin)["tasks"]]'); do
   curl -s -X POST "$B/api/tasks/$TID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 done
-pass "plan fan-out launches planned tasks (mock planner)"
+pass "group model: plan siblings share a goal group; manual task ungrouped"
 
 # provider seam — codex 파서 정규화 + 커맨드 시임 (unit, codex CLI 불필요)
 cat > "$WORK/prov.test.ts" <<EOF

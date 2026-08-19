@@ -141,6 +141,17 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 
   /* ── run cards ──────────────────────────── */
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+  /* ── group bands (goal/swarm 형제 묶음) — 점선 클러스터, 좌측 액센트 바·채움 금지 ── */
+  .gband{grid-column:1/-1;border:1px dashed var(--line-hi);border-radius:14px;padding:12px;margin-bottom:0}
+  .gband-h{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:var(--mono)}
+  .gband-glyph{color:var(--brand);font-size:13px}
+  .gband-t{color:var(--ink);font-size:12.5px;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:40%}
+  .gband-n{color:var(--faint);font-size:11px}
+  .gband-sp{flex:1}
+  .gband-fold{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px}
+  .gband.folded .gband-grid{display:none}
+  .gband-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+  .attempt{color:var(--brand);opacity:.8}
   .card{border:1px solid var(--line);border-radius:var(--r-card);background:var(--surface);
     overflow:hidden;display:flex;flex-direction:column;cursor:pointer;
     transition:border-color .18s,transform .18s,box-shadow .18s}
@@ -625,6 +636,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 <script>
 const runs = new Map();      // runId -> run object
 const tasks = new Map();     // taskId -> task
+const groups = new Map();    // groupId -> {id, kind, title}
 let repos = [], machines = [], captures = [];
 
 const $ = (id) => document.getElementById(id);
@@ -828,12 +840,56 @@ function chipHTML(status){
   return '<span class="chip '+(s==='running'?'running':'')+'" style="color:'+statusColor(s)+';border-color:'+statusColor(s)+'">'
     + '<i></i>'+esc(s)+'</span>';
 }
+/* 같은 태스크에 run 이 여럿이면 "run i/n" — 같은 제목 카드가 중복이 아니라 시도로 읽히게 */
+function attemptHTML(r){
+  const sib = [...runs.values()].filter(x=>x.taskId===r.taskId).sort((a,b)=>a.id-b.id);
+  if (sib.length<2) return '';
+  const i = sib.findIndex(x=>x.id===r.id)+1;
+  return '<span class="attempt" title="attempt within this task">run '+i+'/'+sib.length+'</span>';
+}
 
+/* ── group fold 상태(기기별, WS 재렌더에도 유지) ── */
+let gfold = new Set();
+try{ gfold = new Set(JSON.parse(localStorage.getItem('coxpit.gfold')||'[]')); }catch{}
+function saveGfold(){ try{ localStorage.setItem('coxpit.gfold', JSON.stringify([...gfold])); }catch{} }
+/* 태스크의 모든 run 이 정착했는가 */
+function taskSettled(taskId){
+  const rs = [...runs.values()].filter(r=>r.taskId===taskId);
+  return rs.length>0 && rs.every(r=>['done','failed','stopped','merged'].includes(r.status));
+}
+function bandHTML(g, grpRuns){
+  const glyph = g.kind==='swarm' ? '↳' : '⌁';
+  const title = g.kind==='swarm' ? 'swarm of: '+esc(g.title) : esc(g.title);
+  const taskIds = [...new Set(grpRuns.map(r=>r.taskId))];
+  const settled = taskIds.filter(taskSettled).length;
+  const folded = gfold.has(g.id);
+  const cards = grpRuns.slice().sort((a,b)=>a.id-b.id).map(cardHTML).join('');
+  return '<div class="gband'+(folded?' folded':'')+'" data-g="'+g.id+'">'
+    + '<div class="gband-h"><span class="gband-glyph">'+glyph+'</span>'
+    + '<span class="gband-t">'+title+'</span>'
+    + '<span class="gband-n">'+taskIds.length+' task'+(taskIds.length>1?'s':'')+' · '+settled+' settled</span>'
+    + '<span class="gband-sp"></span>'
+    + '<button class="btn-ghost sm" data-gsel="'+g.id+'">Select runs</button>'
+    + '<button class="btn-ghost sm" data-gclose="'+g.id+'">Close group</button>'
+    + '<button class="gband-fold" data-gfold="'+g.id+'" title="fold">'+(folded?'▸':'▾')+'</button></div>'
+    + '<div class="gband-grid">'+cards+'</div></div>';
+}
 function render(){
   const list = [...runs.values()].sort((a,b)=>b.id-a.id);
   $('empty').style.display = list.length ? 'none' : 'flex';
-  if (!list.length) paintOnboarding();
-  $('grid').innerHTML = list.map(cardHTML).join('');
+  if (!list.length){ paintOnboarding(); $('grid').innerHTML=''; return; }
+  // 그룹 파티션 — grouped run 은 밴드로 클러스터, ungrouped 는 뒤에 flat.
+  const byGroup = new Map(); const flat = [];
+  for (const r of list){
+    const t = tasks.get(r.taskId);
+    const gid = t && t.groupId!=null && groups.has(t.groupId) ? t.groupId : null;
+    if (gid==null) flat.push(r);
+    else { if(!byGroup.has(gid)) byGroup.set(gid, []); byGroup.get(gid).push(r); }
+  }
+  let html = '';
+  for (const gid of [...byGroup.keys()].sort((a,b)=>b-a)) html += bandHTML(groups.get(gid), byGroup.get(gid));
+  html += flat.map(cardHTML).join('');
+  $('grid').innerHTML = html;
   if (termRunId!=null) termTabsRender();   // 터미널 열려있으면 세션 탭도 동기화
 }
 
@@ -898,6 +954,7 @@ function cardHTML(r){
     + '<div class="meta"><span>branch <b>'+esc(r.branch||'—')+'</b></span>'
     + '<span>files <b>'+(r.filesChanged??0)+'</b></span>'
     + '<span>'+esc(r.agent||'')+'</span>'
+    + attemptHTML(r)
     + (r.model ? '<span title="model">⚙ '+esc(r.model)+'</span>' : '')
     + (task && task.parentRunId ? '<span title="spawned by agent r'+task.parentRunId+'">↳ by r'+task.parentRunId+'</span>' : '')
     + (r.sessionId && ['done','failed','stopped'].includes(r.status)
@@ -920,6 +977,8 @@ async function hydrate(){
   machines = r.machines||[]; repos = r.repos||[]; captures = r.captures||[];
   tasks.clear();
   (r.tasks||[]).forEach(t => tasks.set(t.id, t));
+  groups.clear();
+  (r.groups||[]).forEach(g => groups.set(g.id, g));
   runs.clear();
   (r.runs||[]).forEach(rn => runs.set(rn.id, { ...rn, events: rn.events||[] }));
   if (r.daemon) {
@@ -1048,7 +1107,7 @@ function connectWS(){
       render(); flash(ev.runId); paintModal();
     } else if (ev.type==='task'){
       const t = tasks.get(ev.taskId);
-      if (t){ t.status = ev.status; render(); paintModal(); } else { hydrate(); }
+      if (t){ if (ev.status!=null) t.status = ev.status; if (ev.groupId!=null) t.groupId = ev.groupId; render(); paintModal(); } else { hydrate(); }
     } else if (ev.type==='capture'){
       captures.push(ev.capture); paintSidebar();
     }
@@ -1174,6 +1233,51 @@ $('selGo').addEventListener('click', async ()=>{
   } else toast('integrate: '+(j.error||res.status), 'error');
 });
 
+/* ── 그룹 밴드 액션 (fold / Select runs / Close group) ── */
+$('grid').addEventListener('click', async (e)=>{
+  const fold = e.target.closest('[data-gfold]');
+  if (fold){ const g=Number(fold.dataset.gfold); if(gfold.has(g)) gfold.delete(g); else gfold.add(g); saveGfold(); render(); return; }
+  const gsel = e.target.closest('[data-gsel]');
+  if (gsel){
+    const g=Number(gsel.dataset.gsel);
+    if (!selectMode) setSelectMode(true);
+    const tids = new Set([...tasks.values()].filter(t=>t.groupId===g).map(t=>t.id));
+    for (const r of [...runs.values()].sort((a,b)=>a.id-b.id)){
+      if (!tids.has(r.taskId)) continue;
+      const ok = ['done','failed','stopped'].includes(r.status) && (r.filesChanged||0)>0 && r.status!=='merged';
+      if (ok && !selected.has(r.id)){ selected.add(r.id); selOrder.push(r.id); }
+    }
+    $('selCnt').textContent = selected.size + ' selected';
+    render();
+    if (!selected.size) toast('no settled runs with changes in this group yet', 'error');
+    return;
+  }
+  const gclose = e.target.closest('[data-gclose]');
+  if (gclose){ await closeGroup(Number(gclose.dataset.gclose)); return; }
+});
+async function closeGroup(g){
+  const tids = [...tasks.values()].filter(t=>t.groupId===g && t.status!=='closed').map(t=>t.id);
+  if (!tids.length){ toast('nothing open in this group', 'ok'); return; }
+  const grp = groups.get(g)||{};
+  const yes = await confirmUI('Close this whole group?',
+    { sub: (grp.title||'group')+' — stops and cleans every worktree/branch of '+tids.length+' task(s).', danger:true, okLabel:'Close group' });
+  if (!yes) return;
+  const closeOne = (id,force)=>fetch('/api/tasks/'+id+'/close',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({force})});
+  const risky = [];
+  for (const id of tids){
+    const res = await closeOne(id,false);
+    if (res.status===409){ const j=await res.json().catch(()=>({})); (j.atRisk||[]).forEach(a=>risky.push(a)); }
+  }
+  if (risky.length){
+    const list = risky.map(a=>'r'+a.runId+' · '+a.filesChanged+' file'+(a.filesChanged>1?'s':'')).join(' · ');
+    const ok = await confirmUI('Close and delete unmerged output?',
+      { danger:true, sub: list+' — not merged, not exported. Worktrees are deleted on close.', okLabel:'Close anyway' });
+    if (!ok){ await hydrate(); return; }
+    for (const id of tids) await closeOne(id,true);
+  }
+  toast('closed '+tids.length+' task'+(tids.length>1?'s':'')+' in the group', 'ok');
+  await hydrate();
+}
 $('grid').addEventListener('click',(e)=>{
   const card = e.target.closest('.card'); if(!card) return;
   const id = Number(card.id.replace('card-',''));

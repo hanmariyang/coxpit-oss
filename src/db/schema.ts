@@ -32,6 +32,14 @@ export const designCaptures = sqliteTable('design_captures', {
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 
+/** 태스크 그룹 — 한 goal(plan fan-out)·한 swarm(에이전트 서브태스크)에서 난 형제들. */
+export const taskGroups = sqliteTable('task_groups', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  kind: text('kind').notNull().default('goal'), // 'goal' | 'swarm'
+  title: text('title').notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
+
 /** 하나의 요청. 여러 AgentRun 으로 병렬 시도됨. */
 export const tasks = sqliteTable('tasks', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -41,6 +49,7 @@ export const tasks = sqliteTable('tasks', {
   status: text('status').notNull().default('open'), // open | done
   designCaptureId: integer('design_capture_id'), // 선택 — 프롬프트에 DESIGN CONTEXT 주입
   parentRunId: integer('parent_run_id'), // 에이전트 셀프 오케스트레이션 — 이 태스크를 발사한 run
+  groupId: integer('group_id'), // task_groups — goal/swarm 형제 묶음(수동 태스크는 NULL)
   createdAt: integer('created_at', { mode: 'timestamp' }),
 });
 

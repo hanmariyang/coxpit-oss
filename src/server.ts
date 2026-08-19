@@ -10,7 +10,7 @@ import { eq } from 'drizzle-orm';
 import { authGate } from './auth';
 import { config } from './config';
 import { db } from './db';
-import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks } from './db/schema';
+import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk } from './orchestrator';
@@ -171,13 +171,14 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // 보드 하이드레이션 — machines/repos/tasks/runs(+events)/captures 한 방에.
   app.get('/api/fleet', async () => {
-    const [ms, rs, ts, rns, evs, dcs] = await Promise.all([
+    const [ms, rs, ts, rns, evs, dcs, gs] = await Promise.all([
       db.select().from(machines),
       db.select().from(repos),
       db.select().from(tasks),
       db.select().from(agentRuns),
       db.select().from(agentEvents),
       db.select().from(designCaptures),
+      db.select().from(taskGroups),
     ]);
     const byRun = new Map<number, Array<{ kind: string; payload: string }>>();
     for (const e of evs) {
@@ -186,7 +187,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       byRun.set(e.runId, arr);
     }
     return {
-      machines: ms, repos: rs, tasks: ts, captures: dcs,
+      machines: ms, repos: rs, tasks: ts, captures: dcs, groups: gs,
       runs: rns.map((r) => ({ ...r, events: byRun.get(r.id) ?? [] })),
       // 보드 헤더 "어느 데몬에 붙어 있나" 표시용 (인증 뒤라 dbPath 노출 가능)
       daemon: { version: config.version, pid: process.pid, port: config.port, dbPath: config.dbPath },

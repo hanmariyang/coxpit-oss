@@ -8,7 +8,7 @@ import type { ChildProcess } from 'node:child_process';
 import { eq } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
-import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots } from './db/schema';
+import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots, taskGroups } from './db/schema';
 import { runShellOn, spawnShellOn, shq, type MachineTarget } from './exec';
 import { broadcast } from './hub';
 import { getProvider, type Provider } from './providers';
@@ -134,9 +134,17 @@ export async function spawnSubtasks(parentRunId: number, title: string, prompt: 
   // 폭주 가드 — 한 부모가 만들 수 있는 하위 태스크 상한
   const siblings = await db.select().from(tasks).where(eq(tasks.parentRunId, parentRunId));
   if (siblings.length >= 8) return { ok: false, detail: 'subtask limit reached (8 per run)' };
+  // 그룹 — 부모가 이미 그룹에 속하면 그 그룹, 아니면 swarm 그룹 생성 후 부모까지 백필.
+  let groupId = pt.groupId ?? null;
+  if (groupId == null) {
+    const gIns = await db.insert(taskGroups).values({ kind: 'swarm', title: pt.title.slice(0, 140) }).returning();
+    groupId = gIns[0]!.id;
+    await db.update(tasks).set({ groupId }).where(eq(tasks.id, pt.id));
+    broadcast({ type: 'task', taskId: pt.id, groupId });
+  }
   const n = Math.max(1, Math.min(4, count || 1));
   const tIns = await db.insert(tasks).values({
-    repoId: pt.repoId, title: title.slice(0, 140), prompt, parentRunId,
+    repoId: pt.repoId, title: title.slice(0, 140), prompt, parentRunId, groupId,
   }).returning();
   const task = tIns[0]!;
   const runIds: number[] = [];
@@ -714,9 +722,13 @@ export async function planFanout(repoId: number, goal: string, real: boolean): P
     if (plan.length < 1) return { ok: false, detail: 'planner returned no tasks' };
   }
 
+  // 이 goal 의 형제들을 한 그룹으로 묶는다(보드 밴드). 드라이 리허설도 동일.
+  const gIns = await db.insert(taskGroups).values({ kind: 'goal', title: goal.slice(0, 140) }).returning();
+  const groupId = gIns[0]!.id;
+
   const created: Array<{ id: number; title: string; runId: number }> = [];
   for (const t of plan) {
-    const tIns = await db.insert(tasks).values({ repoId, title: t.title, prompt: t.prompt }).returning();
+    const tIns = await db.insert(tasks).values({ repoId, title: t.title, prompt: t.prompt, groupId }).returning();
     const task = tIns[0]!;
     const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent: 'claude-code', status: 'pending' }).returning();
     const run = rIns[0]!;

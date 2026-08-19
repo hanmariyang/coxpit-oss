@@ -83,6 +83,12 @@ export async function ensureSchema(): Promise<void> {
       content TEXT NOT NULL DEFAULT '',
       created_at INTEGER DEFAULT (unixepoch())
     );
+    CREATE TABLE IF NOT EXISTS task_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL DEFAULT 'goal',
+      title TEXT NOT NULL,
+      created_at INTEGER DEFAULT (unixepoch())
+    );
   `);
   // 기존 DB 마이그레이션(멱등)
   try { await client.execute('ALTER TABLE tasks ADD COLUMN design_capture_id INTEGER'); } catch { /* exists */ }
@@ -90,4 +96,5 @@ export async function ensureSchema(): Promise<void> {
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
   try { await client.execute('ALTER TABLE tasks ADD COLUMN parent_run_id INTEGER'); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN model TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
+  try { await client.execute('ALTER TABLE tasks ADD COLUMN group_id INTEGER'); } catch { /* exists */ }
 }

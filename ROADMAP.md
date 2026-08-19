@@ -88,19 +88,19 @@ What a run produced should outlive its worktree, and you should choose who produ
 - [x] Closed cards read as closed: dim + desaturate, diagonal hatching over the
       timeline area with a CLOSED stamp — status chips stay (history at a glance)
 
-### v4.2 — the board knows its groups
+### v4.2 — the board knows its groups *(shipped)*
 Five runs born from one goal look like five strangers today. Grouping is recorded
 for agent-spawned subtasks (`parentRunId`) but not for plan fan-out — and the board
 shows neither.
 
-- [ ] Group model: stamp plan-fan-out tasks with a shared group (goal) id;
+- [x] Group model: stamp plan-fan-out tasks with a shared group (goal) id;
       agent-spawned subtasks join their parent's group
-- [ ] Group bands on the board: cards stay first-class, but siblings cluster under
+- [x] Group bands on the board: cards stay first-class, but siblings cluster under
       a thin header ("⌁ Goal: … · 5 tasks · 3 done") with a shared accent tint —
       not nested cards (single-run tasks are the common case; the fleet view stays flat)
-- [ ] Attempt counter on multi-run tasks: "run 2/3" chip so same-title cards
+- [x] Attempt counter on multi-run tasks: "run 2/3" chip so same-title cards
       read as attempts, not duplicates
-- [ ] Group actions on the band: select-all → Integrate, review the group,
+- [x] Group actions on the band: select-all → Integrate, review the group,
       close the group — the whole goal wrap-up in one place
 
 ### v4.3 — the logbook

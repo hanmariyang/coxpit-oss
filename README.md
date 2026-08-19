@@ -110,7 +110,7 @@ One daemon, one SQLite file, zero external services. Machines are reached over S
 
 ## Status
 
-`v4.1` — fleet, two providers (Claude Code · Codex) with per-launch model choice, compare/merge + AI review + doc mode with settle-time snapshots, terminal (full-screen, session tabs, mobile input bar), swarm (plan fan-out · integrate · agent self-orchestration), sessions (steer/ask · resume), mobile board with deep links, GitHub import, read-only share links that render documents, a close guard, and per-repo base branch override — all shipped and e2e-tested (35 checks). Roadmap: ROADMAP.md.
+`v4.2` — everything in v4.1 plus **run grouping**: goal fan-outs and agent swarms cluster into bands on the board (title · N tasks · M settled, with fold, group Select runs, and Close group), and multi-run tasks get `run i/n` attempt counters so same-title cards read as attempts, not duplicates. All shipped and e2e-tested (36 checks). Roadmap: ROADMAP.md.
 
 ## License
 
