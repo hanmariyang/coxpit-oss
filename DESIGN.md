@@ -42,7 +42,7 @@ Type: UI text 13–14px sans; data (ids, branches, logs, diffs, versions) always
 | PR affordance | `Open PR` ghost in compare · `PR` + `#i-external-link` link on cards | once a run has a PR, the button becomes the link — never both |
 | Select mode | `Select runs` toolbar toggle + `.selbar` | cards grow a ✓ circle; click toggles instead of opening; the floating bar states the consequence ("merges in selection order · conflicts spawn an integration agent") |
 | Plan form | `#planForm` sidebar section | one goal → planner splits → auto-launch; button narrates its long wait ("Planning… (1–3 min)"); follows the global Dry/Real mode |
-| AI review panel | `#cmpReview` above compare columns | reviewer digests every diff into approach/pros/cons/recommendation (mdLite-rendered) — the human judges, not reads |
+| AI review panel | `#cmpReview` above compare columns | reviewer digests every diff into approach/pros/cons/recommendation (mdLite-rendered) — the human judges, not reads | — full-height scrollable pane; the AI-review button toggles it in place of the diff columns
 | Timeline lines | `humanize()` | never raw JSON: `said`/`tool ▸ Name — file`/`done`/`steer`/`ask ?`/`sync`; rate-limit and tool-result echoes are dropped as noise. The modal always refetches the full timeline on open (`GET /api/runs/:id`) — the fleet payload caps events at 40/run |
 | Session bar | Work/Ask mini-seg + input in run modal | the run IS a session: Work = next instruction, Ask = question only (no file changes); Sync base refreshes a long-lived worktree |
 | Notify bell | `#bell` header toggle (`#i-bell-off`/`#i-bell`) | browser notification on run settle; server-side twin is `COXPIT_WEBHOOK_URL` (JSON `run.settled` POST) |

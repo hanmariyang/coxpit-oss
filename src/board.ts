@@ -570,8 +570,8 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
   /* ── AI review panel (compare) ── */
-  .cmp-review{border-bottom:1px solid var(--line);background:var(--surface2);padding:14px 20px;
-    max-height:42vh;overflow:auto;font-size:13px;line-height:1.65;color:var(--muted)}
+  .cmp-review{flex:1;min-height:0;overflow:auto;background:var(--surface2);
+    padding:20px max(20px,calc((100% - 880px)/2));font-size:13.5px;line-height:1.7;color:var(--muted)}
   .cmp-review[hidden]{display:none}
   .cmp-review h2{font-size:13px;color:var(--brand);margin:14px 0 6px;letter-spacing:.02em}
   .cmp-review h3{font-size:12.5px;color:var(--ink);margin:12px 0 4px}
@@ -2257,6 +2257,7 @@ async function openCompare(taskId){
   cmpTaskId = taskId;
   cmpDocMode = false; $('cmpDocsTgl').textContent = 'Rendered';
   $('cmpReview').hidden = true; $('cmpReview').innerHTML = '';
+  $('cmpBody').hidden = false; $('cmpAI').textContent = 'AI review'; $('cmpAI').classList.remove('on');
   $('cmpOverlay').classList.add('open');
   $('cmpBody').innerHTML = '<div class="empty" style="flex:1">loading…</div>';
   await paintCompare();
@@ -2347,18 +2348,30 @@ function mdLite(src){
 }
 $('cmpAI').addEventListener('click', async ()=>{
   if (cmpTaskId==null) return;
-  const yes = await confirmUI('Run an AI review of these implementations?',
-    { sub: 'A reviewer agent reads every diff and summarizes each approach, pros/cons, and a recommendation — so you judge instead of reading all the code. Real agent, spends credits (~1–2 min).', okLabel: 'Review' });
-  if (!yes) return;
   const btn = $('cmpAI');
-  btn.disabled = true; btn.textContent = 'Reviewing…';
-  try{
-    const res = await fetch('/api/tasks/'+cmpTaskId+'/review',{method:'POST',
-      headers:{'content-type':'application/json'}, body:JSON.stringify({real:true})});
-    const j = await res.json().catch(()=>({}));
-    if (res.ok){ $('cmpReview').innerHTML = mdLite(j.review||''); $('cmpReview').hidden = false; }
-    else toast('review: '+(j.detail||res.status), 'error');
-  } finally { btn.disabled = false; btn.textContent = 'AI review'; }
+  // 이미 리뷰가 떠 있으면 → diff 로 토글백
+  if (!$('cmpReview').hidden){
+    $('cmpReview').hidden = true; $('cmpBody').hidden = false;
+    btn.classList.remove('on'); btn.textContent = 'AI review';
+    return;
+  }
+  // 아직 안 불러왔으면 확인 후 리뷰 실행(같은 compare 안에선 1회만)
+  if (!$('cmpReview').innerHTML.trim()){
+    const yes = await confirmUI('Run an AI review of these implementations?',
+      { sub: 'A reviewer agent reads every diff and summarizes each approach, pros/cons, and a recommendation — so you judge instead of reading all the code. Real agent, spends credits (~1–2 min).', okLabel: 'Review' });
+    if (!yes) return;
+    btn.disabled = true; btn.textContent = 'Reviewing…';
+    try{
+      const res = await fetch('/api/tasks/'+cmpTaskId+'/review',{method:'POST',
+        headers:{'content-type':'application/json'}, body:JSON.stringify({real:true})});
+      const j = await res.json().catch(()=>({}));
+      if (!res.ok){ toast('review: '+(j.detail||res.status), 'error'); btn.disabled = false; btn.textContent = 'AI review'; return; }
+      $('cmpReview').innerHTML = mdLite(j.review||'');
+    } finally { btn.disabled = false; }
+  }
+  // 리뷰를 풀높이로, diff 컬럼은 숨김
+  $('cmpReview').hidden = false; $('cmpBody').hidden = true;
+  btn.classList.add('on'); btn.textContent = 'Diffs';
 });
 $('mCompare').addEventListener('click', ()=>{
   if (openRunId==null) return;
