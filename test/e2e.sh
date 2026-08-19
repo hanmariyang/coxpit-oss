@@ -341,6 +341,15 @@ curl -sf -X POST "$B/api/tasks/$ITID/close" -H 'content-type: application/json' 
 [ -z "$(git -C "$REPO" branch --list 'coxpit/*')" ] || fail "branches not cleaned"
 pass "task close cleans worktrees + branches"
 
+# v4.7 P3 (terminal guard) — cleanupRun clears the run's stale worktree/tmux pointers so
+# getRunTermInfo returns null and /ws/term/:id gives a clean error (never attaches a dead session).
+CLR=$(curl -s "$B/api/fleet?view=all" | python3 -c 'import sys,json
+d=json.load(sys.stdin)
+r=[r for r in d["runs"] if r["id"]==1][0]
+print("CLR_OK" if r.get("worktreePath","")=="" and r.get("tmuxWindow","")=="" else "CLR_BAD "+repr((r.get("worktreePath"),r.get("tmuxWindow"))))')
+case "$CLR" in *CLR_OK*) : ;; *) fail "closed run keeps stale term pointers: $CLR";; esac
+pass "terminal guard: cleanupRun clears worktreePath/tmuxWindow on close (dead-session attach avoided)"
+
 # v4.3 A/C — 기본 fleet 은 닫힌 태스크 제외, view=all 은 포함, counts + 이벤트 40캡 + 전체 record
 V43=$(python3 - "$B" <<'PYEOF'
 import sys,json,urllib.request as R
@@ -529,6 +538,21 @@ case "$BOARD_HTML" in *'id="roomAsk"'*) : ;; *) fail "workroom Ask send button m
 case "$BOARD_HTML" in *'data-groom='*) : ;; *) fail "Open workroom control missing";; esac
 case "$BOARD_HTML" in *'Open workroom'*) : ;; *) fail "Open workroom label missing";; esac
 pass "board serves goal workroom (#groupRoomOverlay + seg + Open workroom entry)"
+
+# v4.7 P3 — converge cockpit UI contract: group action bar + per-run decision rows + reuse hooks
+case "$BOARD_HTML" in *'id="roomGbar"'*) : ;; *) fail "converge group action bar missing";; esac
+case "$BOARD_HTML" in *'id="roomIntegrateSel"'*) : ;; *) fail "Integrate 선택 button missing";; esac
+case "$BOARD_HTML" in *'id="roomReviewAll"'*) : ;; *) fail "전체 리뷰 button missing";; esac
+case "$BOARD_HTML" in *'id="roomGroupClose"'*) : ;; *) fail "그룹 클로즈 button missing";; esac
+case "$BOARD_HTML" in *'id="roomRuns"'*) : ;; *) fail "per-run decision list container missing";; esac
+case "$BOARD_HTML" in *'function roomRunRowHTML'*) : ;; *) fail "run decision row renderer missing";; esac
+case "$BOARD_HTML" in *'function roomRunAction'*) : ;; *) fail "run action dispatch (merge/steer/review/close) missing";; esac
+case "$BOARD_HTML" in *'data-ract="merge"'*) : ;; *) fail "inline 머지 action missing";; esac
+case "$BOARD_HTML" in *'data-ract="close"'*) : ;; *) fail "inline 클로즈 action missing";; esac
+case "$BOARD_HTML" in *'function roomLoadRunOutputs'*) : ;; *) fail "expand peek reuse of /outputs cards missing";; esac
+case "$BOARD_HTML" in *'function renderOutCardInto'*) : ;; *) fail "shared P2 output-card viewer (expand reuse) missing";; esac
+case "$BOARD_HTML" in *'function termUnavailReason'*) : ;; *) fail "terminal-guard reason helper missing";; esac
+pass "board serves converge cockpit (group bar + per-run decision rows + P2 card reuse + terminal guard)"
 # 방 태스크 정리
 for TID in $(curl -s "$B/api/fleet" | python3 -c 'import sys,json;d=json.load(sys.stdin);print(" ".join(str(t["id"]) for t in d["tasks"] if t.get("groupId")=='"$WGID"'))'); do
   curl -s -X POST "$B/api/tasks/$TID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null

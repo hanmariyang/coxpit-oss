@@ -194,6 +194,64 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .conv .turn .msg{color:var(--ink);white-space:pre-wrap;word-break:break-word;line-height:1.55}
   .conv .turn.you .msg{color:var(--muted)}
   .conv .turn .ro-note{font-family:var(--mono);font-size:9.5px;color:var(--faint);letter-spacing:.02em}
+  /* ── v4.7 converge cockpit — group action bar + per-run decision rows ── */
+  .gbar{display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);
+    background:var(--surface2);font-family:var(--mono);font-size:11.5px}
+  .gbar .selc{color:var(--muted)}
+  .gbar .sp{flex:1}
+  .gbar button{font-family:var(--mono);font-size:11.5px;background:transparent;border:1px solid var(--line-hi);
+    color:var(--muted);border-radius:7px;padding:5px 11px;cursor:pointer}
+  .gbar button:hover{color:var(--ink);border-color:var(--line-hi)}
+  .gbar button.brand{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);font-weight:700}
+  .gbar button.brand[disabled]{opacity:.4;cursor:not-allowed}
+  .gbar button.danger{color:var(--s-failed);border-color:rgba(226,91,103,.4)}
+  .runs{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+  .runs .empty-note{color:var(--faint);font-family:var(--mono);font-size:11.5px;text-align:center;padding:24px 0}
+  .run{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+  .run.sel{border-color:var(--brand);box-shadow:inset 0 0 0 1px var(--brand-dim)}
+  .run.dim{opacity:.6}
+  .run-h{display:flex;align-items:center;gap:11px;padding:11px 13px;cursor:pointer}
+  .run-h .cb{width:14px;height:14px;border:1px solid var(--line-hi);border-radius:4px;flex:none;
+    display:inline-flex;align-items:center;justify-content:center;color:var(--brand);font-size:10px;cursor:pointer}
+  .run.sel .run-h .cb{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+  .run .dot{width:8px;height:8px;border-radius:50%;flex:none}
+  .run-id{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--ink);flex:none}
+  .run-title{font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .run-meta{font-family:var(--mono);font-size:10.5px;color:var(--faint);flex:none}
+  .run-badge{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:999px;flex:none}
+  .run-badge.merged{color:var(--s-merged);border:1px solid rgba(78,201,176,.4)}
+  .run-badge.running{color:var(--s-running);border:1px solid rgba(85,167,224,.4)}
+  .run-h .grow{flex:1}
+  .run .acts{display:flex;gap:6px;flex:none}
+  .run .acts .b{font-family:var(--sans);font-size:11.5px;font-weight:600;border-radius:7px;padding:5px 11px;
+    cursor:pointer;border:1px solid var(--line-hi);background:transparent;color:var(--muted)}
+  .run .acts .b:hover{color:var(--ink)}
+  .run .acts .b.merge{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+  .run .acts .b.close:hover{color:var(--s-failed);border-color:rgba(226,91,103,.45)}
+  .run .acts .b.ghost{color:var(--muted)}
+  .run .caret{color:var(--faint);font-family:var(--mono);font-size:12px;flex:none;width:14px;text-align:center;
+    transition:transform .16s}
+  .run.open .caret{transform:rotate(90deg)}
+  .run-b{display:none;border-top:1px solid var(--line);padding:12px 14px 14px;background:#0e1118}
+  .run.open .run-b{display:block}
+  .run-b .rout{margin-bottom:10px}
+  .run-b .rout-cards{display:flex;flex-direction:column;gap:6px}
+  .run-b .ocard{padding:8px 11px}
+  .run-b .rout-detail{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .run-b .rout-back{font-family:var(--mono);font-size:10.5px;color:var(--muted);cursor:pointer;
+    padding:7px 11px;border-bottom:1px solid var(--line);background:var(--surface2)}
+  .run-b .rout-back:hover{color:var(--brand)}
+  .run-b .rout-body{padding:10px 12px;max-height:300px;overflow:auto}
+  .run-b .review{margin:10px 0;display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.55}
+  .run-b .review .rk{font-family:var(--mono);font-size:10.5px;color:var(--brand);flex:none;padding-top:2px}
+  .run-b .review .rt{color:var(--muted)}
+  .run-b .fix{margin-top:10px;display:flex;gap:8px}
+  .run-b .fix input{flex:1;background:var(--bg);border:1px solid var(--line-hi);border-radius:7px;color:var(--ink);
+    font-family:var(--sans);font-size:12.5px;padding:8px 11px;outline:none}
+  .run-b .fix input:focus{border-color:var(--brand)}
+  .run-b .fix .b{white-space:nowrap;font-family:var(--sans);font-size:11.5px;font-weight:600;border-radius:7px;
+    padding:5px 11px;cursor:pointer;border:1px solid var(--line-hi);background:transparent;color:var(--muted)}
+  .run-b .fix .b:hover{color:var(--ink);border-color:var(--brand)}
   .send-only{display:flex;gap:8px;align-items:center}
   .send-only .ro-hint{flex:1;font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.02em}
   .composer{border-top:1px solid var(--line);padding:12px 18px;display:flex;flex-direction:column;gap:8px}
@@ -719,8 +777,15 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <button class="x" id="roomClose" aria-label="close">×</button>
     </div>
     <div class="chips" id="roomChips"></div>
+    <div class="gbar" id="roomGbar">
+      <span class="selc" id="roomSelC">☑ 0 selected</span>
+      <button type="button" class="brand" id="roomIntegrateSel">Integrate 선택 (0)</button>
+      <span class="sp"></span>
+      <button type="button" id="roomReviewAll">전체 리뷰</button>
+      <button type="button" class="danger" id="roomGroupClose">그룹 클로즈</button>
+    </div>
     <div class="body">
-      <div class="feed" id="roomFeed"></div>
+      <div class="runs" id="roomRuns"></div>
       <div class="conv" id="roomConv" hidden></div>
     </div>
     <div class="composer">
@@ -1505,6 +1570,14 @@ function connectWS(){
 
 /* ── run detail modal ── */
 let openRunId = null;
+/* 터미널이 붙을 수 없는 사유(있으면 그 문자열, 없으면 '') — 닫힌 task·정리된 worktree.
+   cleanupRun 이 worktreePath 를 비우므로 merged/cleanup/closed 는 모두 여기서 걸린다. */
+function termUnavailReason(r, task){
+  if (task && task.status==='closed') return 'worktree cleaned — terminal unavailable (task closed)';
+  if (r.status==='merged') return 'worktree cleaned — terminal unavailable (merged)';
+  if ('worktreePath' in r && !r.worktreePath) return 'worktree cleaned — terminal unavailable';
+  return '';
+}
 function paintModal(){
   if (openRunId==null) return;
   const r = runs.get(openRunId); if(!r) return;
@@ -1519,6 +1592,12 @@ function paintModal(){
   $('mStop').style.display = (r.status==='running'||r.status==='preparing'||r.status==='pending') ? '' : 'none';
   // steer 는 정착한 real run 에서만 의미(드라이런은 세션 없음 — 서버가 사유와 함께 거절)
   $('steerRow').style.display = ['done','failed','stopped'].includes(r.status) ? '' : 'none';
+  // 터미널 가드 — 닫힌 task·worktree 정리된 run(merged/cleanup) 은 tmux 세션이 죽어
+  //   attach 하면 에러. 버튼을 잠그고 사유를 툴팁으로.
+  const termGuard = termUnavailReason(r, task);
+  const tbtn = $('mTerm');
+  tbtn.disabled = !!termGuard;
+  tbtn.title = termGuard || 'attach a tmux terminal to this run';
   $('mTimeline').innerHTML = humanLines(r.events).map(h =>
     '<div class="ev"><span class="k">'+esc(h.k)+'</span><span class="t">'+esc(h.t)+'</span></div>'
   ).join('') || '<span style="color:var(--faint)">no events yet</span>';
@@ -1608,30 +1687,30 @@ function showOutDetail(){
   $('outWrap').classList.add('detailing');
   $('outDetail').classList.add('on');
 }
-async function openOutCard(i){
-  const c = outCards[i]; if (!c || !c.present) return;
-  const rid = openRunId;
-  const box = $('outDetailC');
+/* 카드 상세 렌더러(재사용) — 모달 오른쪽 컬럼과 워크룸 펼침 peek 이 공유.
+   rid = 대상 run, c = 카드, box = 그릴 곳, alive() = 아직 이 뷰가 유효한지(스테일 가드). */
+async function renderOutCardInto(rid, c, box, alive){
+  if (!c || !c.present) return;
+  const ok = alive || (()=>true);
   box.innerHTML = '<span style="color:var(--faint);font-family:var(--mono);font-size:11px">rendering…</span>';
-  showOutDetail();
   try{
     if (c.type==='answer' || c.type==='doc'){
       const q = '/api/runs/'+rid+'/output?type='+c.type+(c.path?'&path='+encodeURIComponent(c.path):'');
       const j = await fetch(q).then(x=>x.json());
-      if (rid!==openRunId) return;
+      if (!ok()) return;
       box.innerHTML = (c.path?'<div class="doc-h">'+esc(c.path)+'</div>':'')
         + '<div class="doc-md">'+mdLite(j.content||'')+'</div>';
     } else if (c.type==='page'){
       const q = '/api/runs/'+rid+'/output?type=page'+(c.path?'&path='+encodeURIComponent(c.path):'');
       const j = await fetch(q).then(x=>x.json());
-      if (rid!==openRunId) return;
+      if (!ok()) return;
       box.innerHTML = (c.path?'<div class="doc-h">'+esc(c.path)+'</div>':'')
         + '<iframe class="doc-frame" sandbox="" srcdoc="'+escA(j.content||'')+'"></iframe>';
     } else if (c.type==='code'){
-      box.innerHTML = '<pre class="diff" id="mDiff">loading…</pre>';
+      box.innerHTML = '<pre class="diff">loading…</pre>';
       const d = await fetch('/api/runs/'+rid+'/diff').then(x=>x.json());
-      if (rid!==openRunId) return;
-      const pre = $('mDiff'); if (!pre) return;
+      if (!ok()) return;
+      const pre = box.querySelector('pre.diff'); if (!pre) return;
       if (!d.ok){ pre.textContent = d.stat||'no worktree — diff unavailable'; return; }
       pre.innerHTML = diffHTML(d.diff||'');
     } else if (c.type==='file'){
@@ -1646,7 +1725,7 @@ async function openOutCard(i){
         if (isText){
           try{
             const r = await fetch(raw);
-            if (rid===openRunId && r.ok){
+            if (ok() && r.ok){
               const t = await r.text();
               extra = '<pre class="diff" style="margin-top:8px">'+esc(t.slice(0,20000))+'</pre>';
             }
@@ -1657,6 +1736,12 @@ async function openOutCard(i){
       }
     }
   }catch{ box.innerHTML = '<span style="color:var(--faint)">viewer failed</span>'; }
+}
+async function openOutCard(i){
+  const c = outCards[i]; if (!c || !c.present) return;
+  const rid = openRunId;
+  showOutDetail();
+  await renderOutCardInto(rid, c, $('outDetailC'), ()=>rid===openRunId);
 }
 function docsHTML(docs){
   if (!docs.length) return '<span style="color:var(--faint)">no changed docs (md/html) in this worktree</span>';
@@ -1994,7 +2079,6 @@ $('mCompare').addEventListener('click', ()=>{
 let roomGroupId = null;               // 열려있는 그룹 id (null = 닫힘)
 const roomRunSet = new Set();         // 이 그룹에 속한 runId — WS 필터용
 let roomRuns = [];                    // 마지막 aggregate 의 runs (chips/scope hint)
-const roomExtra = [];                 // goal-level 마커(spawn/broadcast) — 피드에 섞음
 const roomTurns = [];                 // Ask 대화 턴 [{role:'you'|'coord', text}] — 읽기 전용
 let roomMode = 'work';                // 'work' | 'ask' — 방 composer 모드(스틸모드와 무관, 방 전용)
 /* run → 상태색 (chip / who) */
@@ -2013,27 +2097,103 @@ function roomRenderChips(){
     ? roomRuns.map(roomChipHTML).join('')
     : '<span style="color:var(--faint);font-family:var(--mono);font-size:11.5px">no runs yet</span>';
 }
-function roomFeedLine(who, whoStatus, text, mark){
-  return '<div class="fl'+(mark?' mark':'')+'"><span class="who" style="color:'
-    + (mark?'var(--brand)':roomStatusColor(whoStatus))+'">'+esc(who)+'</span>'
-    + '<span class="ft">'+esc(text)+'</span></div>';
+/* ── 수렴 콕핏(Work body) — run 하나당 결정 행. 서버 엔드포인트만 재사용(merge/steer/review/close). ──
+   접힘 head = 체크박스·상태점·rN·제목·메타·인라인[리뷰][수정][머지][클로즈]·caret.
+   펼침 body = P2 출력 카드(리뷰 peek, renderRunOutputsInto 재사용) + 수정(steer) 입력. */
+const roomSel = new Set();      // Integrate 선택된 runId
+const roomOpen = new Set();     // 펼쳐진 runId (WS 재렌더에도 유지)
+function roomDone(s){ return ['done','failed','stopped'].includes(s); }
+function roomRunRowHTML(r){
+  const s = r.status||'pending';
+  const merged = s==='merged';
+  const running = r.live || s==='running' || s==='preparing' || s==='pending';
+  const sel = roomSel.has(r.runId);
+  const open = roomOpen.has(r.runId);
+  const dotCls = merged?'merged':(running?'running':(s==='failed'?'failed':'done'));
+  const meta = (r.agent?esc(r.agent)+' · ':'') + (r.filesChanged? '+'+r.filesChanged+'f' : 'no changes');
+  let acts;
+  if (merged){
+    acts = '<div class="acts"><button class="b ghost" data-ract="open" data-rrid="'+r.runId+'">열기</button></div>';
+  } else if (running){
+    acts = '<div class="acts"><button class="b ghost" data-ract="open" data-rrid="'+r.runId+'">열기 · 정착 후 결정</button></div>';
+  } else {
+    acts = '<div class="acts">'
+      + '<button class="b ghost" data-ract="review" data-rrid="'+r.runId+'">리뷰</button>'
+      + '<button class="b" data-ract="fix" data-rrid="'+r.runId+'">수정</button>'
+      + '<button class="b merge" data-ract="merge" data-rrid="'+r.runId+'">머지</button>'
+      + '<button class="b close" data-ract="close" data-rrid="'+r.runId+'">클로즈</button>'
+      + '</div>';
+  }
+  const badge = merged
+    ? '<span class="run-badge merged">merged → base</span>'
+    : (running ? '<span class="run-badge running">running</span>' : '');
+  // running·merged 는 체크박스로 선택 불가(정착·미머지만 Integrate 대상)
+  const selectable = !merged && !running && (r.filesChanged||0)>0;
+  const cb = '<span class="cb" data-rcb="'+(selectable?r.runId:'')+'"'+(selectable?'':' style="opacity:.4;cursor:default"')+'>'+(sel?'✓':'')+'</span>';
+  return '<div class="run'+(sel?' sel':'')+(merged?' dim':'')+(open?' open':'')+'" data-rrun="'+r.runId+'">'
+    + '<div class="run-h">'+cb
+    + '<span class="dot '+dotCls+'"></span>'
+    + '<span class="run-id">r'+r.runId+'</span>'
+    + '<span class="run-title">'+esc(r.title||'task '+r.taskId)+'</span>'
+    + '<span class="grow"></span>'
+    + badge
+    + '<span class="run-meta">'+meta+'</span>'
+    + acts
+    + '<span class="caret">›</span>'
+    + '</div>'
+    + '<div class="run-b" data-rbody="'+r.runId+'">'
+    +   '<div class="rout" data-rout="'+r.runId+'"><div class="rout-cards"><div class="ocards-empty">…</div></div></div>'
+    +   (roomDone(s) && r.steerable
+        ? '<div class="fix"><input data-rfix="'+r.runId+'" placeholder="수정 지시 — 같은 세션·worktree 이어서…" />'
+          + '<button class="b" data-ract="fixsend" data-rrid="'+r.runId+'">수정 지시 → 세션 이어서</button></div>'
+        : '<div class="review"><span class="rk">·</span><span class="rt">이 run 은 steer 불가('
+          + (running?'아직 실행 중':(roomDone(s)?'세션 없음 — dry/정리됨':'상태 '+esc(s)))+').</span></div>')
+    + '</div></div>';
 }
-function roomRenderFeed(events){
-  // run 이벤트 + goal-level 마커를 시간(id/순서)대로. 간단히: 이벤트 먼저, 마커는 append.
-  const statusOf = (rid)=>{ const r = roomRuns.find(x=>x.runId===rid); return r? r.status : 'pending'; };
-  const rows = [];
-  for (const e of (events||[])){
-    const h = humanize({ kind:e.kind, payload:e.payload });
-    if (!h) continue;
-    const list = Array.isArray(h) ? h : [h];
-    for (const x of list) rows.push(roomFeedLine('r'+e.runId, statusOf(e.runId), x.k+' · '+x.t, false));
+function roomRenderRuns(){
+  const el = $('roomRuns');
+  if (!roomRuns.length){
+    el.innerHTML = '<div class="empty-note">no runs yet — spawn an attempt or wait for the plan to fan out</div>';
+    roomUpdateGbar(); return;
   }
-  for (const m of roomExtra){
-    rows.push(roomFeedLine(m.who, 'pending', m.text, true));
+  el.innerHTML = roomRuns.map(roomRunRowHTML).join('');
+  // 펼쳐진 행의 출력 카드 재하이드레이트
+  for (const r of roomRuns){ if (roomOpen.has(r.runId)) roomLoadRunOutputs(r.runId); }
+  roomUpdateGbar();
+}
+function roomUpdateGbar(){
+  const n = roomSel.size;
+  $('roomSelC').textContent = '☑ '+n+' selected';
+  $('roomIntegrateSel').textContent = 'Integrate 선택 ('+n+')';
+  $('roomIntegrateSel').disabled = n===0;
+}
+/* 펼친 행의 출력 카드 로드 — 모달과 같은 /outputs + renderOutCardInto 재사용(중복 없음). */
+async function roomLoadRunOutputs(rid){
+  const wrap = document.querySelector('.rout[data-rout="'+rid+'"]'); if (!wrap) return;
+  const cards = wrap.querySelector('.rout-cards');
+  cards.innerHTML = '<div class="ocards-empty">loading…</div>';
+  try{
+    const j = await fetch('/api/runs/'+rid+'/outputs').then(x=>x.json());
+    if (!roomOpen.has(rid)) return;
+    const list = j.outputs||[];
+    if (!list.length){ cards.innerHTML = '<div class="ocards-empty">no outputs yet</div>'; return; }
+    wrap.dataset.cards = JSON.stringify(list);
+    cards.innerHTML = list.map(outCardHTML).join('');
+  }catch{ cards.innerHTML = '<div class="ocards-empty">outputs failed</div>'; }
+}
+/* 워크룸 출력 카드 클릭 → 그 행 안에서 상세 뷰어(모달과 동일 렌더러). */
+function roomOpenCard(rid, i){
+  const wrap = document.querySelector('.rout[data-rout="'+rid+'"]'); if (!wrap) return;
+  const list = wrap.dataset.cards ? JSON.parse(wrap.dataset.cards) : [];
+  const c = list[i]; if (!c || !c.present) return;
+  let det = wrap.querySelector('.rout-detail');
+  if (!det){
+    det = document.createElement('div'); det.className='rout-detail';
+    det.innerHTML = '<div class="rout-back">‹ 산출물 목록</div><div class="rout-body"></div>';
+    wrap.appendChild(det);
   }
-  $('roomFeed').innerHTML = rows.length ? rows.join('')
-    : '<div class="empty-note">no activity yet — spawn an attempt or wait for runs to report</div>';
-  $('roomFeed').scrollTop = $('roomFeed').scrollHeight;
+  det.style.display='';
+  renderOutCardInto(rid, c, det.querySelector('.rout-body'), ()=>roomOpen.has(rid));
 }
 /* Ask 대화(읽기 전용) — you / coordinator 턴. 코디네이터 답 아래 read-only 노트. */
 function roomRenderConv(){
@@ -2069,10 +2229,11 @@ function roomRenderHint(){
   const steerable = roomRuns.filter(r=>r.steerable).length;
   $('roomHint').textContent = steerable+' steerable now · '+running+' still running';
 }
-/* feed↔conv, verbs↔send-only 를 roomMode 로 스왑. */
+/* runs(수렴 콕핏)↔conv, verbs↔send-only 를 roomMode 로 스왑. Work=결정 패널·Ask=읽기전용. */
 function roomApplyMode(){
   const ask = roomMode==='ask';
-  $('roomFeed').hidden = ask;
+  $('roomRuns').hidden = ask;
+  $('roomGbar').hidden = ask;    // 그룹 액션 바는 Work 에서만
   $('roomConv').hidden = !ask;
   $('roomVerbs').hidden = ask;
   $('roomSend').hidden = !ask;
@@ -2085,15 +2246,17 @@ function roomApplyMode(){
 }
 async function openRoom(groupId){
   roomGroupId = groupId;
-  roomExtra.length = 0; roomRunSet.clear(); roomRuns = []; roomTurns.length = 0;
+  roomRunSet.clear(); roomRuns = []; roomTurns.length = 0;
+  roomSel.clear(); roomOpen.clear();
   roomMode = 'work';
   $('roomInput').value = '';
   $('roomChips').innerHTML = '<span style="color:var(--faint);font-family:var(--mono);font-size:11.5px">loading…</span>';
-  $('roomFeed').innerHTML = '';
+  $('roomRuns').innerHTML = '';
   $('roomConv').innerHTML = '';
   $('roomTitle').textContent = 'Goal';
   $('roomCount').textContent = '';
   $('roomHint').textContent = '';
+  roomUpdateGbar();
   roomApplyMode();
   $('groupRoomOverlay').classList.add('open');
   await roomLoad();
@@ -2108,9 +2271,12 @@ async function roomLoad(){
   roomRuns = j.runs||[];
   roomRunSet.clear();
   roomRuns.forEach(r=>roomRunSet.add(r.runId));
+  // 사라진 run 은 선택/펼침에서 정리
+  for (const id of [...roomSel]) if (!roomRunSet.has(id)) roomSel.delete(id);
+  for (const id of [...roomOpen]) if (!roomRunSet.has(id)) roomOpen.delete(id);
   roomRenderChips();
   roomRenderHeaderAndHint();
-  roomRenderFeed(j.events||[]);
+  roomRenderRuns();
 }
 function closeRoom(){ roomGroupId = null; $('groupRoomOverlay').classList.remove('open'); }
 /* chip 클릭 → 그 run 을 기존 run 모달로 */
@@ -2125,6 +2291,151 @@ $('roomChips').addEventListener('click',(e)=>{
 });
 $('roomClose').addEventListener('click', closeRoom);
 $('groupRoomOverlay').addEventListener('click',(e)=>{ if(e.target===$('groupRoomOverlay')) closeRoom(); });
+
+/* ── 수렴 콕핏 상호작용 — 행 펼침·체크박스·인라인 액션(전부 기존 엔드포인트 재사용) ── */
+$('roomRuns').addEventListener('click', async (e)=>{
+  // 출력 카드 클릭 → 행 안 상세 뷰어
+  const card = e.target.closest ? e.target.closest('.ocard') : null;
+  if (card && !card.classList.contains('miss')){
+    const wrap = card.closest('.rout'); if (wrap){ roomOpenCard(Number(wrap.dataset.rout), Number(card.dataset.oi)); return; }
+  }
+  const back = e.target.closest ? e.target.closest('.rout-back') : null;
+  if (back){ const det = back.closest('.rout-detail'); if (det) det.style.display='none'; return; }
+  // 체크박스 → Integrate 선택 토글
+  const cb = e.target.closest ? e.target.closest('.cb') : null;
+  if (cb){
+    e.stopPropagation();
+    const id = Number(cb.dataset.rcb); if (!id) return;
+    if (roomSel.has(id)) roomSel.delete(id); else roomSel.add(id);
+    cb.textContent = roomSel.has(id) ? '✓' : '';
+    cb.closest('.run').classList.toggle('sel', roomSel.has(id));
+    roomUpdateGbar();
+    return;
+  }
+  // 인라인 액션 버튼
+  const ab = e.target.closest ? e.target.closest('[data-ract]') : null;
+  if (ab){ e.stopPropagation(); await roomRunAction(ab.dataset.ract, Number(ab.dataset.rrid)); return; }
+  // head 클릭 → 펼침 토글
+  const head = e.target.closest ? e.target.closest('.run-h') : null;
+  if (head){
+    const rid = Number(head.parentElement.dataset.rrun);
+    if (roomOpen.has(rid)){ roomOpen.delete(rid); head.parentElement.classList.remove('open'); }
+    else { roomOpen.add(rid); head.parentElement.classList.add('open'); roomLoadRunOutputs(rid); }
+  }
+});
+/* 행 액션 디스패치 — merge/steer/review/close 서버 엔드포인트만. 결정 로직 재구현 없음. */
+async function roomRunAction(act, rid){
+  const r = roomRuns.find(x=>x.runId===rid); if(!r) return;
+  if (act==='open'){
+    closeRoom();
+    if (runs.has(rid)) openModal(rid);
+    else fetch('/api/runs/'+rid).then(x=>x.json()).then(d=>{ if(d.run){ runs.set(rid,{...d.run,events:d.events||[]}); openModal(rid); } }).catch(()=>{});
+    return;
+  }
+  if (act==='fix'){ // 펼치고 steer 입력에 포커스
+    if (!roomOpen.has(rid)){ roomOpen.add(rid); const row=document.querySelector('.run[data-rrun="'+rid+'"]'); if(row){ row.classList.add('open'); roomLoadRunOutputs(rid); } }
+    const inp = document.querySelector('[data-rfix="'+rid+'"]'); if (inp) inp.focus();
+    else toast('r'+rid+': steer 불가(정착·세션 필요)', 'error');
+    return;
+  }
+  if (act==='fixsend'){
+    const inp = document.querySelector('[data-rfix="'+rid+'"]'); const msg = inp ? inp.value.trim() : '';
+    if (!msg){ if(inp) inp.focus(); return; }
+    const res = await fetch('/api/runs/'+rid+'/steer',{method:'POST',
+      headers:{'content-type':'application/json'}, body:JSON.stringify({message:msg, mode:'work'})});
+    if (res.ok){ if(inp) inp.value=''; toast('r'+rid+': 수정 지시 — 같은 세션 이어서', 'ok'); }
+    else { const j = await res.json().catch(()=>({})); toast('steer: '+(j.detail||res.status), 'error'); }
+    return;
+  }
+  if (act==='review'){
+    await reviewOneRun(r);
+    return;
+  }
+  if (act==='merge'){
+    const yes = await confirmUI('Merge r'+rid+' into the base branch?',
+      { sub: 'Uncommitted worktree changes are committed first. Conflicts abort automatically.', okLabel: 'Merge' });
+    if (!yes) return;
+    const res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});
+    const j = await res.json().catch(()=>({detail:'merge failed'}));
+    if (res.ok){ toast('r'+rid+' merged to base', 'ok'); await roomLoad(); hydrate(); }
+    else toast('merge: '+(j.detail||res.status), 'error');
+    return;
+  }
+  if (act==='close'){
+    const yes = await confirmUI('Close r'+rid+' task?',
+      { sub: 'Stops any live runs and removes every worktree and branch of the task.', danger:true, okLabel:'Close task' });
+    if (!yes) return;
+    const close = (force)=>fetch('/api/tasks/'+r.taskId+'/close',{method:'POST',
+      headers:{'content-type':'application/json'}, body:JSON.stringify({force})});
+    let res = await close(false);
+    if (res.status===409){
+      const j = await res.json().catch(()=>({}));
+      const risk = (j.atRisk||[]).map(a=>'r'+a.runId+' · '+a.filesChanged+' file'+(a.filesChanged>1?'s':'')).join(' · ');
+      const ok = await confirmUI('Close and delete unmerged output?',
+        { danger:true, sub: risk+' — not merged, not exported. Worktrees are deleted on close.', okLabel:'Close anyway' });
+      if (!ok) return;
+      res = await close(true);
+    }
+    if (!res.ok){ toast('close failed ('+res.status+')', 'error'); return; }
+    toast('r'+rid+' task closed', 'ok');
+    await roomLoad(); hydrate();
+    return;
+  }
+}
+/* [리뷰] — 그 run 의 태스크에 reviewTask(/tasks/:id/review) 를 돌려 ◆ 요약을 행 안에 인라인 표시. */
+async function reviewOneRun(r){
+  const row = document.querySelector('.run[data-rrun="'+r.runId+'"]'); if(!row) return;
+  if (!roomOpen.has(r.runId)){ roomOpen.add(r.runId); row.classList.add('open'); roomLoadRunOutputs(r.runId); }
+  const body = row.querySelector('.run-b');
+  let rv = body.querySelector('.review.airev');
+  if (!rv){ rv = document.createElement('div'); rv.className='review airev'; body.insertBefore(rv, body.querySelector('.fix')||null); }
+  const real = $('taskReal').checked;
+  rv.innerHTML = '<span class="rk">◆ 리뷰</span><span class="rt">reviewing… ('+(real?'real':'dry')+')</span>';
+  try{
+    const res = await fetch('/api/tasks/'+r.taskId+'/review',{method:'POST',
+      headers:{'content-type':'application/json'}, body:JSON.stringify({real})});
+    const j = await res.json().catch(()=>({}));
+    if (res.ok){ rv.innerHTML = '<span class="rk">◆ 리뷰</span><span class="rt">'+mdLite(j.review||'(no summary)')+'</span>'; }
+    else { rv.innerHTML = '<span class="rk">◆ 리뷰</span><span class="rt">review 실패 — '+esc(j.detail||String(res.status))+'</span>'; toast('review: '+(j.detail||res.status), 'error'); }
+  }catch{ rv.innerHTML = '<span class="rk">◆ 리뷰</span><span class="rt">review 요청 실패</span>'; }
+}
+/* steer 입력 Enter → 전송 */
+$('roomRuns').addEventListener('keydown', (e)=>{
+  const inp = e.target.closest ? e.target.closest('[data-rfix]') : null;
+  if (inp && e.key==='Enter'){ e.preventDefault(); roomRunAction('fixsend', Number(inp.dataset.rfix)); }
+});
+/* ── 그룹 액션 바 — Integrate 선택 · 전체 리뷰 · 그룹 클로즈(전부 기존 흐름 재사용) ── */
+$('roomIntegrateSel').addEventListener('click', async ()=>{
+  if (!roomSel.size){ toast('select settled runs with changes first', 'error'); return; }
+  // 기존 select mode + selbar + /api/integrate 재사용 — 방을 닫고 선택을 밴드 select 로 옮긴다.
+  const ids = [...roomSel].sort((a,b)=>a-b);
+  closeRoom();
+  if (!selectMode) setSelectMode(true);
+  selected.clear(); selOrder.length = 0;
+  for (const id of ids){
+    const r = runs.get(id);
+    const ok = r && ['done','failed','stopped'].includes(r.status) && (r.filesChanged||0)>0 && r.status!=='merged';
+    if (ok){ selected.add(id); selOrder.push(id); }
+  }
+  $('selCnt').textContent = selected.size + ' selected';
+  render();
+  if (!selected.size) toast('selected runs are no longer integratable', 'error');
+  else toast(selected.size+' run(s) staged — press Integrate in the bar', 'ok');
+});
+$('roomReviewAll').addEventListener('click', async ()=>{
+  // 정착·변경 있는 run 을 위→아래로 리뷰(reviewTask 루프). dry/real 은 전역 토글.
+  const targets = roomRuns.filter(r=>roomDone(r.status) && (r.filesChanged||0)>0 && r.status!=='merged');
+  if (!targets.length){ toast('no settled runs with changes to review', 'error'); return; }
+  const btn = $('roomReviewAll'); btn.disabled = true;
+  try{ for (const r of targets) await reviewOneRun(r); }
+  finally { btn.disabled = false; }
+});
+$('roomGroupClose').addEventListener('click', async ()=>{
+  if (roomGroupId==null) return;
+  const g = roomGroupId;
+  await closeGroup(g);       // 기존 그룹 클로즈(guard·atRisk 집계 재사용)
+  if (roomGroupId===g) await roomLoad();
+});
 /* ＋ New attempt — 같은 그룹에 새 시도 발사 (현재 dry/real 토글 반영) */
 $('roomNew').addEventListener('click', async ()=>{
   if (roomGroupId==null) return;
@@ -2138,9 +2449,9 @@ $('roomNew').addEventListener('click', async ()=>{
     const j = await res.json().catch(()=>({}));
     if (res.ok){
       $('roomInput').value='';
-      (j.tasks||[]).forEach(t=>{ roomExtra.push({ who:'goal ＋', text:'new attempt r'+t.runId+' — '+prompt.slice(0,60) }); roomRunSet.add(t.runId); });
+      (j.tasks||[]).forEach(t=>{ roomRunSet.add(t.runId); });
       toast((j.tasks||[]).length+' attempt(s) launched'+(real?'':' (dry)'), 'ok');
-      roomRenderFeed([]); await roomLoad(); hydrate();
+      await roomLoad(); hydrate();
     } else toast('spawn: '+(j.error||res.status), 'error');
   } finally { btn.disabled = false; }
 });
@@ -2156,9 +2467,8 @@ $('roomBroadcast').addEventListener('click', async ()=>{
     const j = await res.json().catch(()=>({}));
     if (res.ok){
       $('roomInput').value='';
-      roomExtra.push({ who:'goal →', text:message.slice(0,80)+'  ('+j.detail+')' });
       toast('broadcast: '+j.detail, (j.skipped&&j.skipped.length)?undefined:'ok');
-      roomRenderFeed([]); await roomLoad();
+      await roomLoad();
     } else toast('broadcast: '+(j.error||res.status), 'error');
   } finally { btn.disabled = false; }
 });
@@ -2224,18 +2534,9 @@ function roomOnWS(ev){
   if (ev.type==='run'){
     const rid = ev.runId ?? ev.id;
     if (!roomRunSet.has(rid)) return;   // 이 방 소속만
-    roomLoad();                          // 상태·steerable 재계산은 aggregate 로 (정확)
-  } else if (ev.type==='event'){
-    if (!roomRunSet.has(ev.runId)) return;
-    const h = humanize({ kind:ev.kind, payload:ev.payload });
-    if (h){
-      const r = roomRuns.find(x=>x.runId===ev.runId);
-      const list = Array.isArray(h) ? h : [h];
-      const frag = list.map(x=>roomFeedLine('r'+ev.runId, r?r.status:'pending', x.k+' · '+x.t, false)).join('');
-      $('roomFeed').insertAdjacentHTML('beforeend', frag);
-      $('roomFeed').scrollTop = $('roomFeed').scrollHeight;
-    }
+    roomLoad();                          // 상태·steerable 재계산 → 결정 행 재렌더(aggregate, 정확)
   }
+  // event 티커는 수렴 콕핏에선 행 안 출력 카드로 대체 — 상태 변화는 run 이벤트가 재렌더한다.
 }
 
 /* ── terminal — 초기크기 접속·자동 재연결(백오프)·unicode11·CJK 폰트 ── */

@@ -806,6 +806,8 @@ export async function buildServer(): Promise<FastifyInstance> {
       runId: run.id, taskId: task.id, title: task.title, status: run.status,
       agent: run.agent, model: run.model, branch: run.branch, filesChanged: run.filesChanged,
       live: isRunLive(run.id), steerable: isSteerable(run),
+      // 수렴 콕핏 결정 행용: 태스크 닫힘 여부 + worktree 생존(터미널 가드·머지 가능성 판단).
+      taskStatus: task.status, hasWorktree: !!run.worktreePath,
     }));
     const runIds = g.rows.map((x) => x.run.id);
     // 이벤트: 그룹 run 전체에서 최근 200개(id 순, 오래된 것 먼저 — 방 피드는 append-only).
@@ -1148,7 +1150,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     const rows = Math.max(5, Math.min(200, Number(q.rows) || 24));
     const info = await getRunTermInfo(id);
     if (!info) {
-      socket.send(JSON.stringify({ t: 'err', d: 'run or tmux session not found' }));
+      // tmuxWindow 가 없음 = 세션이 정리됐거나(닫힌 task·cleanup) run 미존재.
+      // 죽은 세션에 attach 를 시도하지 말고 명확한 사유로 닫는다.
+      const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+      const d = rr[0]
+        ? 'terminal unavailable — worktree cleaned (run closed or cleaned up)'
+        : 'run not found';
+      socket.send(JSON.stringify({ t: 'err', d }));
       socket.close();
       return;
     }

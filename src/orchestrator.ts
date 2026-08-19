@@ -1311,5 +1311,8 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
     ` ; git -C ${shq(ctx.repoPath)} branch -D ${shq(run.branch)} 2>&1 || true`,
     20000,
   );
+  // 세션·worktree 는 이제 없다 — 스테일 포인터를 비운다. 안 그러면 getRunTermInfo 가
+  // 죽은 tmux 이름을 계속 돌려줘 /ws/term/:id 가 없는 세션에 attach 를 시도한다(closed task 버그).
+  await setRun(runId, { worktreePath: '', tmuxWindow: '' });
   return { ok: true, detail: rm.stdout.trim().slice(0, 300) };
 }
