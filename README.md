@@ -74,8 +74,8 @@ Your keys and login never touch coxpit's config or database.
 |---|---|---|
 | `COXPIT_HOST` / `COXPIT_PORT` | `127.0.0.1` / `8210` | daemon bind |
 | `COXPIT_DB` | `~/.coxpit/coxpit.db` | SQLite (libSQL) file (a legacy `./coxpit.db` in the cwd is still honored) |
-| `COXPIT_AUTH_PASS` / `COXPIT_AUTH_USER` | — / `admin` | basic auth. **Empty pass = all requests rejected** (fail-closed) — set it, or use `COXPIT_AUTH_DISABLED=1` for local dev |
-| `COXPIT_AUTH_DISABLED` | — | `1` disables auth (local dev only) |
+| `COXPIT_AUTH_PASS` | — | access key (back-compat, key-only). If set on an **exposed** bind, the branded unlock page asks for this key — no username. Empty = use the stored key, or first-run setup |
+| `COXPIT_AUTH_DISABLED` | — | `1` forces auth **off** (delegate to a front gateway like Cloudflare Access / Tailscale) |
 | `COXPIT_SSH_KEY` | — | private key for remote machines (else ssh defaults/agent) |
 | `COXPIT_AGENT_REAL` | — | `1` = real agent CLI by default (credits!) |
 | `COXPIT_AGENT_BIN` | `claude` | Claude Code command |
@@ -86,7 +86,19 @@ Your keys and login never touch coxpit's config or database.
 | `COXPIT_WEBHOOK_URL` | — | POSTs `{event:"run.settled",run:{...}}` when a run finishes — wire it to Telegram, Slack, anything |
 | `COXPIT_PUBLIC_URL` | — | if set, the webhook payload adds `url: <base>/?run=<id>` — tap it on your phone and the board opens that run |
 
-Running on the open internet? Put it behind your own front door (Tailscale, Cloudflare Access, a reverse proxy with TLS) and keep basic auth on — it exposes shells.
+Running on the open internet? Put it behind your own front door (Tailscale, Cloudflare Access, a reverse proxy with TLS) and keep the access key on — it exposes shells.
+
+## Access key & remote access
+
+Coxpit gates itself with a single **access key** (one owner, no accounts, no username) — but only when it's **exposed**:
+
+- **Loopback bind** (`COXPIT_HOST=127.0.0.1`, the default) is trusted-local: `npx coxpit` on your own machine is zero-friction, no login page, no key.
+- **Exposed bind** (`COXPIT_HOST=0.0.0.0` or a routable IP) requires the key. First boot with no key opens a **branded setup page** ("Protect this coxpit — set an access key"). To prove you own the box, setup needs the **one-time setup token** printed to the daemon log (Jupyter-style) — *unless* the request is genuinely local (`http://127.0.0.1` with no proxy in front). A request arriving through a tunnel must use the token, so a stranger hitting a fresh public daemon can't claim it.
+- After setup you **unlock once per device** via the same page (session cookie, "Remember this device" = 30 days). No native browser popup — unauthorized API calls just get `401` with no `WWW-Authenticate`.
+- **Back-compat:** set `COXPIT_AUTH_PASS` and that value *is* the key — the resident keeps working, now entered on the branded page (no username).
+- **Reset the key:** `coxpit reset-key` (or `rm ~/.coxpit/auth.json`) then restart → next boot is first-run setup again.
+
+Front it with **Cloudflare Access** or **Tailscale** for identity on top (set `COXPIT_AUTH_DISABLED=1` to delegate auth entirely to the gateway). The board's Remote access card detects your Tailscale and can put it on `https://<machine>.<tailnet>.ts.net` in one click.
 
 ## Platform support
 

@@ -1,4 +1,5 @@
 import { config } from './config';
+import { authMode, ensureSetupToken, isExposedBind } from './authkey';
 import { db, ensureSchema } from './db';
 import { machines } from './db/schema';
 import { acquireDaemonLock } from './lock';
@@ -40,10 +41,25 @@ try {
   throw e;
 }
 
-// 인증 켜졌는데 비번이 비면 fail-closed(전 요청 401) — 첫 실행자가 401 보고 당황하지 않게 명시.
-if (!config.auth.disabled && config.auth.pass === '') {
-  console.warn(
-    '[coxpit] auth is ON but COXPIT_AUTH_PASS is empty — every request will be rejected (401).\n' +
-    '[coxpit] Set COXPIT_AUTH_PASS to a password, or COXPIT_AUTH_DISABLED=1 for local dev.',
-  );
+// 접근키 인증 상태 안내. 첫 실행(키 미설정)이면 브랜디드 셋업 페이지 + 1회용 셋업 토큰을 찍는다.
+// (토큰 = Jupyter 스타일: 로그 접근자 = 머신 소유자. 터널/타넷/로컬 어디서 붙어도 이 토큰으로 셋업 가능.)
+{
+  const m = authMode();
+  if (m.mode === 'disabled') {
+    if (config.auth.disabled) {
+      console.warn('[coxpit] auth is DISABLED (COXPIT_AUTH_DISABLED=1) — every request is allowed. Front it with your own gateway if exposed.');
+    } else if (!isExposedBind()) {
+      console.log(`[coxpit] loopback-only bind (${config.host}) — trusted local, no login required. Bind to 0.0.0.0 to require an access key.`);
+    }
+  } else if (m.mode === 'setup') {
+    const token = ensureSetupToken();
+    console.log(
+      '[coxpit] no access key configured yet — open the board to set one (first-run setup).\n' +
+      `[coxpit] one-time setup token (needed unless you visit http://127.0.0.1:${config.port} directly): ${token}`,
+    );
+  } else if (m.mode === 'env') {
+    console.log('[coxpit] access-key auth ON (COXPIT_AUTH_PASS) — the branded unlock page asks for that key.');
+  } else {
+    console.log('[coxpit] access-key auth ON (stored key) — the branded unlock page asks for your key.');
+  }
 }

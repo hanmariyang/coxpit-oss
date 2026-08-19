@@ -4,10 +4,14 @@ import { homedir } from 'node:os';
 import { resolve as presolve, dirname as pdirname, join as pjoin, sep as psep } from 'node:path';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import websocket from '@fastify/websocket';
 import { eq, inArray, and, like, desc } from 'drizzle-orm';
 import { authGate } from './auth';
+import {
+  authMode, authIsOpen, verifyKey, storeKey, signSession, SESSION_COOKIE,
+  clientKey, rateCheck, rateFail, rateReset, setupAllowed,
+} from './authkey';
 import { config } from './config';
 import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
@@ -180,8 +184,80 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 무인증 헬스(외부 감시용)
   app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: config.version }));
 
-  // 플릿 보드(단일 페이지). 인증 게이트 적용됨.
+  // 플릿 보드(단일 페이지). 인증 게이트 적용됨(무인증 요청은 게이트가 login/setup 페이지로 응답).
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
+
+  // ─── 접근키 인증(access-key) ────────────────────────────────────
+  // 요청이 tunnel/https 를 탔나 — Secure 쿠키 여부 결정용.
+  const isSecureReq = (req: { headers: Record<string, unknown> }): boolean => {
+    const proto = String(req.headers['x-forwarded-proto'] ?? '');
+    return proto.split(',')[0]!.trim() === 'https' || req.headers['cf-connecting-ip'] != null;
+  };
+  const REMEMBER_MS = 30 * 24 * 60 * 60 * 1000; // 30d
+  // 세션 쿠키 헤더 조립(라이브러리 없이). remember → Max-Age 30d, else 세션 쿠키.
+  const setSessionCookie = (
+    reply: FastifyReply, req: { headers: Record<string, unknown> }, remember: boolean,
+  ): void => {
+    const expiry = remember ? Date.now() + REMEMBER_MS : 0;
+    const value = signSession(expiry);
+    const parts = [
+      `${SESSION_COOKIE}=${encodeURIComponent(value)}`,
+      'Path=/', 'HttpOnly', 'SameSite=Lax',
+    ];
+    if (remember) parts.push(`Max-Age=${Math.floor(REMEMBER_MS / 1000)}`);
+    if (isSecureReq(req)) parts.push('Secure');
+    reply.header('set-cookie', parts.join('; '));
+  };
+  const socketIp = (req: { socket?: { remoteAddress?: string } }): string =>
+    String(req.socket?.remoteAddress ?? '');
+
+  // 첫 실행 셋업(anti-claim) — 셋업 토큰 일치 OR 진짜 로컬(loopback+no-fwd)만 허용.
+  // 키가 이미 있으면 409(단발). 성공 시 해시 저장 + 세션 쿠키.
+  app.post('/api/auth/setup', async (req, reply) => {
+    if (authMode().mode !== 'setup') return reply.code(409).send({ error: 'already configured' });
+    const b = (req.body ?? {}) as { key?: string; token?: string; remember?: boolean };
+    const key = String(b.key ?? '');
+    if (key.length < 6) return reply.code(400).send({ error: 'key too short', detail: 'use at least 6 characters' });
+    const gate = setupAllowed(req.headers as Record<string, unknown>, socketIp(req), String(b.token ?? ''));
+    if (!gate.ok) {
+      return reply.code(403).send({ error: 'setup not allowed', detail: 'paste the one-time setup token from the daemon log (this request is not local)' });
+    }
+    storeKey(key); // 평문 키는 절대 로그하지 않음
+    setSessionCookie(reply, req, b.remember === true);
+    return reply.code(201).send({ ok: true });
+  });
+
+  // 언락 — 상수시간 검증 + per-client 레이트리밋(백오프). 성공 시 세션 쿠키.
+  app.post('/api/auth/unlock', async (req, reply) => {
+    const m = authMode();
+    if (m.mode === 'disabled') return reply.send({ ok: true });
+    if (m.mode === 'setup') return reply.code(409).send({ error: 'not configured', detail: 'set an access key first' });
+    const id = clientKey(req.headers as Record<string, unknown>, socketIp(req));
+    const rc = rateCheck(id);
+    if (rc.blocked) {
+      const secs = Math.ceil(rc.retryMs / 1000);
+      return reply.code(429).send({ error: 'too many attempts', detail: `try again in ${secs}s` });
+    }
+    const b = (req.body ?? {}) as { key?: string; remember?: boolean };
+    if (verifyKey(String(b.key ?? ''), m)) {
+      rateReset(id);
+      setSessionCookie(reply, req, b.remember === true);
+      return reply.send({ ok: true });
+    }
+    const after = rateFail(id);
+    const detail = after.retryMs > 0
+      ? `wrong key — try again in ${Math.ceil(after.retryMs / 1000)}s`
+      : `wrong key — ${after.attemptsLeft} attempt(s) left`;
+    return reply.code(401).send({ error: 'wrong key', detail });
+  });
+
+  // 로그아웃 — 쿠키 제거(Max-Age=0).
+  app.post('/api/auth/logout', async (req, reply) => {
+    const parts = [`${SESSION_COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+    if (isSecureReq(req)) parts.push('Secure');
+    reply.header('set-cookie', parts.join('; '));
+    return reply.send({ ok: true });
+  });
 
   // 보드 하이드레이션 — machines/repos/tasks/runs(+events)/captures 한 방에.
   // 기본 view=active: 닫힌 태스크·그 run·이벤트 전량을 내리지 않는다(수백 run 시 페이로드 폭발 방지).
@@ -219,7 +295,8 @@ export async function buildServer(): Promise<FastifyInstance> {
       // authOpen = 비밀번호 미설정 → Funnel(공개) 가드가 켜져야 함(원격접근 카드용)
       daemon: {
         version: config.version, pid: process.pid, port: config.port, dbPath: config.dbPath,
-        authOpen: config.auth.disabled || config.auth.pass === '',
+        // authOpen = 인증이 실질 열려있음(disabled 또는 아직 키 미설정) → Funnel 가드 켜져야 함
+        authOpen: authIsOpen(),
       },
       providers: listProviders(),
     };
@@ -537,8 +614,12 @@ export async function buildServer(): Promise<FastifyInstance> {
   // ─── Design Mode ───────────────────────────────────────────────
   // 캡처 키: 인증 off 면 자유, on 이면 ?k=<COXPIT_AUTH_PASS> (북마클릿은 basic 헤더 불가)
   const captureKeyOk = (req: { query?: unknown }): boolean => {
-    if (config.auth.disabled || config.auth.pass === '') return config.auth.disabled;
-    return ((req.query ?? {}) as { k?: string }).k === config.auth.pass;
+    const m = authMode();
+    // 인증 꺼짐 → 자유. 아직 키 미설정(setup) → 캡처 불가(키가 없으니 증명 수단 없음).
+    if (m.mode === 'disabled') return true;
+    if (m.mode === 'setup') return false;
+    const k = ((req.query ?? {}) as { k?: string }).k ?? '';
+    return verifyKey(k, m);
   };
   const cors = (reply: { header: (k: string, v: string) => unknown }) => {
     reply.header('access-control-allow-origin', '*');
@@ -591,8 +672,8 @@ export async function buildServer(): Promise<FastifyInstance> {
   // Funnel has no Tailscale-side auth, so coxpit's basic auth is the only gate.
   app.post('/api/remote/funnel', async (req, reply) => {
     const b = (req.body ?? {}) as { on?: boolean };
-    if (b.on === true && (config.auth.disabled || config.auth.pass === '')) {
-      return reply.code(409).send({ error: 'set a password first', code: 'NO_AUTH' });
+    if (b.on === true && authIsOpen()) {
+      return reply.code(409).send({ error: 'set an access key first', code: 'NO_AUTH' });
     }
     return setFunnel(config.port, b.on === true);
   });

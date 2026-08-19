@@ -756,30 +756,106 @@ curl -s -X POST "$B/api/tasks/$RCTID/close" -H 'content-type: application/json' 
 case "$BOARD_HTML" in *'id="reclaimBtn"'*) : ;; *) fail "reclaim worktrees button missing";; esac
 pass "board serves reclaim worktrees affordance (#reclaimBtn)"
 
-# auth gate (fresh daemon with pass)
+# v4.8 — access-key auth. Auth applies ONLY on an EXPOSED bind (0.0.0.0); a
+# loopback bind (127.0.0.1, the default) is trusted-local and stays open.
+# Boot exposed (COXPIT_HOST=0.0.0.0) with env key pw-e2e (COXPIT_AUTH_PASS
+# back-compat, key-only). curl still reaches it via 127.0.0.1 ($B).
 kill "$DPID" 2>/dev/null || true; sleep 0.5
 rm -f "$DB"*
-COXPIT_AUTH_USER=admin COXPIT_AUTH_PASS=pw-e2e COXPIT_DB="$DB" COXPIT_PORT="$PORT" \
+COXPIT_HOST=0.0.0.0 COXPIT_AUTH_PASS=pw-e2e COXPIT_DB="$DB" COXPIT_PORT="$PORT" \
   node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
 DPID=$!
 for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
 expect_code 401 "$B/api/machines"
 expect_code 401 "$B/api/browse"
+# Basic back-compat: any user, key in the password slot (no username in the UX)
+expect_code 200 -u x:pw-e2e "$B/api/machines"
 expect_code 200 -u admin:pw-e2e "$B/api/machines"
 expect_code 200 "$B/design/bookmarklet.js"
 # /share/* 는 무인증 예외(없는 토큰이라도 401 이 아니라 404 여야 함)
 expect_code 404 "$B/share/no-such-token"
 expect_code 201 -X POST "$B/api/design/capture?k=pw-e2e" -H 'content-type: application/json' -d '{"selector":"x"}'
 expect_code 401 -X POST "$B/api/design/capture?k=nope" -H 'content-type: application/json' -d '{}'
-pass "auth gate + capture key"
+pass "auth gate + capture key (exposed bind, env key, Basic back-compat)"
 
-# v4.5 — remote endpoints are behind the auth gate; with a real password set the
-# Funnel guard does NOT trip (guard is empty-pass only). Test funnel-OFF (always
-# ungated, never invokes the CLI's funnel-on) so we don't touch a dev tailnet.
+# v4.8 — API 401 carries NO WWW-Authenticate header (no native browser popup)
+WWWH=$(curl -s -D - -o /dev/null "$B/api/machines")
+case "$WWWH" in *[Ww][Ww][Ww]-[Aa]uthenticate*) fail "401 must not send WWW-Authenticate (would pop native dialog)";; *) : ;; esac
+pass "unauthorized API sends no WWW-Authenticate (no basic popup)"
+
+# v4.8 — HTML GET without auth serves the branded unlock PAGE (200), not a 401 popup
+LOGIN=$(curl -s -H 'accept: text/html' "$B/")
+LCODE=$(curl -s -o /dev/null -w '%{http_code}' -H 'accept: text/html' "$B/")
+[ "$LCODE" = "200" ] || fail "unauth HTML GET should serve login page 200, got $LCODE"
+case "$LOGIN" in *'Unlock this coxpit'*) : ;; *) fail "login page not served on unauth HTML GET";; esac
+# no username INPUT field (the copy may say "no username" as a feature — that's fine)
+case "$LOGIN" in *'type="text"'*|*'name="user"'*|*'id="user"'*|*'autocomplete="username"'*) fail "login page must not have a username input";; *) : ;; esac
+case "$LOGIN" in *'access key'*) : ;; *) fail "login page missing access-key field";; esac
+pass "unauth HTML GET serves branded unlock page (key-only, no username input)"
+
+# v4.8 — /api/auth/unlock: right key → 200 + Set-Cookie coxpit_sess; wrong key → 401
+UNLOCK=$(curl -s -D - -o /dev/null -X POST "$B/api/auth/unlock" -H 'content-type: application/json' -d '{"key":"pw-e2e","remember":true}')
+case "$UNLOCK" in *'HTTP/1.1 200'*|*' 200 '*) : ;; *) fail "unlock with right key should 200: $UNLOCK";; esac
+case "$UNLOCK" in *[Ss]et-[Cc]ookie:*coxpit_sess=*) : ;; *) fail "unlock should Set-Cookie coxpit_sess: $UNLOCK";; esac
+UBAD=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/auth/unlock" -H 'content-type: application/json' -d '{"key":"nope-wrong"}')
+[ "$UBAD" != "200" ] || fail "unlock with wrong key must not 200 (got $UBAD)"
+pass "unlock: right key 200+Set-Cookie · wrong key non-200"
+
+# v4.8 — cookie round-trip: the minted session cookie is accepted by the gate
+CJAR="$WORK/cookies.txt"
+curl -s -c "$CJAR" -X POST "$B/api/auth/unlock" -H 'content-type: application/json' -d '{"key":"pw-e2e","remember":true}' >/dev/null
+expect_code 200 -b "$CJAR" "$B/api/machines"
+pass "session cookie unlocks the gate (cookie round-trip)"
+
+# v4.8 — setup is single-shot: env/stored key already configured → 409
+expect_code 409 -X POST "$B/api/auth/setup" -H 'content-type: application/json' -d '{"key":"whatever123","token":"x"}'
+pass "setup single-shot: 409 when a key already exists"
+
+# v4.5 — remote endpoints are behind the auth gate; with a key set the Funnel
+# guard does NOT trip (guard is open-auth only). Test funnel-OFF (ungated).
 expect_code 401 "$B/api/remote"
-expect_code 200 -u admin:pw-e2e "$B/api/remote"
-expect_code 200 -u admin:pw-e2e -X POST "$B/api/remote/funnel" -H 'content-type: application/json' -d '{"on":false}'
-pass "remote endpoints auth-gated; funnel guard is empty-pass only"
+expect_code 200 -u x:pw-e2e "$B/api/remote"
+expect_code 200 -u x:pw-e2e -X POST "$B/api/remote/funnel" -H 'content-type: application/json' -d '{"on":false}'
+pass "remote endpoints auth-gated; funnel guard is open-auth only"
+
+# v4.8 — first-run setup anti-claim (fresh daemon, exposed, NO key configured).
+# A forwarded/tunneled request (x-forwarded-for present) with a bogus token → 403.
+# A genuinely-local request (loopback, no fwd headers) → 201 + Set-Cookie.
+kill "$DPID" 2>/dev/null || true; sleep 0.5
+rm -f "$DB"* "$WORK/.coxpit-auth" 2>/dev/null || true
+AUTHDIR="$(dirname "$DB")"
+rm -f "$AUTHDIR/auth.json" 2>/dev/null || true
+COXPIT_HOST=0.0.0.0 COXPIT_DB="$DB" COXPIT_PORT="$PORT" \
+  node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
+DPID=$!
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+# setup mode: HTML GET serves the SETUP page
+SETPAGE=$(curl -s -H 'accept: text/html' "$B/")
+case "$SETPAGE" in *'Protect this coxpit'*) : ;; *) fail "no-key daemon should serve setup page";; esac
+# forwarded request with bad token → 403 (must not be claimable by a stranger)
+expect_code 403 -X POST "$B/api/auth/setup" -H 'content-type: application/json' \
+  -H 'x-forwarded-for: 8.8.8.8' -d '{"key":"claimattempt","token":"bogus"}'
+# genuinely-local (no forwarding headers) → allowed 201 + cookie
+SUP=$(curl -s -D - -o /dev/null -X POST "$B/api/auth/setup" -H 'content-type: application/json' -d '{"key":"owner-set-key","remember":true}')
+case "$SUP" in *' 201 '*|*'HTTP/1.1 201'*) : ;; *) fail "local setup should 201: $SUP";; esac
+case "$SUP" in *[Ss]et-[Cc]ookie:*coxpit_sess=*) : ;; *) fail "setup should Set-Cookie: $SUP";; esac
+# now that a key exists, the stored key unlocks and setup is closed (409)
+expect_code 200 -u x:owner-set-key "$B/api/machines"
+expect_code 409 -X POST "$B/api/auth/setup" -H 'content-type: application/json' -d '{"key":"second","token":"x"}'
+pass "first-run setup anti-claim: forwarded+bad-token 403 · local 201+cookie · then stored key unlocks · 409"
+
+# v4.8 — loopback bind is trusted-local: board served WITHOUT auth (no login page)
+kill "$DPID" 2>/dev/null || true; sleep 0.5
+rm -f "$DB"*; rm -f "$AUTHDIR/auth.json" 2>/dev/null || true
+COXPIT_HOST=127.0.0.1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" \
+  node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
+DPID=$!
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+expect_code 200 "$B/api/machines"
+LB=$(curl -s -H 'accept: text/html' "$B/")
+case "$LB" in *'<title>coxpit'*) : ;; *) fail "loopback bind should serve the board";; esac
+case "$LB" in *'Unlock this coxpit'*|*'Protect this coxpit'*) fail "loopback bind must not gate with a login page";; *) : ;; esac
+pass "loopback bind = trusted local, board open (no login, zero-friction npx)"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
