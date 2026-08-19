@@ -713,6 +713,8 @@ export const BOARD_HTML = /* html */ `<!doctype html>
       <div class="arch-bar">
         <input id="archQ" placeholder="search title…" autocomplete="off" />
         <select id="archRepo"><option value="">all repos</option></select>
+        <button type="button" class="btn-ghost sm" id="reclaimBtn" hidden
+          title="remove worktrees left by cleaned/failed runs — reclaims disk (active work untouched)">♻ Reclaim <span id="reclaimHint"></span></button>
       </div>
       <div id="archList"></div>
       <div style="text-align:center;margin-top:14px"><button class="btn-ghost sm" id="archMore" hidden>load 50 more</button></div>
@@ -1282,7 +1284,7 @@ function setView(v){
   $('grid').style.display = archive ? 'none' : '';
   $('empty').style.display = archive ? 'none' : ($('grid').innerHTML ? 'none' : 'flex');
   document.querySelector('.toolbar').style.display = archive ? 'none' : '';
-  if (archive){ paintArchRepos(); archFetch(true); }
+  if (archive){ paintArchRepos(); archFetch(true); reclaimRefresh(); }
   else render();
 }
 document.querySelectorAll('#viewSeg .seg-opt').forEach(b=>b.addEventListener('click', ()=>setView(b.dataset.view)));
@@ -1332,6 +1334,32 @@ $('archList').addEventListener('click', async (e)=>{
     j.runs.forEach(rn => { if(!runs.has(rn.id)) runs.set(rn.id, { ...rn, events: [] }); });
     openModal(j.runs.map(r=>r.id).sort((a,b)=>a-b)[0]);
   }catch{ toast('could not open task', 'error'); }
+});
+
+/* ── Reclaim orphaned worktrees ── cleaned/failed run worktrees are disk debt
+   (~180MB each — node_modules lives inside). Only shown when there's something
+   to reclaim; active/successful work is never listed by the server. */
+let reclaimN = 0;
+async function reclaimRefresh(){
+  try{
+    const j = await fetch('/api/worktrees').then(x=>x.json());
+    reclaimN = (j.items||[]).length;
+    const mb = Math.round((j.totalKb||0)/1024);
+    $('reclaimHint').textContent = reclaimN ? (reclaimN+' · ~'+mb+'MB') : '';
+    $('reclaimBtn').hidden = reclaimN===0;
+  }catch{ $('reclaimBtn').hidden = true; }
+}
+$('reclaimBtn').addEventListener('click', async ()=>{
+  if (!reclaimN) return;
+  const ok = await confirmUI('remove '+reclaimN+' cleaned/failed run worktree'+(reclaimN===1?'':'s')+'?', {
+    sub:'active work is untouched — only closed tasks and failed/error/stopped runs are reclaimed',
+    okLabel:'Reclaim', danger:true });
+  if (!ok) return;
+  try{
+    const r = await fetch('/api/worktrees/prune',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({})}).then(x=>x.json());
+    toast('reclaimed '+(r.count||0)+' worktree'+((r.count||0)===1?'':'s'), 'ok');
+  }catch{ toast('reclaim failed', 'error'); }
+  reclaimRefresh();
 });
 
 /* ── first-run onboarding (빈 보드 = 준비 상태 점검 + 시작 안내) ── */

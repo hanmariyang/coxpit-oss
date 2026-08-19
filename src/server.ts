@@ -13,7 +13,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -253,6 +253,23 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
     // status 필터가 있으면 total 은 근사(페이지 내 필터) — UI 는 rows 로만 판단하니 total0 유지.
     return { total: total0, rows };
+  });
+
+  // 회수 가능한 고아 worktree — closed task 또는 failed/error/stopped run 의 worktree 만.
+  // running/preparing/pending/done 은 절대 포함 안 됨(활성·성공-미머지 보호). authGate 뒤.
+  app.get('/api/worktrees', async () => {
+    const items = await listReclaimableWorktrees();
+    const totalKb = items.reduce((s, w) => s + (w.sizeKb || 0), 0);
+    return { items, totalKb };
+  });
+
+  // 회수 실행 — body.runIds(선택 부분집합) 또는 전체. cleanupRun 재사용 + git worktree prune.
+  app.post('/api/worktrees/prune', async (req) => {
+    const b = (req.body ?? {}) as { runIds?: number[] };
+    const runIds = Array.isArray(b.runIds)
+      ? b.runIds.map((n) => Number(n)).filter((n) => Number.isInteger(n))
+      : undefined;
+    return pruneWorktrees(runIds);
   });
 
   // ─── 머신 레지스트리 ────────────────────────────────────────────

@@ -659,6 +659,103 @@ expect_code 400 -X PATCH "$B/api/repos/1" -H 'content-type: application/json' -d
 curl -sf -X PATCH "$B/api/repos/1" -H 'content-type: application/json' -d '{"defaultBranch":"main"}' >/dev/null
 pass "per-repo base branch override (existing 200, missing 400)"
 
+# reclaim orphaned worktrees — closed-task / failed·error·stopped run worktrees are
+# reclaimable; running/done are NOT. Produce a deterministic reclaimable state by
+# orphaning a live run via a daemon restart on the SAME DB (reconcileOrphanRuns
+# settles it 'failed' and PRESERVES the worktree — exactly the accumulation case).
+# Restart the daemon with a STALLING agent bin so a real run stays 'running'.
+STALL="$WORK/stall-agent.sh"
+cat > "$STALL" <<'EOS'
+#!/bin/sh
+printf '%s\n' '{"type":"system","subtype":"init","session":"stall"}'
+sleep 60
+EOS
+chmod +x "$STALL"
+kill "$DPID" 2>/dev/null || true; sleep 1
+COXPIT_AUTH_DISABLED=1 COXPIT_AGENT_BIN="$STALL" COXPIT_DB="$DB" COXPIT_PORT="$PORT" COXPIT_WEBHOOK_URL="http://127.0.0.1:$HOOKPORT/" \
+  COXPIT_PUBLIC_URL="http://board.example:9999/" \
+  node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
+DPID=$!
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+RCT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' \
+  -d "{\"repoId\":$DRID,\"title\":\"reclaim-victim\",\"prompt\":\"do work\"}")
+RCTID=$(echo "$RCT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
+curl -sf -X POST "$B/api/tasks/$RCTID/run" -H 'content-type: application/json' -d '{"count":1,"real":true}' | grep -q '"ok":true' || fail "reclaim victim run launch"
+RCRUN=$(curl -s "$B/api/tasks/$RCTID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runs"][0]["id"])')
+# wait until it's running (worktree created + agent stalling), then yank the daemon
+RS=''
+for i in $(seq 1 60); do
+  RS=$(curl -s "$B/api/runs/$RCRUN" | { grep -oE '"status":"running"' || true; } | head -1)
+  [ -n "$RS" ] && break; sleep 0.5
+done
+[ "$RS" = '"status":"running"' ] || fail "reclaim victim never reached running: $(curl -s "$B/api/runs/$RCRUN")"
+kill "$DPID" 2>/dev/null || true; sleep 1
+COXPIT_AUTH_DISABLED=1 COXPIT_AGENT_BIN="$STALL" COXPIT_DB="$DB" COXPIT_PORT="$PORT" COXPIT_WEBHOOK_URL="http://127.0.0.1:$HOOKPORT/" \
+  COXPIT_PUBLIC_URL="http://board.example:9999/" \
+  node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
+DPID=$!
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+# after restart the orphaned run is 'failed' with its worktree preserved
+RCS=$(curl -s "$B/api/runs/$RCRUN" | { grep -oE '"status":"(failed|error|stopped|done|running)"' || true; } | head -1)
+case "$RCS" in '"status":"failed"'|'"status":"error"'|'"status":"stopped"') : ;; *) fail "reclaim victim not orphaned to failed: $RCS";; esac
+
+# an OPEN task with a settled 'done' run — it must NOT be reclaimable (dry run settles done)
+SAFET=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' \
+  -d "{\"repoId\":$DRID,\"title\":\"reclaim-safe-open\",\"prompt\":\"do work\"}")
+SAFETID=$(echo "$SAFET" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
+curl -sf -X POST "$B/api/tasks/$SAFETID/run" -H 'content-type: application/json' -d '{"count":1}' | grep -q '"ok":true' || fail "safe run launch"
+SAFERUN=$(curl -s "$B/api/tasks/$SAFETID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runs"][0]["id"])')
+SAFES=''
+for i in $(seq 1 60); do
+  SAFES=$(curl -s "$B/api/runs/$SAFERUN" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$SAFES" ] && break; sleep 0.5
+done
+[ "$SAFES" = '"status":"done"' ] || fail "safe open run did not settle done: $SAFES"
+
+# GET /api/worktrees — shape {items:[{runId,path,branch,taskId,reason,exists}],totalKb}
+WT=$(curl -sf "$B/api/worktrees")
+RCRUN="$RCRUN" SAFERUN="$SAFERUN" python3 -c 'import sys,json,os
+d=json.loads(sys.stdin.read())
+assert isinstance(d["items"],list) and isinstance(d["totalKb"],int),d
+ids=[w["runId"] for w in d["items"]]
+victim=int(os.environ["RCRUN"]); safe=int(os.environ["SAFERUN"])
+assert victim in ids, ("stopped/failed run must be reclaimable", ids, victim)
+assert safe not in ids, ("open done run must NOT be reclaimable", ids, safe)
+w=[x for x in d["items"] if x["runId"]==victim][0]
+assert w["path"] and w["branch"] and "reason" in w and "exists" in w, ("item shape", w)
+' <<<"$WT" || fail "worktrees shape/filter wrong: $WT"
+pass "worktrees list: stopped/failed reclaimable, open+done run NOT listed"
+
+# POST /api/worktrees/prune — reclaims the victim; its worktreePath must be cleared,
+# and the safe (open/done) run's worktree must remain untouched.
+PR=$(curl -sf -X POST "$B/api/worktrees/prune" -H 'content-type: application/json' -d '{}')
+RCRUN="$RCRUN" python3 -c 'import sys,json,os
+d=json.loads(sys.stdin.read())
+assert d["count"]>=1 and isinstance(d["removed"],list),d
+assert int(os.environ["RCRUN"]) in [r["runId"] for r in d["removed"]],("victim removed",d)
+' <<<"$PR" || fail "prune result wrong: $PR"
+# victim worktreePath now blank
+VWT=$(curl -s "$B/api/runs/$RCRUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["worktreePath"])')
+[ -z "$VWT" ] || fail "victim worktreePath not cleared after prune: '$VWT'"
+# safe run's worktree still present (never touched)
+SWT=$(curl -s "$B/api/runs/$SAFERUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["worktreePath"])')
+[ -n "$SWT" ] || fail "safe open run's worktree was wrongly cleared"
+# idempotent — re-prune finds nothing (victim gone, safe not eligible)
+WT2=$(curl -sf "$B/api/worktrees")
+RCRUN="$RCRUN" SAFERUN="$SAFERUN" python3 -c 'import sys,json,os
+ids=[w["runId"] for w in json.loads(sys.stdin.read())["items"]]
+assert int(os.environ["RCRUN"]) not in ids,("victim still reclaimable",ids)
+assert int(os.environ["SAFERUN"]) not in ids,("safe leaked into reclaimable",ids)
+' <<<"$WT2" || fail "post-prune list wrong: $WT2"
+pass "prune: reclaimable removed + pointer cleared, open/done run untouched, idempotent"
+# cleanup the safe task so branch check downstream stays clean
+curl -s -X POST "$B/api/tasks/$SAFETID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+curl -s -X POST "$B/api/tasks/$RCTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+
+# board serves the reclaim affordance
+case "$BOARD_HTML" in *'id="reclaimBtn"'*) : ;; *) fail "reclaim worktrees button missing";; esac
+pass "board serves reclaim worktrees affordance (#reclaimBtn)"
+
 # auth gate (fresh daemon with pass)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
 rm -f "$DB"*

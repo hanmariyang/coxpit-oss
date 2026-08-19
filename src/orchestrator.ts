@@ -1316,3 +1316,115 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
   await setRun(runId, { worktreePath: '', tmuxWindow: '' });
   return { ok: true, detail: rm.stdout.trim().slice(0, 300) };
 }
+
+// ── 고아 worktree 회수(reclaim) ────────────────────────────────
+// run worktree 는 종종 node_modules 를 품어 ~180MB 의 디스크 빚이 된다. Close 는
+// cleanupRun 으로 이미 정리하지만, 실패·에러·데몬 재시작으로 고아가 된 run 은
+// (검수용으로) worktree 를 남겨두므로 쌓인다. 이를 안전하게 되찾는 길.
+//
+// 안전 규칙(핵심): running/preparing/pending/'done' run 은 절대 대상 아님 —
+// 활성 작업이거나(진행 중), 성공했지만 아직 머지 안 됐을 수 있는 작업이므로.
+
+/** 회수 대상 판정용 안전 상태 집합 — task 가 closed 이거나 run 상태가 이 중 하나. */
+const RECLAIM_STATUSES = new Set(['failed', 'error', 'stopped']);
+
+export interface ReclaimableWorktree {
+  runId: number;
+  path: string;
+  branch: string;
+  taskId: number;
+  reason: string; // 'task closed' | 'failed' | 'error' | 'stopped'
+  exists: boolean; // worktree dir 가 아직 디스크에 있나(false = 이미 수동 삭제됨)
+  sizeKb?: number; // best-effort du -sk (실패 시 생략)
+}
+
+/**
+ * 안전하게 회수 가능한 worktree 목록. worktreePath 가 비어있지 않은 모든 run 중
+ * (a) task 가 closed 이거나 (b) run 상태 ∈ {failed, error, stopped} 인 것만.
+ * running/preparing/pending/'done'/'open'/'merged' 는 절대 포함하지 않는다
+ * (활성 또는 성공-미머지 가능성). exists=디스크 잔존 여부, sizeKb=best-effort du.
+ */
+export async function listReclaimableWorktrees(): Promise<ReclaimableWorktree[]> {
+  const allRuns = (await db.select().from(agentRuns)).filter((r) => !!r.worktreePath);
+  // task 상태 룩업(closed 판정용)
+  const taskById = new Map<number, typeof tasks.$inferSelect>();
+  for (const t of await db.select().from(tasks)) taskById.set(t.id, t);
+
+  const out: ReclaimableWorktree[] = [];
+  for (const run of allRuns) {
+    if (isRunLive(run.id)) continue; // 라이브 자식 보유 = 실행 중, 절대 건드리지 않음
+    const task = taskById.get(run.taskId);
+    const taskClosed = task?.status === 'closed';
+    const statusReclaim = RECLAIM_STATUSES.has(run.status);
+    if (!taskClosed && !statusReclaim) continue; // done/open/merged/running/preparing/pending 제외
+    const reason = taskClosed ? 'task closed' : run.status;
+
+    // worktree 잔존 여부 + best-effort 사이즈(로컬만 정확; 원격은 machine 경유).
+    const ctx = await loadContext(run.id).catch(() => null);
+    let exists = false;
+    let sizeKb: number | undefined;
+    if (ctx) {
+      const chk = await runShellOn(ctx.machine, `test -d ${shq(run.worktreePath)} && echo yes`, 8000)
+        .catch(() => ({ stdout: '' as string }));
+      exists = (chk.stdout || '').includes('yes');
+      if (exists) {
+        // du 는 큰 트리에서 느릴 수 있어 타임아웃으로 가드 — 실패해도 목록은 낸다.
+        const du = await runShellOn(ctx.machine, `du -sk ${shq(run.worktreePath)} 2>/dev/null | cut -f1`, 8000)
+          .catch(() => ({ ok: false as boolean, stdout: '' as string }));
+        const n = parseInt((du.stdout || '').trim(), 10);
+        if (du.ok && Number.isFinite(n) && n > 0) sizeKb = n;
+      }
+    }
+    out.push({ runId: run.id, path: run.worktreePath, branch: run.branch, taskId: run.taskId, reason, exists, sizeKb });
+  }
+  return out;
+}
+
+/**
+ * 회수 실행 — 대상 run(전체 또는 runIds 부분집합)의 worktree 를 되찾는다.
+ * dir 가 아직 있으면 cleanupRun 재사용(tmux kill + git worktree remove + branch -D + 포인터 blank).
+ * dir 가 이미 수동 삭제됐으면 git worktree prune + branch -D + DB 포인터 blank 만.
+ * 마지막에 영향받은 repo 마다 git worktree prune 1회(스테일 메타데이터 정리).
+ * 멱등 — 다시 돌려도 안전(이미 회수된 run 은 worktreePath 가 비어 목록에서 빠짐).
+ */
+export async function pruneWorktrees(runIds?: number[]): Promise<{
+  removed: Array<{ runId: number; detail: string }>; count: number;
+}> {
+  const reclaimable = await listReclaimableWorktrees();
+  const want = runIds && runIds.length ? new Set(runIds) : null;
+  const targets = want ? reclaimable.filter((r) => want.has(r.runId)) : reclaimable;
+
+  const removed: Array<{ runId: number; detail: string }> = [];
+  const affectedRepoPaths = new Map<string, MachineTarget>(); // repoPath -> machine (prune 대상)
+
+  for (const t of targets) {
+    const ctx = await loadContext(t.runId).catch(() => null);
+    if (ctx) affectedRepoPaths.set(ctx.repoPath, ctx.machine);
+    if (t.exists) {
+      // dir 잔존 — cleanupRun 이 tmux·worktree remove --force·branch -D·포인터 blank 를 모두 처리.
+      const res = await cleanupRun(t.runId).catch((e) => ({ ok: false, detail: String(e).slice(0, 200) }));
+      removed.push({ runId: t.runId, detail: res.detail || (res.ok ? 'removed' : 'cleanup failed') });
+    } else if (ctx) {
+      // dir 는 이미 수동 삭제 — git 이 여전히 스테일 worktree 를 물고 있다. prune + branch -D + 포인터 blank.
+      const r = await runShellOn(
+        ctx.machine,
+        `git -C ${shq(ctx.repoPath)} worktree prune 2>&1` +
+        `${t.branch ? ` ; git -C ${shq(ctx.repoPath)} branch -D ${shq(t.branch)} 2>&1 || true` : ''}`,
+        20000,
+      ).catch(() => ({ stdout: '' as string }));
+      await setRun(t.runId, { worktreePath: '', tmuxWindow: '' });
+      removed.push({ runId: t.runId, detail: (r.stdout || '').trim().slice(0, 200) || 'dir already gone — pruned metadata' });
+    } else {
+      // context 없음(repo/machine 소실) — 최소한 DB 포인터라도 비운다.
+      await setRun(t.runId, { worktreePath: '', tmuxWindow: '' });
+      removed.push({ runId: t.runId, detail: 'context missing — cleared DB pointer' });
+    }
+  }
+
+  // repo 마다 worktree prune 1회 — 스테일 메타데이터를 확실히 청소(멱등).
+  for (const [repoPath, machine] of affectedRepoPaths) {
+    await runShellOn(machine, `git -C ${shq(repoPath)} worktree prune 2>/dev/null || true`, 15000).catch(() => { /* best-effort */ });
+  }
+
+  return { removed, count: removed.length };
+}
