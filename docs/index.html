@@ -31,6 +31,14 @@
   .lang button{background:transparent;border:none;color:var(--muted);font-size:12px;padding:5px 9px;cursor:pointer}
   .lang button.on{background:var(--brand);color:var(--brand-ink);font-weight:700}
 
+  /* CJK-safe wrapping: break at word/eojeol boundaries, never mid-word */
+  h1,h2,h3,p,figcaption,.lead,.sub,nav .links a,.dcard .os,.dcard .nm{word-break:keep-all;overflow-wrap:break-word}
+  @media (max-width:520px){
+    nav{gap:10px}
+    nav .links{gap:12px}
+    nav .links a{font-size:13px}
+  }
+
   /* hero */
   .hero{padding:64px 0 30px;text-align:center}
   .hero h1{font-family:var(--mono);font-size:clamp(30px,5.4vw,52px);line-height:1.15;margin:0 0 18px;
@@ -236,7 +244,7 @@
     'nav.guide':{en:'Guide',ko:'가이드'},
     'hero.h1':{en:'Own your <span class="b">agent fleet</span>.',ko:'당신의 <span class="b">에이전트 플릿</span>을 소유하세요.'},
     'hero.sub':{en:'Run parallel AI coding agents — Claude Code and Codex — across your own machines, each in an isolated git worktree. Watch them live, compare their diffs, attach a terminal, merge the winner. Agents can even spawn their own sub-agents. Self-hosted. Your code never leaves your network.',
-      ko:'AI 코딩 에이전트(Claude Code·Codex)를 내 기계에서 병렬로 돌립니다. 각자 격리된 git worktree에서 일하고, 실시간으로 지켜보며 diff를 비교하고, 터미널에 붙고, 승자를 머지합니다. 에이전트가 스스로 서브 에이전트를 띄우기도 합니다. 자가 호스팅 — 코드는 당신 네트워크를 벗어나지 않습니다.'},
+      ko:'AI 코딩 에이전트(Claude Code·Codex)를 내 기계에서 병렬로 돌립니다. 각자 격리된 git worktree에서 일하니, 실시간으로 지켜보며 diff를 비교하고 터미널에 붙어 승자를 머지하세요. 에이전트가 스스로 서브 에이전트를 띄우기도 합니다. 자가 호스팅이라 코드는 내 네트워크를 벗어나지 않습니다.'},
     'hero.cta1':{en:'Download',ko:'다운로드'},
     'hero.cta2':{en:'Source on GitHub',ko:'GitHub 소스'},
     'feat.label':{en:'What it does',ko:'무엇을 하나'},
