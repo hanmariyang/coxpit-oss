@@ -570,6 +570,44 @@ curl -s "$B/api/tasks/$CTID" | grep -q '"agent":"codex"' || fail "run agent shou
 curl -s -X POST "$B/api/tasks/$CTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 pass "codex run via API settles with agent recorded (dry rehearsal)"
 
+# v4.7 P1 — 산출물 계약(deliverable contract): 선언 → /outputs 카드(required/present) · /file 가드
+# 신선 repo(DRYRUN 미머지)라 dry run 이 실제 COXPIT_DRYRUN.txt 변경을 낸다 → code 카드 present.
+DREPO="$WORK/drepo"
+mkdir -p "$DREPO"; git -C "$DREPO" init -q -b main
+printf 'seed\n' > "$DREPO/README.md"; git -C "$DREPO" add -A
+git -C "$DREPO" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
+DR=$(curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$DREPO\"}")
+DRID=$(echo "$DR" | python3 -c 'import sys,json;print(json.load(sys.stdin)["repo"]["id"])')
+# 계약 선언: code(생성됨) + doc(미생성) → code present:true·required, doc present:false·required
+DT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' \
+  -d "{\"repoId\":$DRID,\"title\":\"contract\",\"prompt\":\"do work\",\"outputs\":[\"code\",\"doc\"]}")
+DTID=$(echo "$DT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
+echo "$DT" | python3 -c 'import sys,json;t=json.load(sys.stdin)["task"];assert json.loads(t["outputs"])==["code","doc"],t' || fail "task outputs not stored: $DT"
+curl -sf -X POST "$B/api/tasks/$DTID/run" -H 'content-type: application/json' -d '{"count":1}' | grep -q '"ok":true' || fail "contract run launch"
+DRID_RUN=$(curl -s "$B/api/tasks/$DTID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runs"][0]["id"])')
+DS=''
+for i in $(seq 1 60); do
+  DS=$(curl -s "$B/api/runs/$DRID_RUN" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$DS" ] && break; sleep 0.5
+done
+[ "$DS" = '"status":"done"' ] || fail "contract run did not settle done: $DS"
+# /outputs — code present:true·required:true · doc present:false·required:true (soft policy)
+OUTS=$(curl -sf "$B/api/runs/$DRID_RUN/outputs")
+echo "$OUTS" | python3 -c 'import sys,json
+d=json.load(sys.stdin)["outputs"]
+byt={c["type"]:c for c in d}
+assert "code" in byt and byt["code"]["required"] is True and byt["code"]["present"] is True, ("code card", d)
+assert "doc" in byt and byt["doc"]["required"] is True and byt["doc"]["present"] is False, ("doc placeholder", d)
+' || fail "outputs cards wrong required/present: $OUTS"
+pass "outputs contract: code present+required, missing doc -> present:false placeholder"
+# /file 가드 — .. 트래버설 거부(non-200) + worktree 내부 파일 서빙(200)
+FTRAV=$(curl -s -o /dev/null -w '%{http_code}' "$B/api/runs/$DRID_RUN/file?path=../../../../../../etc/passwd")
+case "$FTRAV" in 200) fail "file .. traversal must NOT return 200 (got $FTRAV)";; *) : ;; esac
+FIN=$(curl -s -o /dev/null -w '%{http_code}' "$B/api/runs/$DRID_RUN/file?path=COXPIT_DRYRUN.txt")
+[ "$FIN" = "200" ] || fail "in-worktree file should serve 200, got $FIN"
+pass "file guard: .. traversal rejected (non-200), in-worktree file served (200)"
+curl -s -X POST "$B/api/tasks/$DTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+
 # v4.1 E — repo 기본 브랜치 override (fixture 에 wip-side-branch 존재)
 curl -sf -X PATCH "$B/api/repos/1" -H 'content-type: application/json' -d '{"defaultBranch":"wip-side-branch"}' | grep -q '"defaultBranch":"wip-side-branch"' || fail "branch patch to existing failed"
 curl -s "$B/api/repos" | grep -q '"defaultBranch":"wip-side-branch"' || fail "branch patch not reflected"

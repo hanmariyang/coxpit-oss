@@ -44,6 +44,7 @@ export async function ensureSchema(): Promise<void> {
       prompt TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'open',
       design_capture_id INTEGER,
+      outputs TEXT NOT NULL DEFAULT '[]',
       created_at INTEGER DEFAULT (unixepoch())
     );
     CREATE TABLE IF NOT EXISTS agent_runs (
@@ -99,4 +100,5 @@ export async function ensureSchema(): Promise<void> {
   try { await client.execute('ALTER TABLE tasks ADD COLUMN group_id INTEGER'); } catch { /* exists */ }
   try { await client.execute('ALTER TABLE tasks ADD COLUMN closed_at INTEGER'); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE task_groups ADD COLUMN coord_session_id TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
+  try { await client.execute("ALTER TABLE tasks ADD COLUMN outputs TEXT NOT NULL DEFAULT '[]'"); } catch { /* exists */ }
 }

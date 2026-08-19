@@ -13,6 +13,57 @@ import { runShellOn, spawnShellOn, shq, type MachineTarget } from './exec';
 import { broadcast } from './hub';
 import { getProvider, type Provider } from './providers';
 
+// ── 산출물 계약(deliverable contract) ─────────────────────────
+/** 산출물 타입 5종 — 태스크가 선언할 수 있는 계약 항목. */
+export const OUTPUT_TYPES = ['answer', 'code', 'doc', 'page', 'file'] as const;
+export type OutputType = (typeof OUTPUT_TYPES)[number];
+const OUTPUT_SET = new Set<string>(OUTPUT_TYPES);
+
+/** 임의 입력 → 유효한 산출물 타입 배열(중복 제거, 순서 보존). API·저장 공용. */
+export function normalizeOutputs(input: unknown): OutputType[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: OutputType[] = [];
+  for (const v of input) {
+    if (typeof v === 'string' && OUTPUT_SET.has(v) && !seen.has(v)) {
+      seen.add(v);
+      out.push(v as OutputType);
+    }
+  }
+  return out;
+}
+
+/** tasks.outputs(JSON 문자열) → 산출물 타입 배열. 파싱 실패는 빈 배열. */
+export function parseOutputs(raw: string | null | undefined): OutputType[] {
+  if (!raw) return [];
+  try { return normalizeOutputs(JSON.parse(raw)); } catch { return []; }
+}
+
+/** 프롬프트에 붙는 Deliverables 블록(A3). declared 는 비어있지 않다. */
+function deliverablesNote(declared: OutputType[]): string {
+  const human: Record<OutputType, string> = {
+    answer: 'an answer', code: 'code changes', doc: 'a Markdown doc',
+    page: 'an HTML page', file: 'a file',
+  };
+  const list = declared.map((t) => human[t]).join(', ');
+  return '\n\n--- COXPIT DELIVERABLES (required) ---\n' +
+    `Deliverables (required): ${list}.\n` +
+    'Produce each as a real file in the repo (docs as .md, pages as .html). Register every ' +
+    'deliverable in .coxpit/outputs.json as a JSON array of {path,type,title}. End with a final ' +
+    'message stating the answer.\n' +
+    '--- END COXPIT DELIVERABLES ---';
+}
+
+/** 계산된 출력 카드(computeRunOutputs 반환) — 보드가 오른쪽 컬럼에 렌더. */
+export interface RunOutputCard {
+  type: OutputType;
+  title: string;
+  path?: string;
+  required: boolean;
+  present: boolean;
+  meta: string;
+}
+
 /** 에이전트 실행 커맨드. 드라이런=모의 stream-json + 실제 파일 1건 변경. */
 function agentCommand(provider: Provider, prompt: string, real: boolean, model = ''): string {
   if (real) return provider.launchCmd(prompt, model || undefined);
@@ -240,6 +291,11 @@ async function loadContext(runId: number): Promise<RunContext | null> {
         `--- END DESIGN CONTEXT ---`;
     }
   }
+
+  // 산출물 계약 — task.outputs 가 비어있지 않으면 Deliverables 블록 주입(디자인 캡처와 같은 시임).
+  // launchRun/launchGroupTask 는 모두 loadContext 를 거치므로 여기서 한 번에 커버.
+  const declared = parseOutputs(task.outputs);
+  if (declared.length) prompt += deliverablesNote(declared);
 
   return {
     runId,
@@ -552,6 +608,152 @@ export async function getRunDocs(runId: number): Promise<{
     if (cat.ok) docs.push({ path: p, kind: kindOf(p)!, content: cat.stdout });
   }
   return { ok: true, docs };
+}
+
+// ── computeRunOutputs — 산출물 카드 계산(A2/A4) ──────────────────
+interface OutputsManifestItem { path?: string; type?: string; title?: string }
+
+/** run 의 최종 답변 텍스트 — result 이벤트(payload JSON) 우선, 없으면 exitSummary. */
+async function runAnswerText(run: typeof agentRuns.$inferSelect): Promise<string> {
+  const evs = await db.select().from(agentEvents).where(eq(agentEvents.runId, run.id));
+  for (let i = evs.length - 1; i >= 0; i--) {
+    if (evs[i]!.kind !== 'result') continue;
+    try {
+      const o = JSON.parse(evs[i]!.payload) as { result?: string };
+      if (typeof o.result === 'string' && o.result.trim()) return o.result.trim();
+    } catch { /* 비-JSON result — exitSummary 로 폴백 */ }
+  }
+  return (run.exitSummary || '').trim();
+}
+
+/** 확장자 → 파생 카드 타입. code/file 은 group 만, 실제 타입은 code|page|doc|file. */
+function extType(p: string): OutputType {
+  if (/\.(md|markdown)$/i.test(p)) return 'doc';
+  if (/\.(html?|htm)$/i.test(p)) return 'page';
+  if (/\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(p)) return 'file';
+  return 'code';
+}
+
+/** status --porcelain 한 줄 → 상대경로(따옴표·상태코드 제거). */
+function porcelainPath(line: string): string {
+  return line.slice(3).trim().replace(/^"|"$/g, '');
+}
+
+/**
+ * run 의 산출물 카드 목록을 계산(주문형, A4). 병합 순서:
+ *  (a) worktree 의 .coxpit/outputs.json 매니페스트(있으면) — declared 딜리버러블
+ *  (b) git status --porcelain → 확장자 분류(.md=doc·.html=page·이미지=file·그 외=code 집계 1장)
+ *  (c) result 이벤트의 answer 텍스트
+ * 각 카드: required = type ∈ task.outputs. declared 인데 산출물 없으면 present:false 플레이스홀더.
+ * worktree 소멸 → doc/page 는 loadRunDocs 스냅샷 폴백, code/file 은 unavailable, answer 는 이벤트.
+ */
+export async function computeRunOutputs(runId: number): Promise<RunOutputCard[]> {
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!run) return [];
+  const tr = await db.select().from(tasks).where(eq(tasks.id, run.taskId)).limit(1);
+  const task = tr[0];
+  const declared = parseOutputs(task?.outputs);
+  const declaredSet = new Set<OutputType>(declared);
+
+  const ctx = await loadContext(runId);
+  const wt = run.worktreePath;
+  // worktree 가 실제로 머신에 살아있는가(정리 후에는 스냅샷 폴백).
+  let wtAlive = false;
+  if (ctx && wt) {
+    const t = await runShellOn(ctx.machine, `test -d ${shq(wt)} && echo yes`, 8000).catch(() => ({ stdout: '' }));
+    wtAlive = (t.stdout || '').includes('yes');
+  }
+
+  const cards: RunOutputCard[] = [];
+  const present = new Set<OutputType>();
+  const codeFiles: string[] = [];
+  const fileCards: RunOutputCard[] = [];
+  const docByPath = new Map<string, RunOutputCard>();
+
+  // (c) answer — 이벤트에서(worktree 생사 무관하게 항상 회수 가능)
+  const answer = await runAnswerText(run);
+  if (answer) {
+    present.add('answer');
+    cards.push({ type: 'answer', title: 'Final answer', required: declaredSet.has('answer'), present: true, meta: 'from the run\'s final message' });
+  }
+
+  // (a) 매니페스트 — path→title 힌트로 파생 카드 제목을 예쁘게(있으면). 없으면 git 분류로 폴백.
+  const manifestTitle = new Map<string, string>();
+  if (wtAlive && ctx && wt) {
+    const mf = await runShellOn(ctx.machine, `head -c 200000 ${shq(ppath.join(wt, '.coxpit/outputs.json'))} 2>/dev/null`, 8000)
+      .catch(() => ({ ok: false, stdout: '' }));
+    if (mf.ok && mf.stdout.trim()) {
+      try {
+        const arr = JSON.parse(mf.stdout) as unknown;
+        for (const it of (Array.isArray(arr) ? arr : []) as OutputsManifestItem[]) {
+          if (it && typeof it === 'object' && typeof it.path === 'string' && typeof it.title === 'string') {
+            manifestTitle.set(it.path, it.title);
+          }
+        }
+      } catch { /* 매니페스트 깨짐 — git 분류로 폴백 */ }
+    }
+  }
+
+  if (wtAlive && ctx && wt) {
+    // (b) git status --porcelain 분류
+    const ls = await runShellOn(ctx.machine, `git -C ${shq(wt)} status --porcelain`, 15000).catch(() => ({ ok: false, stdout: '' }));
+    if (ls.ok) {
+      const paths = ls.stdout.split('\n').map(porcelainPath).filter(Boolean);
+      for (const p of paths) {
+        if (p.startsWith('.coxpit/')) continue; // 오케스트레이션 파일은 산출물 아님
+        const t = extType(p);
+        if (t === 'doc' || t === 'page') {
+          present.add(t);
+          docByPath.set(p, { type: t, title: manifestTitle.get(p) || p, path: p, required: declaredSet.has(t), present: true, meta: t === 'doc' ? 'rendered markdown' : 'live HTML page' });
+        } else if (t === 'file') {
+          present.add('file');
+          fileCards.push({ type: 'file', title: manifestTitle.get(p) || p, path: p, required: declaredSet.has('file'), present: true, meta: 'file preview' });
+        } else {
+          codeFiles.push(p);
+        }
+      }
+    }
+  } else {
+    // worktree 소멸 — doc/page 는 스냅샷 폴백, code/file 은 unavailable.
+    const snap = await loadRunDocs(runId);
+    for (const d of snap.docs) {
+      const t: OutputType = d.kind === 'html' ? 'page' : 'doc';
+      present.add(t);
+      docByPath.set(d.path, { type: t, title: manifestTitle.get(d.path) || d.path, path: d.path, required: declaredSet.has(t), present: true, meta: 'worktree cleaned — snapshot only' });
+    }
+    if (run.filesChanged > 0) {
+      // 변경은 있었으나 worktree 가 사라져 code/file diff 를 못 준다.
+      if (declaredSet.has('code')) cards.push({ type: 'code', title: 'Code changes', required: true, present: false, meta: 'worktree cleaned — diff unavailable' });
+      if (declaredSet.has('file')) cards.push({ type: 'file', title: 'File', required: true, present: false, meta: 'worktree cleaned — file unavailable' });
+    }
+  }
+
+  // doc/page 카드 편입(경로 순)
+  for (const c of docByPath.values()) cards.push(c);
+  // file 카드 편입
+  for (const c of fileCards) cards.push(c);
+  // code — 여러 파일을 한 장의 diff 카드로 집계(worktree 라이브일 때만 생성됨)
+  if (codeFiles.length) {
+    present.add('code');
+    cards.push({
+      type: 'code',
+      title: 'Code changes',
+      required: declaredSet.has('code'),
+      present: true,
+      meta: `${codeFiles.length} file(s) — colored diff`,
+    });
+  }
+
+  // declared 인데 산출물이 없으면 ⚠ present:false 플레이스홀더(soft policy).
+  // future: strict mode — auto-steer "produce the missing <type>"
+  for (const t of declared) {
+    if (present.has(t)) continue;
+    if (cards.some((c) => c.type === t && c.present === false)) continue; // worktree-gone 폴백이 이미 추가
+    cards.push({ type: t, title: `Missing ${t}`, required: true, present: false, meta: '산출물 미충족' });
+  }
+
+  return cards;
 }
 
 /**

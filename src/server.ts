@@ -1,7 +1,7 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, realpath, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve as presolve, dirname as pdirname, join as pjoin } from 'node:path';
+import { resolve as presolve, dirname as pdirname, join as pjoin, sep as psep } from 'node:path';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -13,7 +13,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -48,6 +48,19 @@ function mdLiteHTML(src: string): string {
   s = s.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>');
   s = s.split(/\n{2,}/).map((b) => /^<(h2|h3|ul|pre)/.test(b.trim()) ? b : (b.trim() ? '<p>' + b.replace(/\n/g, '<br>') + '</p>' : '')).join('');
   return s;
+}
+
+/** 확장자 → content-type 추론(파일 미리보기용). 미지 = octet-stream. */
+function contentTypeFor(path: string): string {
+  const ext = (path.split('.').pop() ?? '').toLowerCase();
+  const map: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+    webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', ico: 'image/x-icon',
+    avif: 'image/avif', pdf: 'application/pdf', txt: 'text/plain; charset=utf-8',
+    md: 'text/plain; charset=utf-8', json: 'application/json', csv: 'text/csv; charset=utf-8',
+    html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
+  };
+  return map[ext] ?? 'application/octet-stream';
 }
 
 /** 공유 페이지 Documents 섹션 — md 는 mdLiteHTML, html 은 sandbox iframe. */
@@ -578,7 +591,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   app.post('/api/tasks', async (req, reply) => {
-    const b = (req.body ?? {}) as { repoId?: number; title?: string; prompt?: string; designCaptureId?: number };
+    const b = (req.body ?? {}) as { repoId?: number; title?: string; prompt?: string; designCaptureId?: number; outputs?: unknown };
     const repoId = Number(b.repoId);
     const title = (b.title ?? '').trim();
     if (!repoId || !title) return reply.code(400).send({ error: 'repoId and title required' });
@@ -590,7 +603,9 @@ export async function buildServer(): Promise<FastifyInstance> {
       if (!dc[0]) return reply.code(404).send({ error: 'design capture not found' });
       designCaptureId = dc[0].id;
     }
-    const ins = await db.insert(tasks).values({ repoId, title, prompt: b.prompt ?? '', designCaptureId }).returning();
+    // 산출물 계약(선택) — {answer,code,doc,page,file} 만 허용, 중복 제거, JSON 문자열로 저장.
+    const outputs = normalizeOutputs(b.outputs);
+    const ins = await db.insert(tasks).values({ repoId, title, prompt: b.prompt ?? '', designCaptureId, outputs: JSON.stringify(outputs) }).returning();
     return reply.code(201).send({ ok: true, task: ins[0] });
   });
 
@@ -928,6 +943,96 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     const { docs, source } = await loadRunDocs(id);
     return { ok: true, docs, source };
+  });
+
+  // ─── 산출물 계약(v4.7 P1) — 카드 목록 · 뷰어 콘텐츠 · 파일 바이트 ──
+  // 카드 목록: computeRunOutputs 로 병합(매니페스트+git status+answer). 404 = run 없음.
+  app.get('/api/runs/:id/outputs', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const outputs = await computeRunOutputs(id);
+    return { outputs };
+  });
+
+  // 뷰어 콘텐츠: answer/doc → md, page → html(둘 다 loadRunDocs 폴백 재사용).
+  // code 는 별도 콘텐츠 없음 — 클라이언트가 기존 /api/runs/:id/diff 를 재사용한다.
+  app.get('/api/runs/:id/output', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const q = (req.query ?? {}) as { type?: string; path?: string };
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const type = (q.type ?? '').trim();
+    if (type === 'answer') {
+      const cards = await computeRunOutputs(id);
+      const has = cards.some((c) => c.type === 'answer' && c.present);
+      const content = has ? (rr[0].exitSummary || '') : '';
+      // answer 본문은 result 이벤트가 원천 — exitSummary 는 그 클립(≤500자)이라 여기선 이벤트 우선.
+      const evs = await db.select().from(agentEvents).where(eq(agentEvents.runId, id));
+      let answer = content;
+      for (let i = evs.length - 1; i >= 0; i--) {
+        if (evs[i]!.kind !== 'result') continue;
+        try { const o = JSON.parse(evs[i]!.payload) as { result?: string }; if (typeof o.result === 'string' && o.result.trim()) { answer = o.result.trim(); break; } } catch { /* skip */ }
+      }
+      return { kind: 'md', content: answer };
+    }
+    if (type === 'doc' || type === 'page') {
+      const wantKind = type === 'doc' ? 'md' : 'html';
+      const { docs } = await loadRunDocs(id); // worktree→snapshot 폴백 내장
+      const path = (q.path ?? '').trim();
+      const doc = path ? docs.find((d) => d.path === path) : docs.find((d) => d.kind === wantKind);
+      if (!doc) return reply.code(404).send({ error: 'output not found' });
+      return { kind: doc.kind === 'html' ? 'html' : 'md', content: doc.content };
+    }
+    if (type === 'code') {
+      // code 는 콘텐츠 뷰어가 없다 — 컬러 diff 는 클라이언트가 /api/runs/:id/diff 로 재사용.
+      return { kind: 'diff', diffUrl: `/api/runs/${id}/diff` };
+    }
+    return reply.code(400).send({ error: 'type must be one of answer|doc|page|code' });
+  });
+
+  // 파일 바이트(NEW · 보안 임계) — 이미지/바이너리 미리보기용 raw bytes.
+  // 가드: worktree 루트 기준으로 path 를 해석하고, realpath 가 worktree 밖으로
+  // 벗어나면(.. / 절대경로 / 심볼릭링크 탈출) 거부. 크기 상한 ~10MB. worktree 소멸 후 404.
+  const FILE_MAX = 10 * 1024 * 1024;
+  app.get('/api/runs/:id/file', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const q = (req.query ?? {}) as { path?: string };
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    const run = rr[0];
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    const rel = (q.path ?? '').trim();
+    if (!rel) return reply.code(400).send({ error: 'path required' });
+    // 절대경로 즉시 거부(worktree 밖 강제)
+    if (rel.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(rel)) return reply.code(400).send({ error: 'path must be relative' });
+    if (!run.worktreePath) return reply.code(404).send({ error: 'no worktree' });
+
+    // 원격 머신 파일은 데몬 파일시스템에 없다 — export 와 동일하게 로컬 전용.
+    const mr = await db.select().from(machines).where(eq(machines.id, run.machineId)).limit(1);
+    const mach = mr[0];
+    const isRemote = !!mach && mach.kind !== 'local' && (mach.address ?? '') !== '';
+    if (isRemote) return reply.code(400).send({ error: 'remote file preview not supported' });
+
+    // worktree 루트를 realpath 로 정규화(심링크 해소된 canonical base).
+    let rootReal: string;
+    try { rootReal = await realpath(run.worktreePath); }
+    catch { return reply.code(404).send({ error: 'worktree gone' }); }
+    // 요청 경로 = 루트에 join 후 realpath — 심링크 탈출까지 잡는다.
+    const joined = presolve(rootReal, rel);
+    let targetReal: string;
+    try { targetReal = await realpath(joined); }
+    catch { return reply.code(404).send({ error: 'file not found' }); }
+    // realpath 결과가 worktree 루트 하위가 아니면 탈출 — 거부.
+    const rootWithSep = rootReal.endsWith(psep) ? rootReal : rootReal + psep;
+    if (targetReal !== rootReal && !targetReal.startsWith(rootWithSep)) {
+      return reply.code(403).send({ error: 'path escapes the worktree' });
+    }
+    let st;
+    try { st = await stat(targetReal); } catch { return reply.code(404).send({ error: 'file not found' }); }
+    if (!st.isFile()) return reply.code(404).send({ error: 'not a file' });
+    if (st.size > FILE_MAX) return reply.code(413).send({ error: 'file too large (>10MB)' });
+    const buf = await readFile(targetReal);
+    return reply.type(contentTypeFor(rel)).send(buf);
   });
 
   // ─── 에이전트 셀프 오케스트레이션 (run 별 Bearer 토큰 — authGate 예외, 여기서 자체 검증) ──
