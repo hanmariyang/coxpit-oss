@@ -106,7 +106,7 @@ case "$BOARD_HTML" in *'id="mContract"'*) : ;; *) fail "contract strip missing";
 case "$BOARD_HTML" in *'id="outCards"'*) : ;; *) fail "output cards container missing";; esac
 case "$BOARD_HTML" in *'id="outDetail"'*) : ;; *) fail "output detail viewer missing";; esac
 case "$BOARD_HTML" in *'id="outBack"'*) : ;; *) fail "output detail back link missing";; esac
-case "$BOARD_HTML" in *'산출물 목록'*) : ;; *) fail "output back label missing";; esac
+case "$BOARD_HTML" in *'‹ Outputs'*) : ;; *) fail "output back label missing";; esac
 case "$BOARD_HTML" in *'function openOutCard'*) : ;; *) fail "openOutCard viewer dispatch missing";; esac
 case "$BOARD_HTML" in *'function pickDefaultCard'*) : ;; *) fail "default-card heuristic missing";; esac
 case "$BOARD_HTML" in *'/outputs'*) : ;; *) fail "outputs fetch missing";; esac
@@ -115,6 +115,38 @@ case "$BOARD_HTML" in *'id="taskOutputs"'*) : ;; *) fail "task-compose deliverab
 case "$BOARD_HTML" in *'function selectedOutputs'*) : ;; *) fail "selectedOutputs collector missing";; esac
 case "$BOARD_HTML" in *'class="ochip" data-out="answer"'*) : ;; *) fail "deliverable chips missing";; esac
 pass "board serves outputs cards + real viewers + request-side deliverables selector"
+
+# v5.0 Part B — the New sheet (type-tabbed compose: Task | Goal | Workbench)
+case "$BOARD_HTML" in *'id="newSheet"'*) : ;; *) fail "New sheet overlay (#newSheet) missing";; esac
+case "$BOARD_HTML" in *'class="sheet"'*) : ;; *) fail "New sheet card (.sheet) missing";; esac
+case "$BOARD_HTML" in *'id="sheetRepoLbl"'*) : ;; *) fail "sheet header repo label (#sheetRepoLbl) missing";; esac
+case "$BOARD_HTML" in *'id="launchTabs"'*) : ;; *) fail "sheet type seg (#launchTabs) missing";; esac
+case "$BOARD_HTML" in *'data-tab="task"'*) : ;; *) fail "type seg Task entry missing";; esac
+case "$BOARD_HTML" in *'data-tab="goal"'*) : ;; *) fail "type seg Goal entry missing";; esac
+case "$BOARD_HTML" in *'data-tab="bench"'*) : ;; *) fail "type seg Workbench entry missing";; esac
+case "$BOARD_HTML" in *'function setV'*) : ;; *) fail "sheet type-switch (setV) missing";; esac
+# footer adapts per type — Run fleet / Plan & run / Open workbench live in L_LABEL
+case "$BOARD_HTML" in *"Plan & run"*) : ;; *) fail "Goal footer label (Plan & run) missing";; esac
+case "$BOARD_HTML" in *'Open workbench'*) : ;; *) fail "Workbench footer label missing";; esac
+# progressive Options reveal (rarely-used Task fields)
+case "$BOARD_HTML" in *'id="taskOptToggle"'*) : ;; *) fail "Options reveal toggle (#taskOptToggle) missing";; esac
+case "$BOARD_HTML" in *'id="taskOptBody"'*) : ;; *) fail "Options reveal body (#taskOptBody) missing";; esac
+case "$BOARD_HTML" in *'function setTaskOpt'*) : ;; *) fail "Options reveal handler (setTaskOpt) missing";; esac
+# the Phase-1 temporary overlay is retired
+case "$BOARD_HTML" in *'id="launchOverlay"'*) fail "retired Phase-1 launch overlay (#launchOverlay) still present";; *) : ;; esac
+pass "board serves v5.0 New sheet (#newSheet + Task/Goal/Workbench type seg + adapting footer + Options reveal; #launchOverlay retired)"
+
+# v5.0 Part D (folded) — English label sweep: deliverables chips + contract + converge (no Korean leaks)
+case "$BOARD_HTML" in *'data-out="answer">Answer<'*) : ;; *) fail "deliverable chip Answer (English) missing";; esac
+case "$BOARD_HTML" in *'data-out="code">Code<'*) : ;; *) fail "deliverable chip Code (English) missing";; esac
+case "$BOARD_HTML" in *'data-out="doc">Doc<'*) : ;; *) fail "deliverable chip Doc (English) missing";; esac
+case "$BOARD_HTML" in *'data-out="page">Page<'*) : ;; *) fail "deliverable chip Page (English) missing";; esac
+case "$BOARD_HTML" in *'data-out="file">File<'*) : ;; *) fail "deliverable chip File (English) missing";; esac
+case "$BOARD_HTML" in *'Required outputs (contract)'*) : ;; *) fail "contract strip English label missing";; esac
+case "$BOARD_HTML" in *'data-ract="review" data-rrid'*) : ;; *) fail "converge Review action missing";; esac
+# the old Korean deliverables/contract/converge labels must be gone from the served board
+case "$BOARD_HTML" in *'답변'*|*'요청됨'*|*'요청 산출물'*|*'전체 리뷰'*|*'그룹 클로즈'*|*'>리뷰<'*|*'>머지<'*|*'>클로즈<'*) fail "Korean deliverables/contract/converge label still leaks in served board";; *) : ;; esac
+pass "English label sweep (deliverables chips Answer/Code/Doc/Page/File + contract + converge; old Korean gone)"
 
 # v4.8 Part B — Lucide icon sprite + .ic usage inline in the board (no CDN, CSP-safe)
 case "$BOARD_HTML" in *'id="i-terminal"'*) : ;; *) fail "icon sprite: #i-terminal symbol missing";; esac
@@ -491,7 +523,7 @@ for i in $(seq 1 40); do
 done
 [ "$S" = '"status":"done"' ] || fail "planned run did not settle: $S"
 expect_code 400 -X POST "$B/api/plan" -H 'content-type: application/json' -d '{"repoId":1}'
-pass "plan fan-out launches planned tasks (mock planner)"
+pass "plan fan-out launches planned tasks (mock planner) — dry Goal via the New sheet endpoint settles"
 
 # v4.2 A — plan 형제들이 한 goal 그룹을 공유, fleet.groups 에 goal 행, 수동 태스크는 ungrouped
 GTIDS=$(echo "$PLAN" | python3 -c 'import sys,json;print(" ".join(str(t["id"]) for t in json.load(sys.stdin)["tasks"]))')
