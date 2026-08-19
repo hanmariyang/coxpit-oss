@@ -636,9 +636,14 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     </div>
     <div class="brw-list" id="brwList"></div>
     <div class="brw-f">
-      <span class="hint">folders with a <span style="color:var(--brand)">git</span> badge are repositories — hit Register</span>
+      <span class="hint"><span style="color:var(--brand)">git</span> badge = repo (Register) · empty folder = Start here</span>
+      <button class="btn-ghost sm" id="brwNewFolder">＋ New folder here</button>
       <button class="btn sm" id="brwRegHere" style="display:none">Register this folder</button>
     </div>
+    <form class="brw-f" id="brwNewForm" hidden>
+      <input id="brwNewName" placeholder="new-project-folder-name" style="flex:1" />
+      <button class="btn sm" type="submit" id="brwNewGo">Create &amp; start</button>
+    </form>
   </div>
 </div>
 
@@ -809,7 +814,8 @@ async function brwGo(p){
     (d.error ? '<div class="brw-row"><span class="nm" style="color:var(--s-failed)">'+esc(d.error)+'</span></div>' : '')
     + (d.dirs.map(x =>
         '<div class="brw-row" data-n="'+esc(x.name)+'"><span class="ico">▸</span><span class="nm">'+esc(x.name)+'</span>'
-        + (x.isRepo ? '<span class="gitchip">git</span><button type="button" class="btn sm" data-reg="'+esc(x.name)+'">Register</button>' : '')
+        + (x.isRepo ? '<span class="gitchip">git</span><button type="button" class="btn sm" data-reg="'+esc(x.name)+'">Register</button>'
+           : x.isEmpty ? '<button type="button" class="btn-ghost sm" data-start="'+esc(x.name)+'">Start here</button>' : '')
         + '</div>').join('')
       || '<div class="brw-row"><span class="nm" style="color:var(--faint)">no folders here</span></div>');
 }
@@ -834,18 +840,42 @@ async function brwRegister(fullPath){
 $('repoBrowse').addEventListener('click', ()=>{
   const m = machines.find(x=>x.slug===$('repoMachine').value);
   if (m && m.address){ toast('remote machine — type the path manually for now', 'error'); return; }
+  $('brwNewForm').hidden = true; $('brwNewName').value = '';
   $('brwOverlay').classList.add('open');
   brwGo(brwCur || '');
 });
 $('brwList').addEventListener('click',(e)=>{
   const reg = e.target.closest('button[data-reg]');
   if (reg){ brwRegister(brwCur.replace(/\\/$/,'')+'/'+reg.dataset.reg); return; }
+  const start = e.target.closest('button[data-start]');
+  if (start){ brwStartHere(brwCur.replace(/\\/$/,'')+'/'+start.dataset.start); return; }
   const row = e.target.closest('.brw-row[data-n]');
   if (row) brwGo(brwCur.replace(/\\/$/,'')+'/'+row.dataset.n);
 });
 $('brwUp').addEventListener('click',(e)=>brwGo(e.currentTarget.dataset.p));
 $('brwHome').addEventListener('click',(e)=>brwGo(e.currentTarget.dataset.p));
 $('brwRegHere').addEventListener('click',()=>brwRegister(brwCur));
+/* 빈 폴더 행의 Start here — 클릭한 폴더에 greenfield 씨앗 심고 등록 */
+async function brwStartHere(fullPath){
+  if (await createNewProject(fullPath)) $('brwOverlay').classList.remove('open');
+}
+/* ＋ New folder here — 현재 탐색 위치에 새 폴더명만 받아 생성+시작 (절대경로 타이핑 불필요) */
+$('brwNewFolder').addEventListener('click', ()=>{
+  const f = $('brwNewForm'); f.hidden = !f.hidden; if(!f.hidden) $('brwNewName').focus();
+});
+$('brwNewForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const name = $('brwNewName').value.trim();
+  if (!name){ toast('enter a folder name', 'error'); return; }
+  if (name.includes('/')){ toast('folder name cannot contain /', 'error'); return; }
+  const go = $('brwNewGo'); go.disabled = true; go.textContent = 'Creating…';
+  try{
+    if (await createNewProject(brwCur.replace(/\\/$/,'')+'/'+name)){
+      $('brwNewName').value=''; $('brwNewForm').hidden=true;
+      $('brwOverlay').classList.remove('open');
+    }
+  } finally { go.disabled=false; go.textContent='Create & start'; }
+});
 $('brwClose').addEventListener('click',()=>$('brwOverlay').classList.remove('open'));
 $('brwOverlay').addEventListener('click',(e)=>{ if(e.target===$('brwOverlay')) $('brwOverlay').classList.remove('open'); });
 

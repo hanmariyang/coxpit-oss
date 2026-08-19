@@ -77,6 +77,11 @@ case "$BOARD_HTML" in *'id="npOverlay"'*) : ;; *) fail "greenfield new-project o
 case "$BOARD_HTML" in *'id="repoNew"'*) : ;; *) fail "greenfield New button missing";; esac
 pass "board serves greenfield New button + npOverlay"
 
+# v4.5.1 — Browse-driven new project: create-folder control + form in the picker
+case "$BOARD_HTML" in *'id="brwNewFolder"'*) : ;; *) fail "browse New-folder button missing";; esac
+case "$BOARD_HTML" in *'id="brwNewForm"'*) : ;; *) fail "browse New-folder form missing";; esac
+pass "board serves Browse new-folder controls"
+
 # v4.5 — remote access card assets present (UI contract) + recipe port interpolation
 case "$BOARD_HTML" in *'id="remoteOverlay"'*) : ;; *) fail "remote access overlay missing";; esac
 case "$BOARD_HTML" in *'id="remoteBtn"'*) : ;; *) fail "remote access header button missing";; esac
@@ -90,6 +95,13 @@ pass "local machine probe ready"
 # directory browser (repo picker)
 curl -sf "$B/api/browse" | grep -q '"dirs"' || fail "browse endpoint"
 pass "directory browser lists folders"
+
+# v4.5.1 — browse flags empty folders so the picker can offer greenfield "Start here"
+BT="$WORK/browsetest"; mkdir -p "$BT/emptyone" "$BT/fullone"; echo x > "$BT/fullone/f"
+BRES=$(curl -sf "$B/api/browse?path=$BT")
+case "$BRES" in *'"name":"emptyone","isRepo":false,"isEmpty":true'*) : ;; *) fail "browse should mark empty dir isEmpty:true: $BRES";; esac
+case "$BRES" in *'"name":"fullone","isRepo":false,"isEmpty":false'*) : ;; *) fail "browse should mark non-empty dir isEmpty:false: $BRES";; esac
+pass "browse reports isEmpty for greenfield Start-here gating"
 
 # repo registry + validation
 curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' \

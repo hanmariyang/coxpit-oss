@@ -481,13 +481,19 @@ export async function buildServer(): Promise<FastifyInstance> {
     const q = (req.query ?? {}) as { path?: string };
     const start = q.path && q.path.startsWith('/') ? q.path : homedir();
     const p = presolve(start);
-    let dirs: Array<{ name: string; isRepo: boolean }> = [];
+    let dirs: Array<{ name: string; isRepo: boolean; isEmpty: boolean }> = [];
     let error: string | undefined;
     try {
       const entries = await readdir(p, { withFileTypes: true });
       for (const e of entries) {
         if (!e.isDirectory() || e.name.startsWith('.')) continue;
-        dirs.push({ name: e.name, isRepo: existsSync(pjoin(p, e.name, '.git')) });
+        const full = pjoin(p, e.name);
+        const isRepo = existsSync(pjoin(full, '.git'));
+        // 빈 폴더면 greenfield "Start here" 대상 — 서버 EMPTYDIR 판정(ls -A)과 동일하게
+        // 모든 엔트리(닷파일 포함) 0개일 때만. repo 폴더는 Register 로 다루므로 계산 생략.
+        let isEmpty = false;
+        if (!isRepo) { try { isEmpty = (await readdir(full)).length === 0; } catch { isEmpty = false; } }
+        dirs.push({ name: e.name, isRepo, isEmpty });
         if (dirs.length >= 300) break;
       }
       dirs.sort((a, b) => (b.isRepo ? 1 : 0) - (a.isRepo ? 1 : 0) || a.name.localeCompare(b.name));
