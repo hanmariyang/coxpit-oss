@@ -22,11 +22,14 @@
   .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
   code,pre{font-family:var(--mono)}
 
-  nav{display:flex;align-items:center;gap:16px;padding:18px 0}
+  nav{display:flex;align-items:center;gap:16px;padding:18px 0;flex-wrap:wrap}
   nav .mark{font-family:var(--mono);font-weight:700;font-size:16px;color:var(--brand);text-decoration:none}
-  nav .links{margin-left:auto;display:flex;gap:18px}
+  nav .links{margin-left:auto;display:flex;gap:18px;align-items:center}
   nav .links a{color:var(--muted);text-decoration:none;font-size:14px}
   nav .links a:hover{color:var(--ink)}
+  .lang{display:inline-flex;border:1px solid var(--line-hi);border-radius:7px;overflow:hidden;font-family:var(--mono)}
+  .lang button{background:transparent;border:none;color:var(--muted);font-size:12px;padding:5px 9px;cursor:pointer}
+  .lang button.on{background:var(--brand);color:var(--brand-ink);font-weight:700}
 
   /* hero */
   .hero{padding:64px 0 30px;text-align:center}
@@ -53,31 +56,24 @@
   .mock-bar .live::before{content:'●';margin-right:6px;animation:pulse 1.4s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
   @media (prefers-reduced-motion:reduce){.mock-bar .live::before{animation:none}}
-  .mock-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px}
-  .mrun{border:1px solid var(--line);border-radius:9px;background:var(--bg);overflow:hidden}
-  .mrun-h{display:flex;align-items:center;gap:8px;padding:9px 12px;font-family:var(--mono);font-size:11px}
-  .mrun-h .rid{color:var(--faint)}
-  .mrun-h .nm{color:var(--ink);font-weight:600;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .mchip{font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:999px;border:1px solid}
-  .mlog{border-top:1px solid var(--line);padding:9px 12px;font-family:var(--mono);font-size:10.5px;color:var(--muted);
-    display:flex;flex-direction:column;gap:4px}
-  .mlog .k{color:var(--brand)}
-  .mlog .add{color:var(--done)} .mlog .del{color:var(--failed)}
-  @media (max-width:760px){.mock-grid{grid-template-columns:1fr}}
 
   /* sections */
   section{padding:72px 0 0}
   .sect-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--brand);margin:0 0 10px}
   h2{font-size:clamp(22px,3.4vw,30px);margin:0 0 12px;letter-spacing:-.01em;text-wrap:balance}
-  .lead{color:var(--muted);max-width:620px;margin:0 0 34px}
+  .lead{color:var(--muted);max-width:640px;margin:0 0 34px}
 
   .feat{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
   .fcard{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:20px 22px;
     transition:border-color .18s}
   .fcard:hover{border-color:var(--line-hi)}
   .fcard h3{font-size:15px;margin:0 0 8px;display:flex;align-items:center;gap:9px}
-  .fcard h3 .g{font-family:var(--mono);color:var(--brand);font-size:14px}
+  .fcard h3 .g{font-family:var(--mono);color:var(--brand);font-size:14px;flex:0 0 auto}
   .fcard p{font-size:13.5px;color:var(--muted);margin:0}
+
+  figure{margin:22px 0 0}
+  figcaption{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:10px}
+  .shot{display:block;width:100%;border:1px solid var(--line);border-radius:14px}
 
   pre.code{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px 22px;
     font-size:13.5px;line-height:1.75;overflow-x:auto;margin:0}
@@ -93,7 +89,7 @@
   .dcard .fmt{font-family:var(--mono);font-size:12px;color:var(--brand)}
   .dl-note{font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:14px}
 
-  footer{margin-top:88px;border-top:1px solid var(--line);padding:26px 0 40px;display:flex;gap:18px;align-items:center}
+  footer{margin-top:88px;border-top:1px solid var(--line);padding:26px 0 40px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
   footer span,footer a{font-family:var(--mono);font-size:12px;color:var(--faint)}
   footer .sp{flex:1}
 </style>
@@ -103,76 +99,57 @@
   <nav>
     <a class="mark" href="#">coxpit</a>
     <div class="links">
-      <a href="#features">Features</a>
-      <a href="#quickstart">Quickstart</a>
-      <a href="#download">Download</a>
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#quickstart" data-i18n="nav.quickstart">Quickstart</a>
+      <a href="#download" data-i18n="nav.download">Download</a>
+      <a id="guideLink" href="https://github.com/hanmariyang/coxpit-oss/blob/main/docs/GUIDE.md" data-i18n="nav.guide">Guide</a>
       <a href="https://github.com/hanmariyang/coxpit-oss">GitHub</a>
+      <span class="lang" role="group" aria-label="language">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ko">한국어</button>
+      </span>
     </div>
   </nav>
 
   <div class="hero">
-    <h1>Own your <span class="b">agent fleet</span>.</h1>
-    <p class="sub">Run parallel AI coding agents — Claude Code and Codex — across your own machines, each in an isolated git worktree.
-    Watch them live, compare their diffs, attach a terminal, merge the winner. Agents can even spawn their own sub-agents. Self-hosted. Your code never leaves your network.</p>
+    <h1 data-i18n="hero.h1">Own your <span class="b">agent fleet</span>.</h1>
+    <p class="sub" data-i18n="hero.sub">Run parallel AI coding agents — Claude Code and Codex — across your own machines, each in an isolated git worktree. Watch them live, compare their diffs, attach a terminal, merge the winner. Agents can even spawn their own sub-agents. Self-hosted. Your code never leaves your network.</p>
     <div class="cta-row">
-      <a class="btn primary" href="#download">Download</a>
-      <a class="btn ghost" href="https://github.com/hanmariyang/coxpit-oss">Source on GitHub</a>
+      <a class="btn primary" href="#download" data-i18n="hero.cta1">Download</a>
+      <a class="btn ghost" href="https://github.com/hanmariyang/coxpit-oss" data-i18n="hero.cta2">Source on GitHub</a>
     </div>
     <span class="fine">MIT · Node 20+ · Claude Code &amp; Codex · macOS / Linux / Windows(WSL)</span>
 
     <div class="mock">
       <div class="mock-bar"><i></i><i></i><i></i><span class="t">coxpit · fleet console</span><span class="live">live</span></div>
       <img src="demo.gif" alt="coxpit fleet board — three agents racing the same task, live" style="display:block;width:100%" />
-      <div class="mock-grid" hidden>
-        <div class="mrun">
-          <div class="mrun-h"><span class="rid">r14</span><span class="nm">refactor auth flow</span>
-            <span class="mchip" style="color:var(--running);border-color:var(--running)">running</span></div>
-          <div class="mlog"><span><span class="k">assistant</span> reading src/auth.ts…</span>
-            <span><span class="k">tool_use</span> [Edit] session guard</span>
-            <span><span class="k">assistant</span> updating tests…</span></div>
-        </div>
-        <div class="mrun">
-          <div class="mrun-h"><span class="rid">r15</span><span class="nm">refactor auth flow</span>
-            <span class="mchip" style="color:var(--done);border-color:var(--done)">done</span></div>
-          <div class="mlog"><span><span class="add">+ 84</span> <span class="del">− 31</span> · 6 files</span>
-            <span><span class="k">result</span> extracted middleware, all tests green</span>
-            <span style="color:var(--brand)">⌥ merge this</span></div>
-        </div>
-        <div class="mrun">
-          <div class="mrun-h"><span class="rid">r16</span><span class="nm">refactor auth flow</span>
-            <span class="mchip" style="color:var(--stopped);border-color:var(--stopped)">stopped</span></div>
-          <div class="mlog"><span><span class="k">assistant</span> rewriting from scratch…</span>
-            <span style="color:var(--faint)">stopped by user</span>
-            <span style="color:var(--faint)">worktree cleaned</span></div>
-        </div>
-      </div>
     </div>
   </div>
 
   <section id="features">
-    <p class="sect-label">What it does</p>
-    <h2>One task. N agents. You pick the winner.</h2>
-    <p class="lead">Every run is isolated — its own git worktree, its own branch, its own tmux session. Agents can't touch your checkout, and you can watch or interrupt any of them.</p>
+    <p class="sect-label" data-i18n="feat.label">What it does</p>
+    <h2 data-i18n="feat.h2">One task. N agents. You pick the winner.</h2>
+    <p class="lead" data-i18n="feat.lead">Every run is isolated — its own git worktree, its own branch, its own tmux session. Agents can't touch your checkout, and you can watch or interrupt any of them.</p>
     <div class="feat">
-      <div class="fcard"><h3><span class="g">×N</span> Fleet runs</h3><p>Launch the same task on multiple agents in parallel. Each run streams its progress to the board in real time over WebSocket.</p></div>
-      <div class="fcard"><h3><span class="g">⑂</span> Two providers</h3><p>Claude Code and OpenAI Codex, selectable per launch. Fan the same task across both and compare — steering resumes each agent's own session.</p></div>
-      <div class="fcard"><h3><span class="g">⟳</span> Self-orchestrating</h3><p>A run can spawn its own sub-agents by writing <code>.coxpit/spawn.json</code> — the daemon launches isolated sub-runs and feeds live status back. Orchestration inside the agent's loop.</p></div>
-      <div class="fcard"><h3><span class="g">⇄</span> Compare &amp; merge</h3><p>All runs side by side with colorized diffs, plus an AI review judge that digests every approach. Merge the winner — clean-base guard, conflict auto-abort.</p></div>
-      <div class="fcard"><h3><span class="g">▤</span> Doc mode</h3><p>When a run changes documents, a Rendered toggle shows the actual Markdown/HTML output instead of the diff — judge the result, not the patch.</p></div>
-      <div class="fcard"><h3><span class="g">&gt;_</span> Real terminal</h3><p>Full-screen terminal with session tabs over tmux. On phones, an IME-safe input bar composes 한글/かな natively and ships whole lines.</p></div>
-      <div class="fcard"><h3><span class="g">◫</span> Pocket board</h3><p>The launcher folds into a drawer, modals go full-bleed, and <code>/?run=N</code> deep links land straight on a run — steer the fleet from your sofa.</p></div>
-      <div class="fcard"><h3><span class="g">⇩</span> From GitHub</h3><p>Paste an issue or PR URL — the task drafts itself from its title and body. You review, pick a provider, hit Run fleet.</p></div>
-      <div class="fcard"><h3><span class="g">⤴</span> Share a run</h3><p>One click mints a read-only snapshot link — timeline and diff, server-rendered, no auth, no actions. Show the work without opening your cockpit.</p></div>
-      <div class="fcard"><h3><span class="g">⌖</span> Design Mode</h3><p>Click an element in your running app with the inspect bookmarklet — its selector, HTML and computed styles are injected into the agents' prompt.</p></div>
-      <div class="fcard"><h3><span class="g">⌂</span> Multi-machine</h3><p>Register remote machines over SSH (Tailscale/LAN). Probe reachability, run fleets on your desktop from your laptop — or your phone.</p></div>
-      <div class="fcard"><h3><span class="g">◼</span> Safe by default</h3><p>Dry-run mode exercises the whole pipeline without spending credits. Stops kill entire process groups. Task close cleans every worktree.</p></div>
+      <div class="fcard"><h3><span class="g">×N</span> <span data-i18n="f.fleet.h">Fleet runs</span></h3><p data-i18n="f.fleet.p">Launch the same task on multiple agents in parallel. Each run streams its progress to the board in real time over WebSocket.</p></div>
+      <div class="fcard"><h3><span class="g">⑂</span> <span data-i18n="f.prov.h">Two providers</span></h3><p data-i18n="f.prov.p">Claude Code and OpenAI Codex, selectable per launch. Fan the same task across both and compare — steering resumes each agent's own session.</p></div>
+      <div class="fcard"><h3><span class="g">⟳</span> <span data-i18n="f.orch.h">Self-orchestrating</span></h3><p data-i18n="f.orch.p">A run can spawn its own sub-agents by writing <code>.coxpit/spawn.json</code> — the daemon launches isolated sub-runs and feeds live status back. Orchestration inside the agent's loop.</p></div>
+      <div class="fcard"><h3><span class="g">⇄</span> <span data-i18n="f.cmp.h">Compare &amp; merge</span></h3><p data-i18n="f.cmp.p">All runs side by side with colorized diffs, plus an AI review judge that digests every approach. Merge the winner — clean-base guard, conflict auto-abort.</p></div>
+      <div class="fcard"><h3><span class="g">▤</span> <span data-i18n="f.doc.h">Doc mode</span></h3><p data-i18n="f.doc.p">When a run changes a Markdown or HTML file, a Rendered toggle appears in the diff pane — see the formatted output instead of the patch. Snapshotted, so it survives merge and close.</p></div>
+      <div class="fcard"><h3><span class="g">&gt;_</span> <span data-i18n="f.term.h">Real terminal</span></h3><p data-i18n="f.term.p">Full-screen terminal with session tabs over tmux. On phones, an IME-safe input bar composes 한글/かな natively and ships whole lines.</p></div>
+      <div class="fcard"><h3><span class="g">◱</span> <span data-i18n="f.green.h">Start a new project</span></h3><p data-i18n="f.green.p">Point coxpit at an empty folder — it makes the base commit, then a fleet scaffolds the project in parallel. Compare the foundations, keep the best. Existing folders are never touched.</p></div>
+      <div class="fcard"><h3><span class="g">◫</span> <span data-i18n="f.mob.h">Pocket board</span></h3><p data-i18n="f.mob.p">The launcher folds into a drawer, modals go full-bleed, and <code>/?run=N</code> deep links land straight on a run — steer the fleet from your sofa.</p></div>
+      <div class="fcard"><h3><span class="g">🔗</span> <span data-i18n="f.remote.h">Remote access</span></h3><p data-i18n="f.remote.p">One click puts the board on your Tailscale (HTTPS, no port, your devices only). Or copy a Cloudflare/reverse-proxy recipe. coxpit drives your tools — it never hosts a relay.</p></div>
+      <div class="fcard"><h3><span class="g">⌖</span> <span data-i18n="f.design.h">Design Mode</span></h3><p data-i18n="f.design.p">Click an element in your running app with the inspect bookmarklet — its selector, HTML and computed styles are injected into the agents' prompt.</p></div>
+      <div class="fcard"><h3><span class="g">⌂</span> <span data-i18n="f.multi.h">Multi-machine</span></h3><p data-i18n="f.multi.p">Register remote machines over SSH (Tailscale/LAN). Probe reachability, run fleets on your desktop from your laptop — or your phone.</p></div>
+      <div class="fcard"><h3><span class="g">◼</span> <span data-i18n="f.safe.h">Safe by default</span></h3><p data-i18n="f.safe.p">Dry-run mode exercises the whole pipeline without spending credits. Auth is fail-closed. Task close cleans every worktree — and warns before it drops unmerged work.</p></div>
     </div>
   </section>
 
   <section id="swarm">
-    <p class="sect-label">The swarm</p>
-    <h2>Agents that spawn agents.</h2>
-    <p class="lead">Default agent sandboxes block network calls — so the orchestration protocol is a file. The agent writes a spawn request into its own worktree; the daemon does the rest. No permission escalation, works with both providers.</p>
+    <p class="sect-label" data-i18n="swarm.label">The swarm</p>
+    <h2 data-i18n="swarm.h2">Agents that spawn agents.</h2>
+    <p class="lead" data-i18n="swarm.lead">Default agent sandboxes block network calls — so the orchestration protocol is a file. The agent writes a spawn request into its own worktree; the daemon does the rest. No permission escalation, works with both providers.</p>
     <pre class="code">task ─► <span class="p">r1</span> (agent, isolated worktree)
              │ writes <span class="p">.coxpit/spawn.json</span>   <span class="c">{"title":"…","prompt":"…","count":1}</span>
              ▼
@@ -180,49 +157,43 @@
              │
              ▼
         keeps <span class="p">.coxpit/subtasks.json</span> fresh — the agent reads it for live status</pre>
-    <figure style="margin:22px 0 0">
-      <img src="shot-swarm.png" alt="fleet board — sub-run r2 'create SUB.md' carrying the '↳ by r1' lineage badge next to its parent run"
-           style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
-      <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:10px">A real capture: r1 wrote a spawn file mid-run — r2 appeared, did the work, settled. Note the <span style="color:var(--brand)">↳ by r1</span> lineage badge.</figcaption>
+    <figure>
+      <img class="shot" src="shot-swarm.png" alt="fleet board — sub-run r2 carrying the by-r1 lineage badge next to its parent run" />
+      <figcaption data-i18n="swarm.cap">A real capture: r1 wrote a spawn file mid-run — r2 appeared, did the work, settled. Note the <span style="color:var(--brand)">↳ by r1</span> lineage badge.</figcaption>
     </figure>
   </section>
 
   <section id="shots">
-    <p class="sect-label">In action</p>
-    <h2>Compare, review, share.</h2>
-    <p class="lead">Every run of a task side by side · rendered document review instead of raw diffs · a read-only share page for anyone you choose.</p>
-    <img src="shot-compare.png" alt="compare view — three runs side by side with diffs and merge buttons"
-         style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
+    <p class="sect-label" data-i18n="shots.label">In action</p>
+    <h2 data-i18n="shots.h2">Compare, review, share.</h2>
+    <p class="lead" data-i18n="shots.lead">Every run of a task side by side · rendered document review instead of raw diffs · a read-only share page for anyone you choose.</p>
+    <img class="shot" src="shot-compare.png" alt="compare view — three runs side by side with diffs and merge buttons" />
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:14px">
       <figure style="margin:0">
-        <img src="shot-docmode.png" alt="run view with the Rendered toggle showing the changed Markdown as formatted output"
-             style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
-        <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px">Doc mode — judge the rendered output, not the patch.</figcaption>
+        <img class="shot" src="shot-docmode.png" alt="run view with the Rendered toggle showing the changed Markdown as formatted output" />
+        <figcaption data-i18n="shots.cap.doc">Doc mode — judge the rendered output, not the patch.</figcaption>
       </figure>
       <figure style="margin:0">
-        <img src="shot-share.png" alt="read-only share page — timeline and diff snapshot of a run"
-             style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
-        <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px">Share a run — a snapshot link with zero actions.</figcaption>
+        <img class="shot" src="shot-share.png" alt="read-only share page — timeline and diff snapshot of a run" />
+        <figcaption data-i18n="shots.cap.share">Share a run — a snapshot link with zero actions.</figcaption>
       </figure>
     </div>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-top:14px;align-items:start">
       <figure style="margin:0">
-        <img src="shot-board.png" alt="fleet board with live run cards"
-             style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
-        <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px">The fleet board — every run live, whole card clickable.</figcaption>
+        <img class="shot" src="shot-board.png" alt="fleet board with live run cards" />
+        <figcaption data-i18n="shots.cap.board">The fleet board — every run live, whole card clickable.</figcaption>
       </figure>
       <figure style="margin:0">
-        <img src="shot-mobile.png" alt="mobile board — the launcher drawer with provider choice, open over the fleet"
-             style="display:block;width:100%;border:1px solid var(--line);border-radius:14px" />
-        <figcaption style="font-family:var(--mono);font-size:12px;color:var(--faint);margin-top:8px">The pocket pass — same board, one thumb.</figcaption>
+        <img class="shot" src="shot-mobile.png" alt="mobile board — the launcher drawer with provider choice, open over the fleet" />
+        <figcaption data-i18n="shots.cap.mobile">The pocket pass — same board, one thumb.</figcaption>
       </figure>
     </div>
   </section>
 
   <section id="quickstart">
-    <p class="sect-label">Quickstart</p>
-    <h2>Running in a minute.</h2>
-    <p class="lead">Requirements: Node 20+, git, tmux, and an agent CLI on PATH (Claude Code first — install it and sign in once with <code style="color:var(--brand)">claude</code>; coxpit drives your CLI with its own login, no keys stored).</p>
+    <p class="sect-label" data-i18n="qs.label">Quickstart</p>
+    <h2 data-i18n="qs.h2">Running in a minute.</h2>
+    <p class="lead" data-i18n="qs.lead">Requirements: Node 20+, git, tmux, and an agent CLI on PATH (Claude Code first — install it and sign in once with <code style="color:var(--brand)">claude</code>; coxpit drives your CLI with its own login, no keys stored).</p>
     <pre class="code"><span class="c"># fastest — straight from npm</span>
 <span class="p">$</span> npx coxpit              <span class="c"># → http://127.0.0.1:8210</span>
 
@@ -232,21 +203,22 @@
 <span class="c"># or from source</span>
 <span class="p">$</span> git clone https://github.com/hanmariyang/coxpit-oss && cd coxpit-oss
 <span class="p">$</span> npm install && npm run dev</pre>
+    <p class="lead" style="margin-top:20px"><span data-i18n="qs.guide">New here? The </span><a id="guideLink2" href="https://github.com/hanmariyang/coxpit-oss/blob/main/docs/GUIDE.md" data-i18n="qs.guide.link">full guide</a><span data-i18n="qs.guide.tail"> walks through your first fleet, comparing and merging, and every feature above.</span></p>
   </section>
 
   <section id="download">
-    <p class="sect-label">Download</p>
-    <h2>Desktop app.</h2>
-    <p class="lead">The desktop app embeds the daemon and opens the board in its own window — no terminal needed. Installers are built per release.</p>
+    <p class="sect-label" data-i18n="dl.label">Download</p>
+    <h2 data-i18n="dl.h2">Desktop app.</h2>
+    <p class="lead" data-i18n="dl.lead">The desktop app embeds the daemon and opens the board in its own window — no terminal needed. Installers are built per release.</p>
     <div class="dl">
       <a class="dcard" href="https://github.com/hanmariyang/coxpit-oss/releases/latest">
-        <span class="os">macOS · Apple Silicon &amp; Intel</span><span class="nm">Coxpit for Mac</span><span class="fmt">.dmg</span></a>
+        <span class="os" data-i18n="dl.mac.os">macOS · Apple Silicon &amp; Intel</span><span class="nm">Coxpit for Mac</span><span class="fmt">.dmg</span></a>
       <a class="dcard" href="https://github.com/hanmariyang/coxpit-oss/releases/latest">
-        <span class="os">Windows 10/11</span><span class="nm">Coxpit for Windows</span><span class="fmt">.exe (nsis)</span></a>
+        <span class="os" data-i18n="dl.win.os">Windows 10/11</span><span class="nm">Coxpit for Windows</span><span class="fmt">.exe (nsis)</span></a>
       <a class="dcard" href="https://github.com/hanmariyang/coxpit-oss/releases/latest">
-        <span class="os">Linux</span><span class="nm">Coxpit for Linux</span><span class="fmt">.AppImage</span></a>
+        <span class="os" data-i18n="dl.linux.os">Linux</span><span class="nm">Coxpit for Linux</span><span class="fmt">.AppImage</span></a>
     </div>
-    <p class="dl-note">All downloads land on the latest GitHub Release. Prefer the CLI? <code>npm i -g coxpit && coxpit</code> · self-host the daemon anywhere Node runs.</p>
+    <p class="dl-note" data-i18n="dl.note">All downloads land on the latest GitHub Release. Prefer the CLI? <code>npm i -g coxpit &amp;&amp; coxpit</code> · self-host the daemon anywhere Node runs.</p>
   </section>
 
   <footer>
@@ -255,5 +227,88 @@
     <a href="https://github.com/hanmariyang/coxpit-oss">github.com/hanmariyang/coxpit-oss</a>
   </footer>
 </div>
+
+<script>
+  const I18N = {
+    'nav.features':{en:'Features',ko:'기능'},
+    'nav.quickstart':{en:'Quickstart',ko:'시작하기'},
+    'nav.download':{en:'Download',ko:'다운로드'},
+    'nav.guide':{en:'Guide',ko:'가이드'},
+    'hero.h1':{en:'Own your <span class="b">agent fleet</span>.',ko:'당신의 <span class="b">에이전트 플릿</span>을 소유하세요.'},
+    'hero.sub':{en:'Run parallel AI coding agents — Claude Code and Codex — across your own machines, each in an isolated git worktree. Watch them live, compare their diffs, attach a terminal, merge the winner. Agents can even spawn their own sub-agents. Self-hosted. Your code never leaves your network.',
+      ko:'AI 코딩 에이전트(Claude Code·Codex)를 내 기계에서 병렬로 돌립니다. 각자 격리된 git worktree에서 일하고, 실시간으로 지켜보며 diff를 비교하고, 터미널에 붙고, 승자를 머지합니다. 에이전트가 스스로 서브 에이전트를 띄우기도 합니다. 자가 호스팅 — 코드는 당신 네트워크를 벗어나지 않습니다.'},
+    'hero.cta1':{en:'Download',ko:'다운로드'},
+    'hero.cta2':{en:'Source on GitHub',ko:'GitHub 소스'},
+    'feat.label':{en:'What it does',ko:'무엇을 하나'},
+    'feat.h2':{en:'One task. N agents. You pick the winner.',ko:'작업 하나, 에이전트 N개, 승자는 당신이 고른다.'},
+    'feat.lead':{en:"Every run is isolated — its own git worktree, its own branch, its own tmux session. Agents can't touch your checkout, and you can watch or interrupt any of them.",
+      ko:'모든 run은 격리됩니다 — 자기 git worktree, 자기 브랜치, 자기 tmux 세션. 에이전트가 당신의 체크아웃을 못 건드리고, 어느 run이든 지켜보거나 끊을 수 있습니다.'},
+    'f.fleet.h':{en:'Fleet runs',ko:'플릿 실행'},
+    'f.fleet.p':{en:'Launch the same task on multiple agents in parallel. Each run streams its progress to the board in real time over WebSocket.',ko:'같은 작업을 여러 에이전트에 병렬로 발사. 각 run이 진행 상황을 WebSocket으로 보드에 실시간 스트리밍합니다.'},
+    'f.prov.h':{en:'Two providers',ko:'두 프로바이더'},
+    'f.prov.p':{en:"Claude Code and OpenAI Codex, selectable per launch. Fan the same task across both and compare — steering resumes each agent's own session.",ko:'Claude Code와 OpenAI Codex를 발사마다 선택. 같은 작업을 둘에 펼쳐 비교하고, steer는 각 에이전트를 자기 세션에서 이어갑니다.'},
+    'f.orch.h':{en:'Self-orchestrating',ko:'셀프 오케스트레이션'},
+    'f.orch.p':{en:"A run can spawn its own sub-agents by writing <code>.coxpit/spawn.json</code> — the daemon launches isolated sub-runs and feeds live status back. Orchestration inside the agent's loop.",ko:'run이 <code>.coxpit/spawn.json</code>을 써서 서브 에이전트를 스스로 발사 — 데몬이 격리된 서브런을 띄우고 현황을 돌려줍니다. 오케스트레이션이 에이전트 루프 안으로.'},
+    'f.cmp.h':{en:'Compare & merge',ko:'비교 & 머지'},
+    'f.cmp.p':{en:'All runs side by side with colorized diffs, plus an AI review judge that digests every approach. Merge the winner — clean-base guard, conflict auto-abort.',ko:'모든 run을 색깔 diff로 나란히, 게다가 모든 접근을 요약하는 AI 리뷰 심판까지. 승자를 머지 — 클린 base 가드, 충돌 시 자동 abort.'},
+    'f.doc.h':{en:'Doc mode',ko:'문서 모드'},
+    'f.doc.p':{en:'When a run changes a Markdown or HTML file, a Rendered toggle appears in the diff pane — see the formatted output instead of the patch. Snapshotted, so it survives merge and close.',ko:'run이 Markdown·HTML을 바꾸면 diff 패널에 Rendered 토글이 뜹니다 — 패치 대신 서식 결과물을 보세요. 스냅샷으로 남아 머지·종료 후에도 유지됩니다.'},
+    'f.term.h':{en:'Real terminal',ko:'진짜 터미널'},
+    'f.term.p':{en:'Full-screen terminal with session tabs over tmux. On phones, an IME-safe input bar composes 한글/かな natively and ships whole lines.',ko:'tmux 위 세션 탭이 있는 풀스크린 터미널. 폰에서는 IME-안전 입력바가 한글·かな를 네이티브로 조합해 완성된 줄을 보냅니다.'},
+    'f.green.h':{en:'Start a new project',ko:'새 프로젝트 시작'},
+    'f.green.p':{en:'Point coxpit at an empty folder — it makes the base commit, then a fleet scaffolds the project in parallel. Compare the foundations, keep the best. Existing folders are never touched.',ko:'빈 폴더를 가리키면 coxpit이 base 커밋을 만들고, 플릿이 프로젝트를 병렬로 스캐폴딩합니다. 초기 구조를 비교해 최고를 고르세요. 기존 폴더는 절대 건드리지 않습니다.'},
+    'f.mob.h':{en:'Pocket board',ko:'포켓 보드'},
+    'f.mob.p':{en:'The launcher folds into a drawer, modals go full-bleed, and <code>/?run=N</code> deep links land straight on a run — steer the fleet from your sofa.',ko:'런처는 드로어로 접히고, 모달은 풀블리드, <code>/?run=N</code>은 특정 run으로 딥링크 — 소파에서 플릿을 조종하세요.'},
+    'f.remote.h':{en:'Remote access',ko:'원격 접속'},
+    'f.remote.p':{en:'One click puts the board on your Tailscale (HTTPS, no port, your devices only). Or copy a Cloudflare/reverse-proxy recipe. coxpit drives your tools — it never hosts a relay.',ko:'원클릭으로 보드를 당신의 Tailscale에 올립니다(HTTPS·포트 없음·내 기기만). 또는 Cloudflare·리버스 프록시 레시피를 복사. coxpit은 당신 도구를 구동할 뿐, 릴레이를 직접 돌리지 않습니다.'},
+    'f.design.h':{en:'Design Mode',ko:'Design Mode'},
+    'f.design.p':{en:"Click an element in your running app with the inspect bookmarklet — its selector, HTML and computed styles are injected into the agents' prompt.",ko:'인스펙트 북마클릿으로 실행 중인 앱의 요소를 클릭 — 그 셀렉터·HTML·computed 스타일이 에이전트 프롬프트에 주입됩니다.'},
+    'f.multi.h':{en:'Multi-machine',ko:'멀티 머신'},
+    'f.multi.p':{en:'Register remote machines over SSH (Tailscale/LAN). Probe reachability, run fleets on your desktop from your laptop — or your phone.',ko:'원격 머신을 SSH로 등록(Tailscale·LAN). 도달성을 프로브하고, 노트북(또는 폰)에서 데스크톱의 플릿을 돌립니다.'},
+    'f.safe.h':{en:'Safe by default',ko:'기본이 안전'},
+    'f.safe.p':{en:'Dry-run mode exercises the whole pipeline without spending credits. Auth is fail-closed. Task close cleans every worktree — and warns before it drops unmerged work.',ko:'드라이런은 크레딧 없이 전체 파이프라인을 훑습니다. 인증은 fail-closed. Close task는 모든 worktree를 정리하고, 미머지 작업을 버리기 전에 경고합니다.'},
+    'swarm.label':{en:'The swarm',ko:'스웜'},
+    'swarm.h2':{en:'Agents that spawn agents.',ko:'에이전트를 낳는 에이전트.'},
+    'swarm.lead':{en:'Default agent sandboxes block network calls — so the orchestration protocol is a file. The agent writes a spawn request into its own worktree; the daemon does the rest. No permission escalation, works with both providers.',ko:'기본 에이전트 샌드박스는 네트워크 호출을 막습니다 — 그래서 오케스트레이션 프로토콜이 파일입니다. 에이전트가 자기 worktree에 발사 요청을 쓰면 나머지는 데몬이. 권한 상승 없이, 두 프로바이더 모두 동작.'},
+    'swarm.cap':{en:'A real capture: r1 wrote a spawn file mid-run — r2 appeared, did the work, settled. Note the <span style="color:var(--brand)">↳ by r1</span> lineage badge.',ko:'실제 캡처: r1이 도중에 spawn 파일을 썼고 — r2가 나타나 일하고 정착했습니다. <span style="color:var(--brand)">↳ by r1</span> 계보 배지를 보세요.'},
+    'shots.label':{en:'In action',ko:'실제 모습'},
+    'shots.h2':{en:'Compare, review, share.',ko:'비교하고, 리뷰하고, 공유하기.'},
+    'shots.lead':{en:'Every run of a task side by side · rendered document review instead of raw diffs · a read-only share page for anyone you choose.',ko:'한 작업의 모든 run을 나란히 · 날 diff 대신 렌더된 문서 리뷰 · 원하는 사람에게 읽기 전용 공유 페이지.'},
+    'shots.cap.doc':{en:'Doc mode — judge the rendered output, not the patch.',ko:'문서 모드 — 패치가 아니라 렌더된 결과물로 판단.'},
+    'shots.cap.share':{en:'Share a run — a snapshot link with zero actions.',ko:'run 공유 — 액션 0의 스냅샷 링크.'},
+    'shots.cap.board':{en:'The fleet board — every run live, whole card clickable.',ko:'플릿 보드 — 모든 run이 라이브, 카드 전체가 클릭 타깃.'},
+    'shots.cap.mobile':{en:'The pocket pass — same board, one thumb.',ko:'포켓 패스 — 같은 보드, 엄지 하나로.'},
+    'qs.label':{en:'Quickstart',ko:'시작하기'},
+    'qs.h2':{en:'Running in a minute.',ko:'1분이면 됩니다.'},
+    'qs.lead':{en:'Requirements: Node 20+, git, tmux, and an agent CLI on PATH (Claude Code first — install it and sign in once with <code style="color:var(--brand)">claude</code>; coxpit drives your CLI with its own login, no keys stored).',ko:'요구사항: Node 20+, git, tmux, 그리고 PATH의 에이전트 CLI(기본 Claude Code — 설치 후 <code style="color:var(--brand)">claude</code>로 한 번 로그인; coxpit은 그 CLI를 자체 로그인으로 구동하며 키를 저장하지 않습니다).'},
+    'qs.guide':{en:'New here? The ',ko:'처음이신가요? '},
+    'qs.guide.link':{en:'full guide',ko:'전체 가이드'},
+    'qs.guide.tail':{en:' walks through your first fleet, comparing and merging, and every feature above.',ko:'가 첫 플릿, 비교·머지, 그리고 위의 모든 기능을 안내합니다.'},
+    'dl.label':{en:'Download',ko:'다운로드'},
+    'dl.h2':{en:'Desktop app.',ko:'데스크톱 앱.'},
+    'dl.lead':{en:'The desktop app embeds the daemon and opens the board in its own window — no terminal needed. Installers are built per release.',ko:'데스크톱 앱은 데몬을 내장하고 보드를 자체 창으로 엽니다 — 터미널 불필요. 인스톨러는 릴리스마다 빌드됩니다.'},
+    'dl.mac.os':{en:'macOS · Apple Silicon & Intel',ko:'macOS · Apple Silicon & Intel'},
+    'dl.win.os':{en:'Windows 10/11',ko:'Windows 10/11'},
+    'dl.linux.os':{en:'Linux',ko:'Linux'},
+    'dl.note':{en:'All downloads land on the latest GitHub Release. Prefer the CLI? <code>npm i -g coxpit && coxpit</code> · self-host the daemon anywhere Node runs.',ko:'모든 다운로드는 최신 GitHub Release로 갑니다. CLI가 편하면 <code>npm i -g coxpit && coxpit</code> · Node가 도는 곳 어디서나 데몬을 자가 호스팅.'}
+  };
+  const GUIDE = { en:'https://github.com/hanmariyang/coxpit-oss/blob/main/docs/GUIDE.md',
+                  ko:'https://github.com/hanmariyang/coxpit-oss/blob/main/docs/GUIDE.ko.md' };
+  function applyLang(lang){
+    document.documentElement.lang = lang;
+    document.querySelectorAll('[data-i18n]').forEach(function(el){
+      var t = I18N[el.dataset.i18n]; if (t && t[lang] != null) el.innerHTML = t[lang];
+    });
+    ['guideLink','guideLink2'].forEach(function(id){ var a=document.getElementById(id); if(a) a.href = GUIDE[lang]; });
+    document.querySelectorAll('.lang button').forEach(function(b){ b.classList.toggle('on', b.dataset.lang===lang); });
+    try{ localStorage.setItem('coxpit.lang', lang); }catch(e){}
+  }
+  document.querySelectorAll('.lang button').forEach(function(b){
+    b.addEventListener('click', function(){ applyLang(b.dataset.lang); });
+  });
+  var saved; try{ saved = localStorage.getItem('coxpit.lang'); }catch(e){}
+  var initial = saved || ((navigator.language||'').toLowerCase().indexOf('ko')===0 ? 'ko' : 'en');
+  applyLang(initial);
+</script>
 </body>
 </html>

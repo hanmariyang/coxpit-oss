@@ -66,6 +66,8 @@ Coxpit has no accounts of its own — it drives the agent CLI already on your ma
 
 Your keys and login never touch coxpit's config or database.
 
+> **New here?** The **[full guide](docs/GUIDE.md)** ([한국어](docs/GUIDE.ko.md)) walks through starting a new project, your first fleet, comparing and merging, doc mode, the terminal, remote access, and every feature — task by task, with GIFs.
+
 ## Configuration
 
 | env | default | what |
