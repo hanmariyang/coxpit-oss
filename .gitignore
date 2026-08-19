@@ -5,3 +5,6 @@ dist/
 *.db-wal
 .env
 .DS_Store
+
+# local dev notes (batch-fix backlog) — never publish
+/BACKLOG.md
