@@ -117,7 +117,11 @@ is separation, not scrolling.
 - [x] Closed = archived immediately (design supersedes the earlier N-day timer —
       simpler, and v4.1 hatching already covers the "just closed" glance)
 
-### v4.4 — remote access *(candidate · ideation)*
+> **v4.4 + v4.5 ship together as one release (4.5.0).** Both are spec'd in
+> `design/`; they're developed as separate e2e-green commits on main, then cut as
+> a single tag (npm goes 4.3.x → 4.5.0, skipping a standalone 4.4.0 — batch rule).
+
+### v4.5 — remote access *(spec ready — [design/v4.5-remote-access.md](design/v4.5-remote-access.md))*
 Today every URL is an IP:port. Make reaching the daemon from elsewhere easy
 *without* coxpit running a relay — always the user's own Tailscale/Cloudflare.
 Guardrail: coxpit never hosts a tunnel; it detects the tool and drives it.
@@ -152,7 +156,9 @@ it only serves ports 443/8443/10000 on the `.ts.net` name and must be enabled in
 the tailnet admin. Serve has none of those limits. A truly custom domain is only
 reachable via Cloudflare/reverse-proxy (the user's own domain + account).
 
-### v4.5 — greenfield (start a new project) *(candidate · ideation)*
+### v4.4 — greenfield (start a new project) *(spec ready — [design/v4.4-greenfield.md](design/v4.4-greenfield.md))*
+Also folds in two batch fixes: commitless-repo handling (the floor of greenfield)
+and stripping an ANSI code that leaks into session model names.
 Today coxpit needs a git work-tree with at least one commit — worktrees branch
 off a base commit. So a brand-new project (empty folder, or `git init` with no
 commits) is unusable. Turn that limit into the feature it wants to be: **scaffold

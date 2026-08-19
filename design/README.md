@@ -1,17 +1,21 @@
-# Design specs — v4.1 · v4.2 · v4.3
+# Design specs — v4.1 … v4.5
 
 Implementation-ready specs, written to be executed by a different engineer/model
 than the one who designed them. Each spec is self-contained: schema, API contracts,
 file-level changes, UI classes, edge cases, e2e additions, and a definition of done.
 
-| Spec | Milestone | Theme |
-|---|---|---|
-| [v4.1-the-library.md](v4.1-the-library.md) | v4.1 | doc snapshots · rendered share pages · model choice · close guard · base branch override · closed-card hatching |
-| [v4.2-groups.md](v4.2-groups.md) | v4.2 | group model · board bands · attempt counters · group actions |
-| [v4.3-logbook.md](v4.3-logbook.md) | v4.3 | active-first board · archive list · fleet payload diet |
+| Spec | Milestone | Theme | Status |
+|---|---|---|---|
+| [v4.1-the-library.md](v4.1-the-library.md) | v4.1 | doc snapshots · rendered share pages · model choice · close guard · base branch override · closed-card hatching | shipped |
+| [v4.2-groups.md](v4.2-groups.md) | v4.2 | group model · board bands · attempt counters · group actions | shipped |
+| [v4.3-logbook.md](v4.3-logbook.md) | v4.3 | active-first board · archive list · fleet payload diet | shipped |
+| [v4.4-greenfield.md](v4.4-greenfield.md) | v4.4 | start-a-new-project (git init + empty base → fleet scaffolds) · commitless-repo floor (backlog B1) · ANSI model strip (backlog B2) | spec ready |
+| [v4.5-remote-access.md](v4.5-remote-access.md) | v4.5 | detect Tailscale → one-click Serve/Funnel + URL · recipes for Cloudflare/proxy | spec ready |
 
-Sequencing: **4.1 → 4.2 → 4.3, one release each** (each is independently shippable;
-4.3 renders 4.2's bands only in the Active view). Ship each with the standard train:
+Sequencing: **4.1 → 4.2 → 4.3 were one release each.** **4.4 + 4.5 ship together
+as a single tag (4.5.0)** — develop each as its own e2e-green commit on main, then
+cut one release (npm 4.3.x → 4.5.0, no standalone 4.4.0). This is the batch rule
+(CI runs only on `v*` tags, so main commits are free). Standard train per tag:
 e2e → bump both package.json versions → commit → tag → `gh release create --draft`
 → CI auto-publishes → npm publish (owner) → resident upgrade.
 
