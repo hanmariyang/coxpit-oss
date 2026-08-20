@@ -267,10 +267,10 @@ Part C — origin-aware landing (target is chosen, not the base):
 - [x] **Target resolution + base-drift** *(ce07043)* — `landTarget()`: target = `<base>@{u}`
       (overridable) else `origin/<base>`; optional `git fetch`; `rev-list --left-right --count` →
       ahead/behind. `GET /api/runs/:id/land-target`; drift warned at the Merge/PR decision point.
-- [ ] **Land to origin** — replay only the run's work onto `origin/<target>` via
-      `rebase --onto origin/<target> base branch` **or** a squashed net-diff (avoid the base-merge
-      commit `mergeRun:776` leaves) → push → open PR via `gh` (reuse v2.6 PR mode). `gh` optional →
-      push-only degraded path. Card end state `landed` with the PR link. Never ship through local `main`.
+- [x] **Land to origin** *(f95bca3)* — `prRun` is origin-aware: squash the run's net diff onto a
+      fresh branch AT `origin/<target>` (3-way apply, avoids the base-merge commit) → push as
+      `coxpit/<task-slug>-r<id>` → PR against the target via `gh`. Preview-gated; conflicts return
+      for the step-5 loop; legacy push-branch fallback when the base has no upstream.
 
 Sequencing (revised after review): **1** A2 no-op + A3 overlap (cheap, origin-free) → **2**
 target/fetch/drift foundation → **3** conflict preview A1 vs `origin/<target>` → **4** land (C)
