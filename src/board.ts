@@ -76,9 +76,29 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   input:focus,select:focus,textarea:focus{border-color:rgba(78,201,176,.55);outline:none}
   input::placeholder,textarea::placeholder{color:var(--faint)}
   textarea{resize:vertical;min-height:56px;line-height:1.5}
+  /* no native browser chrome — any bare <select> strips the OS arrow and draws a token chevron
+     (dressed selects hide entirely; this covers the undressed fallback like #archRepo) */
+  select{appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:26px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238792a2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 8px center;background-size:13px}
+  select option{background:#12151c;color:var(--ink)}
+  /* kill the native number spinner — a token stepper (below) replaces it */
+  input[type=number]{appearance:none;-webkit-appearance:none;-moz-appearance:textfield}
+  input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
   .row{display:flex;gap:8px}
   .row>*{flex:1}
   .row .narrow{flex:0 0 64px}
+  /* count stepper — token − N + (btn-ghost feel, dark, no native spinner) */
+  .stepper{display:flex;align-items:center;gap:0;flex:0 0 auto;border:1px solid var(--line);
+    border-radius:var(--r-ctl);background:#0e1118;overflow:hidden}
+  .stepper .stp{display:inline-flex;align-items:center;justify-content:center;width:26px;height:32px;
+    background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;
+    transition:background .15s,color .15s}
+  .stepper .stp:hover{background:var(--surface2);color:var(--ink)}
+  .stepper .stp .ic{width:14px;height:14px}
+  .stepper input.narrow{flex:0 0 30px;width:30px;text-align:center;border:none;border-radius:0;
+    background:transparent;padding:8px 0;font-variant-numeric:tabular-nums}
+  .stepper input.narrow:focus{border:none}
   .check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
   .check input{width:auto;accent-color:var(--brand)}
 
@@ -115,9 +135,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   #repoList .repo .rowmenu{display:none;align-items:center;gap:2px;flex:none}
   #repoList .repo:hover .rowmenu{display:flex}
   #repoList .repo:hover .cnt{display:none}
-  #repoList .repo .rmbtn{background:none;border:none;color:var(--faint);cursor:pointer;padding:2px;
-    display:inline-flex;border-radius:5px}
-  #repoList .repo .rmbtn:hover{color:var(--ink);background:var(--line)}
+  /* rail repo-row actions — icon-ghost, never white: transparent bg · muted icon · hover ink + surface */
+  #repoList .repo .rmbtn{background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;
+    padding:3px;display:inline-flex;border-radius:6px;transition:color .15s,background .15s,border-color .15s}
+  #repoList .repo .rmbtn:hover{color:var(--ink);background:var(--surface);border-color:var(--line-hi)}
   #repoList .repo .rmbtn .ic{width:13px;height:13px;color:inherit}
   .navi{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:var(--muted);
     cursor:pointer;font-size:13px;border:none;background:transparent;width:100%;text-align:left;font-family:var(--sans)}
@@ -211,14 +232,34 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .dd-opt:hover{background:var(--surface);color:var(--ink)}
   .dd-opt.on{color:var(--brand)}
   .dd-opt.on::before{content:'✓ ';font-size:10px}
+  /* model combo — free-text input + a .dd-style recent-models menu (no native datalist/white popup) */
+  .mcombo{position:relative;display:flex;align-items:stretch;gap:0}
+  .mcombo input{border-top-right-radius:0;border-bottom-right-radius:0;border-right:none}
+  .mcombo .mc-tog{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:30px;
+    background:#0e1118;color:var(--faint);border:1px solid var(--line);border-left:none;
+    border-top-right-radius:var(--r-ctl);border-bottom-right-radius:var(--r-ctl);cursor:pointer;
+    transition:color .15s,border-color .15s}
+  .mcombo .mc-tog:hover{color:var(--ink)}
+  .mcombo .mc-tog .ic{width:13px;height:13px;transition:transform .15s}
+  .mcombo.open input,.mcombo.open .mc-tog{border-color:rgba(78,201,176,.55)}
+  .mcombo.open .mc-tog .ic{transform:rotate(180deg)}
+  .mcombo .dd-panel{top:calc(100% + 5px)}
+  .mcombo.open .dd-panel{display:block}
+  .mc-empty{padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
   .seg{display:flex;gap:3px;padding:3px;border:1px solid var(--line);border-radius:var(--r-ctl);background:#0e1118}
-  .seg-opt{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 8px;border:none;
+  /* slim single-row option — matches the type/provider seg height; the risky hint rides inline, subtle */
+  .seg-opt{flex:1;display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:5px;
+    padding:6px 8px;border:none;min-width:0;
     background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;
     border-radius:calc(var(--r-ctl) - 3px);transition:background .15s,color .15s}
   .seg-opt:hover{color:var(--ink)}
   .seg-opt.on{background:var(--surface2);color:var(--ink)}
   .seg-opt[data-real="1"].on{background:var(--brand);color:var(--brand-ink)}
-  .seg-hint{font-family:var(--mono);font-size:9.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;opacity:.7}
+  .seg-hint{font-family:var(--mono);font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;
+    opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* the credit hint only reads once the risky option is chosen — keeps the resting seg clean & slim */
+  .seg-opt[data-real="1"]:not(.on) .seg-hint{display:none}
+  .seg-opt[data-real="1"].on .seg-hint{opacity:.75}
   /* ── deliverable 계약 칩(Task compose) ── */
   .ochips{display:flex;flex-wrap:wrap;gap:5px}
   .ochip{background:transparent;color:var(--muted);border:1px solid var(--line);cursor:pointer;
@@ -808,8 +849,11 @@ ${ICON_SPRITE}
               </button>
               <div class="opt-b" id="taskOptBody" hidden>
                 <p class="flabel">model · optional</p>
-                <input id="taskModel" placeholder="CLI default" list="modelHist" autocomplete="off" />
-                <datalist id="modelHist"></datalist>
+                <div class="mcombo" id="modelCombo">
+                  <input id="taskModel" placeholder="CLI default" autocomplete="off" spellcheck="false" />
+                  <button type="button" class="mc-tog" id="modelTog" aria-label="recent models" title="recent models"><svg class="ic"><use href="#i-chevron-down"/></svg></button>
+                  <div class="dd-panel" id="modelMenu"></div>
+                </div>
                 <p class="flabel">design capture · optional</p>
                 <select id="taskCapture"><option value="">no design capture</option></select>
                 <p class="flabel">deliverables · optional (contract)</p>
@@ -841,7 +885,11 @@ ${ICON_SPRITE}
             <button type="button" class="seg-opt" data-real="1">Real agent<span class="seg-hint">spends credits</span></button>
           </div>
           <input type="checkbox" id="taskReal" hidden />
-          <input id="taskCount" class="narrow" type="number" min="1" max="8" value="1" title="agents — 1 for a job, N to explore variants" />
+          <div class="stepper" id="taskCountStep" title="agents — 1 for a job, N to explore variants">
+            <button type="button" class="stp" id="cntDown" aria-label="fewer agents"><svg class="ic"><use href="#i-minus"/></svg></button>
+            <input id="taskCount" class="narrow" type="number" min="1" max="8" value="1" inputmode="numeric" aria-label="agent count" />
+            <button type="button" class="stp" id="cntUp" aria-label="more agents"><svg class="ic"><use href="#i-plus"/></svg></button>
+          </div>
           <button class="btn" type="submit" id="runFleetBtn"><svg class="ic"><use href="#i-play"/></svg> Run fleet</button>
         </div>
       </form>
@@ -2983,7 +3031,7 @@ function setV(tab){
   $('panelBench').style.display = tab==='bench' ? 'flex' : 'none';
   // footer adapts: Task=Dry/Real·count·Run fleet · Goal=Dry/Real·Plan & run · Workbench=Open workbench only
   $('modeSeg').style.display  = tab==='bench' ? 'none' : 'flex';  // workbench 는 에이전트 없음
-  $('taskCount').style.display = tab==='task' ? '' : 'none';      // count 는 Task 만(플래너·워크벤치는 1)
+  $('taskCountStep').style.display = tab==='task' ? 'flex' : 'none'; // count 는 Task 만(플래너·워크벤치는 1)
   $('runFleetBtn').innerHTML = ic(L_ICON[tab]) + ' ' + L_LABEL[tab];
 }
 document.querySelectorAll('#launchTabs .seg-opt').forEach(b=>{
@@ -3091,12 +3139,40 @@ function rememberModel(m){
   }catch{}
   paintModelHist();
 }
+function modelHistList(){
+  try{ return JSON.parse(localStorage.getItem('coxpit.models')||'[]'); }catch{ return []; }
+}
 function paintModelHist(){
-  let h = [];
-  try{ h = JSON.parse(localStorage.getItem('coxpit.models')||'[]'); }catch{}
-  $('modelHist').innerHTML = h.map(m=>'<option value="'+escA(m)+'"></option>').join('');
+  const h = modelHistList();
+  const cur = $('taskModel').value.trim();
+  $('modelMenu').innerHTML = h.length
+    ? h.map(m=>'<div class="dd-opt'+(m===cur?' on':'')+'" data-m="'+escA(m)+'">'+esc(m)+'</div>').join('')
+    : '<div class="mc-empty">no recent models</div>';
 }
 paintModelHist();
+// model combo — free text stays; the caret opens a .dd-style recent-models menu (no native datalist)
+function closeModelMenu(){ $('modelCombo').classList.remove('open'); }
+$('modelTog').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  const open = $('modelCombo').classList.contains('open');
+  closeDropdowns(); closeModelMenu();
+  if (!open){ paintModelHist(); $('modelCombo').classList.add('open'); }
+});
+$('modelMenu').addEventListener('click', (e)=>{
+  const o = e.target.closest('.dd-opt'); if(!o) return;
+  $('taskModel').value = o.dataset.m; closeModelMenu(); $('taskModel').focus();
+});
+document.addEventListener('click', closeModelMenu);
+
+/* ── count stepper — token −/+ mirror the number input, clamped 1..8 ── */
+function stepCount(delta){
+  const el = $('taskCount');
+  const n = Math.max(1, Math.min(8, (Number(el.value)||1) + delta));
+  el.value = String(n);
+}
+$('cntDown').addEventListener('click', ()=>stepCount(-1));
+$('cntUp').addEventListener('click', ()=>stepCount(1));
+$('taskCount').addEventListener('change', ()=>stepCount(0)); // clamp manual typing
 
 /* ── agent mode segmented control (mirrors hidden #taskReal) ── */
 const segOpts = Array.from(document.querySelectorAll('#modeSeg .seg-opt'));

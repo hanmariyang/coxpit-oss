@@ -85,6 +85,27 @@ case "$BOARD_HTML" in *'function setScope'*) : ;; *) fail "repo scoping (setScop
 case "$BOARD_HTML" in *'id="viewSeg"'*) fail "old header view seg (#viewSeg) still present — should move to #viewNav";; *) : ;; esac
 pass "board serves v5.0 navigator rail (#repoList + #viewNav Active/Goals/Archive + #newBtn + .machine; #viewSeg gone)"
 
+# v5.0 — dark-control contract: no native browser chrome leaking white (selects/model/count/mode seg)
+# selects route through the custom .dd dropdown (state-holder pattern) — dressSelect + hidden holders present
+case "$BOARD_HTML" in *'function dressSelect'*) : ;; *) fail "custom dropdown (dressSelect) missing";; esac
+case "$BOARD_HTML" in *"['repoMachine','taskRepo','taskCapture']"*) : ;; *) fail "sheet selects not dressed through .dd";; esac
+# any bare <select> also strips the OS arrow (appearance:none) so no white native chrome
+case "$BOARD_HTML" in *'select{appearance:none'*) : ;; *) fail "bare select appearance:none guard missing";; esac
+# model field is a custom combo, NOT a native datalist popup
+case "$BOARD_HTML" in *'id="modelCombo"'*) : ;; *) fail "model combo (custom recent-models menu) missing";; esac
+case "$BOARD_HTML" in *'<datalist'*) fail "native datalist still present — should be a .dd-style menu";; *) : ;; esac
+case "$BOARD_HTML" in *'id="taskModel"'*'list='*) fail "taskModel still bound to a native list= datalist";; *) : ;; esac
+# count has a token stepper and the native number spinner is suppressed
+case "$BOARD_HTML" in *'id="taskCountStep"'*) : ;; *) fail "count stepper wrapper missing";; esac
+case "$BOARD_HTML" in *'id="cntUp"'*) : ;; *) fail "count + stepper button missing";; esac
+case "$BOARD_HTML" in *'id="cntDown"'*) : ;; *) fail "count - stepper button missing";; esac
+case "$BOARD_HTML" in *'webkit-inner-spin-button'*) : ;; *) fail "native number spinner not suppressed";; esac
+# mode seg is slim: .seg-opt is a single row (never the boxy flex-direction:column stack)
+case "$BOARD_HTML" in *'.seg-opt{flex:1;display:inline-flex;flex-direction:row'*) : ;; *) fail "mode seg still boxy (.seg-opt not slimmed to a single row)";; esac
+# rail repo-row actions are icon-ghost (transparent), never white buttons
+case "$BOARD_HTML" in *'#repoList .repo .rmbtn{background:transparent'*) : ;; *) fail "rail repo-row buttons not icon-ghost";; esac
+pass "board serves dark-control contract (.dd selects · custom model menu · token stepper/no spinner · slim mode seg · icon-ghost rail actions)"
+
 # v4.4 — greenfield launcher affordances present in the board (UI contract)
 case "$BOARD_HTML" in *'id="npOverlay"'*) : ;; *) fail "greenfield new-project overlay missing";; esac
 case "$BOARD_HTML" in *'id="repoNew"'*) : ;; *) fail "greenfield New button missing";; esac
