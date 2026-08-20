@@ -257,11 +257,11 @@ Part A — visibility gates (cheap, ship first):
       an "⧉ Overlap" band panel shows contended files + a fewest-contended-first land order.
 
 Part B — the integration workroom (coxpit owns git; agent resolves markers only):
-- [ ] **Merge becomes a phase** — the agent sandbox blocks git/network, so **coxpit runs all git**
-      (fetch/rebase/merge/stage/commit/push/PR); on conflict it leaves the markers and **resumes
-      the run's own agent** (`sessionId`) to *edit the conflicted files only — no git verbs*.
-      Status `integrating`, tracked live on the card, terminal attachable; coxpit stages +
-      continues, re-preview until clean. Fallback: one-click **Open as workbench**.
+- [x] **Merge becomes a phase** *(e4b4f52)* — `startLandResolve()`: coxpit runs all git (checkout
+      target + 3-way apply, leaving markers) and **resumes the run's own agent** scoped to editing
+      the markers (no git verbs — the sandbox blocks them anyway); `finalizeLand()` on settle checks
+      for leftover markers, then commits + pushes + opens the PR automatically. `POST
+      /api/runs/:id/land/resolve`; the compare offers "Agent · resolve & land". (Workbench fallback: the existing Open-workbench affordance.)
 
 Part C — origin-aware landing (target is chosen, not the base):
 - [x] **Target resolution + base-drift** *(ce07043)* — `landTarget()`: target = `<base>@{u}`
