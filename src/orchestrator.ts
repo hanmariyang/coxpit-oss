@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, copyFile, readFile, writeFile, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { ChildProcess } from 'node:child_process';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
 import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots, taskGroups } from './db/schema';
@@ -1311,6 +1311,50 @@ export async function taskCloseRisk(taskId: number): Promise<Array<{ runId: numb
     atRisk.push({ runId: r.id, filesChanged: r.filesChanged });
   }
   return atRisk;
+}
+
+/**
+ * v5.1 A3 — sibling overlap within a group: which files two or more sibling runs both touch,
+ * and a suggested land order (fewest contended files first). Read-only; on-demand (git per run),
+ * never on the fleet-poll path. Uses `diff --name-only base...branch` (merge-base) = each run's
+ * OWN change set, so base drift doesn't inflate it.
+ */
+export async function groupOverlap(groupId: number): Promise<{
+  runs: Array<{ runId: number; files: string[] }>;
+  contended: Array<{ path: string; runIds: number[] }>;
+  order: number[];
+}> {
+  const taskRows = await db.select().from(tasks).where(eq(tasks.groupId, groupId));
+  const taskIds = taskRows.map((t) => t.id);
+  if (!taskIds.length) return { runs: [], contended: [], order: [] };
+  const rns = await db.select().from(agentRuns).where(inArray(agentRuns.taskId, taskIds));
+  const perRun: Array<{ runId: number; files: string[] }> = [];
+  for (const r of rns) {
+    if (!r.branch || !r.worktreePath || r.status === 'merged') continue;
+    const ctx = await loadContext(r.id);
+    if (!ctx) continue;
+    const out = await runShellOn(
+      ctx.machine,
+      `git -C ${shq(ctx.repoPath)} diff --name-only ${shq(ctx.baseBranch)}...${shq(r.branch)}`,
+      10000,
+    );
+    const files = out.ok ? out.stdout.split('\n').map((s) => s.trim()).filter(Boolean) : [];
+    perRun.push({ runId: r.id, files });
+  }
+  const byFile = new Map<string, number[]>();
+  for (const pr of perRun) for (const f of pr.files) {
+    const a = byFile.get(f) ?? []; a.push(pr.runId); byFile.set(f, a);
+  }
+  const contended = [...byFile.entries()]
+    .filter(([, ids]) => ids.length > 1)
+    .map(([path, runIds]) => ({ path, runIds }))
+    .sort((a, b) => b.runIds.length - a.runIds.length || a.path.localeCompare(b.path));
+  const contendedSet = new Set(contended.map((c) => c.path));
+  const contendedCount = (pr: { files: string[] }) => pr.files.filter((f) => contendedSet.has(f)).length;
+  const order = perRun.slice()
+    .sort((a, b) => contendedCount(a) - contendedCount(b) || a.runId - b.runId)
+    .map((p) => p.runId);
+  return { runs: perRun, contended, order };
 }
 
 export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: string }> {

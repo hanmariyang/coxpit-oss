@@ -18,7 +18,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -963,6 +963,14 @@ export async function buildServer(): Promise<FastifyInstance> {
       runs,
       events: evs.map((e) => ({ runId: e.runId, kind: e.kind, payload: e.payload, ts: e.ts })),
     };
+  });
+
+  // v5.1 A3 — sibling overlap: which files 2+ runs in the group both touch + suggested land order.
+  // Read-only, on-demand (shells git per run) — never on the fleet-poll path.
+  app.get('/api/groups/:id/overlap', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'bad id' });
+    return await groupOverlap(id);
   });
 
   // B2 — "＋ New attempt": 그룹에 새 시도(들)를 발사. repo 는 그룹의 기존 태스크에서 상속.

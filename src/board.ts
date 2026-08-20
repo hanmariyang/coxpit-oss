@@ -312,6 +312,19 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .gband-fold{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px}
   .gband.folded .gband-grid{display:none}
   .gband-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+  /* v5.1 A3 — sibling overlap panel */
+  .gband-overlap{margin:0 0 10px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;
+    background:#0e1118;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .gov-load{color:var(--faint)}
+  .gov-clean{color:var(--brand);display:flex;align-items:center;gap:6px}
+  .gov-clean .ic{width:13px;height:13px}
+  .gov-t{color:var(--ink);margin-bottom:6px}
+  .gov-list{list-style:none;margin:0 0 6px;padding:0;display:flex;flex-direction:column;gap:3px}
+  .gov-list li{display:flex;align-items:center;gap:8px}
+  .gov-list code{background:var(--surface2);border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--ink)}
+  .gov-r{color:#c9922e}
+  .gov-order{color:var(--muted);border-top:1px solid var(--line);padding-top:6px;margin-top:2px}
+  .gov-order b{color:var(--brand)}
   .attempt{color:var(--brand);opacity:.8}
 
   /* ── goal workroom (v4.6) — 한 goal 을 여는 단일 방 ── */
@@ -1469,10 +1482,37 @@ function bandHTML(g, grpRuns){
     + '<span class="gband-n">'+taskIds.length+' task'+(taskIds.length>1?'s':'')+' · '+settled+' settled</span>'
     + '<span class="gband-sp"></span>'
     + '<button class="btn-ghost sm gband-open" data-groom="'+g.id+'">⌒ Open workroom</button>'
+    + '<button class="btn-ghost sm" data-goverlap="'+g.id+'" title="which files sibling runs both touch — plan the land order">⧉ Overlap</button>'
     + '<button class="btn-ghost sm" data-gsel="'+g.id+'">Select runs</button>'
     + '<button class="btn-ghost sm" data-gclose="'+g.id+'">Close group</button>'
     + '<button class="gband-fold" data-gfold="'+g.id+'" title="fold">'+(folded?'▸':'▾')+'</button></div>'
+    + '<div class="gband-overlap" id="gov-'+g.id+'" hidden></div>'
     + '<div class="gband-grid">'+cards+'</div></div>';
+}
+// v5.1 A3 — sibling overlap: on-demand fetch, render contended files + suggested land order.
+async function toggleOverlap(gid){
+  const box = $('gov-'+gid); if(!box) return;
+  if (!box.hidden){ box.hidden = true; box.innerHTML=''; return; }
+  box.hidden = false; box.innerHTML = '<span class="gov-load">checking overlap…</span>';
+  try {
+    const res = await fetch('/api/groups/'+gid+'/overlap');
+    box.innerHTML = overlapHTML(await res.json());
+  } catch(e){ box.innerHTML = '<span class="gov-load">overlap check failed</span>'; }
+}
+function overlapHTML(j){
+  const runs = j.runs||[];
+  if (!runs.length) return '<span class="gov-load">no run diffs yet — land order needs settled runs</span>';
+  const cont = j.contended||[];
+  const order = (j.order||[]).map(id=>'r'+id).join(' → ');
+  let h = '';
+  if (!cont.length){
+    h += '<div class="gov-clean">'+ic('check')+' no file overlap — siblings touch disjoint files, land in any order</div>';
+  } else {
+    h += '<div class="gov-t">'+cont.length+' contended file'+(cont.length>1?'s':'')+' — plan the sequence</div>';
+    h += '<ul class="gov-list">'+cont.map(c=>'<li><code>'+esc(c.path)+'</code><span class="gov-r">'+c.runIds.map(i=>'r'+i).join(' · ')+'</span></li>').join('')+'</ul>';
+  }
+  if (order) h += '<div class="gov-order">suggested land order · <b>'+esc(order)+'</b></div>';
+  return h;
 }
 // v5.0 — 레일에서 고른 repo 로 run 을 스코프(client-side). selectedRepo=null → 전체.
 function runInScope(r){
@@ -2186,6 +2226,8 @@ $('selGo').addEventListener('click', async ()=>{
 $('grid').addEventListener('click', async (e)=>{
   const groom = e.target.closest('[data-groom]');
   if (groom){ openRoom(Number(groom.dataset.groom)); return; }
+  const gov = e.target.closest('[data-goverlap]');
+  if (gov){ toggleOverlap(Number(gov.dataset.goverlap)); return; }
   const fold = e.target.closest('[data-gfold]');
   if (fold){ const g=Number(fold.dataset.gfold); if(gfold.has(g)) gfold.delete(g); else gfold.add(g); saveGfold(); render(); return; }
   const gsel = e.target.closest('[data-gsel]');
