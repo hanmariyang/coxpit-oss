@@ -1530,9 +1530,19 @@ export async function mergePreview(runId: number, opts: { fetch?: boolean; targe
   const target = opts.target ?? lt.target;
   if (!target) return { supported: true, clean: false, conflicts: [], target: null, ahead: lt.ahead, behind: lt.behind, detail: 'no target — pick one' };
   const repo = shq(ctx.repoPath);
+  // The agent edits files but does NOT commit (acceptEdits/workspace-write allow edits, not git),
+  // so run.branch's tip lags the worktree. Land commits first — so preview the state land will
+  // actually see: `git stash create` mints a commit of the working tree (tracked mods) without
+  // touching anything, sharing the object store so merge-tree in the repo can reference it.
+  let tip = run.branch;
+  if (run.worktreePath) {
+    const st = await runShellOn(ctx.machine, `git -C ${shq(run.worktreePath)} stash create 2>/dev/null`, 10000);
+    const stashCommit = st.ok ? st.stdout.trim() : '';
+    if (/^[0-9a-f]{7,40}$/.test(stashCommit)) tip = stashCommit;
+  }
   const mt = await runShellOn(
     ctx.machine,
-    `git -C ${repo} merge-tree --write-tree --name-only ${shq(target)} ${shq(run.branch)} 2>&1; echo "EXIT=$?"`,
+    `git -C ${repo} merge-tree --write-tree --name-only ${shq(target)} ${shq(tip)} 2>&1; echo "EXIT=$?"`,
     20000,
   );
   const raw = mt.stdout;
