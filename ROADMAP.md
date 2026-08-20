@@ -256,20 +256,25 @@ Part A — visibility gates (cheap, ship first):
 - [ ] **Sibling overlap + land order** — within a group, intersect `diff --name-only base..branch`
       across siblings; show overlapping files + a fewest-overlap-first land order on the band.
 
-Part B — the integration workroom:
-- [ ] **Merge becomes a phase** — on conflict, open the integration workroom on the same
-      worktree, **resume the run's own agent** (`sessionId`) to `fetch origin` + resolve the
-      listed conflicts; status `integrating`, tracked live on the card, terminal attachable;
-      re-preview until clean. Fallback: one-click **Open as workbench** (in-app terminal + claude).
+Part B — the integration workroom (coxpit owns git; agent resolves markers only):
+- [ ] **Merge becomes a phase** — the agent sandbox blocks git/network, so **coxpit runs all git**
+      (fetch/rebase/merge/stage/commit/push/PR); on conflict it leaves the markers and **resumes
+      the run's own agent** (`sessionId`) to *edit the conflicted files only — no git verbs*.
+      Status `integrating`, tracked live on the card, terminal attachable; coxpit stages +
+      continues, re-preview until clean. Fallback: one-click **Open as workbench**.
 
-Part C — origin-aware landing:
-- [ ] **Base-drift detection at worktree creation** — `rev-list --left-right --count base...@{u}`;
-      surface ahead/behind on the card, warn when base is behind origin.
-- [ ] **Land to origin** — rebase onto `origin/<base>` (or cherry-pick `base..branch` unique
-      commits onto a fresh origin-tracking branch) → push → open PR via `gh` (reuse v2.6 PR mode);
-      card end state `landed` with the PR link. Never ship through local `main`.
+Part C — origin-aware landing (target is chosen, not the base):
+- [ ] **Target resolution + base-drift** — target = `<base>@{u}` (overridable, may differ from the
+      base: field report was base `main`, target `origin/develop`); `git fetch`; then
+      `rev-list --left-right --count base...target` → surface ahead/behind, warn when behind.
+- [ ] **Land to origin** — replay only the run's work onto `origin/<target>` via
+      `rebase --onto origin/<target> base branch` **or** a squashed net-diff (avoid the base-merge
+      commit `mergeRun:776` leaves) → push → open PR via `gh` (reuse v2.6 PR mode). `gh` optional →
+      push-only degraded path. Card end state `landed` with the PR link. Never ship through local `main`.
 
-Sequencing: A → B → C, e2e-green commits on main; cut **5.1** once the loop closes.
+Sequencing (revised after review): **1** A2 no-op + A3 overlap (cheap, origin-free) → **2**
+target/fetch/drift foundation → **3** conflict preview A1 vs `origin/<target>` → **4** land (C)
+→ **5** the agent-resolution loop (B). e2e-green commits on main, dry-safe; cut **5.1** when the loop closes.
 
 ## Non-goals
 
