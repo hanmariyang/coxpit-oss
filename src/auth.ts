@@ -12,8 +12,11 @@ import { loginPageHTML } from './login';
 const EXEMPT = new Set([
   '/api/health', '/api/design/capture', '/design/bookmarklet.js', '/api/agent/subtasks',
   '/api/auth/setup', '/api/auth/unlock', '/api/auth/logout',
+  '/favicon.ico',
 ]);
-const EXEMPT_PREFIX = ['/share/'];
+// /brand/* — 공개 브랜드 에셋(로고·마스코트·워드마크 폰트·favicon). 미인증 로그인 페이지가
+// 이걸 불러와야 하므로 게이트 앞. 시크릿 아님(패키지 동봉 정적물).
+const EXEMPT_PREFIX = ['/share/', '/brand/'];
 
 /** 이 요청이 HTML 문서를 원하는 GET 인가(→ 팝업 대신 login/setup 페이지 서빙). */
 function wantsHtml(req: FastifyRequest): boolean {

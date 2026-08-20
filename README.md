@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/brand/og-lockup.png" alt="coxpit — the cockpit for your agent fleet" width="640"></p>
+
 # Coxpit
 
 **Own your agent fleet. Run parallel AI coding agents across your own machines — steer them from any browser.**
@@ -141,3 +143,5 @@ issues privately per **[SECURITY.md](SECURITY.md)** (Coxpit exposes shells).
 MIT
 
 Icons — [Lucide](https://lucide.dev) (ISC). Paths are inlined as an SVG `<symbol>` sprite (no runtime dependency); the ISC notice is kept in [`licenses/lucide.txt`](licenses/lucide.txt).
+
+Wordmark — [Pixelify Sans](https://github.com/eifetx/Pixelify-Sans) (SIL Open Font License 1.1), self-hosted; the licence is kept in [`licenses/pixelify-sans-OFL.txt`](licenses/pixelify-sans-OFL.txt). The pilot mascot and logo mark are original artwork for this project.

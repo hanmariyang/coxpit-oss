@@ -70,6 +70,21 @@ case "$BOARD_HTML" in *'attemptHTML'*) : ;; *) fail "attempt counter missing";; 
 case "$BOARD_HTML" in *'arch-row'*) : ;; *) fail "archive row styles missing";; esac
 pass "board served (v4.1..v4.3 UI assets present)"
 
+# v5.2 — brand: logo lockup (mark + Pixelify wordmark), mascot in empty state, favicon/font wiring
+case "$BOARD_HTML" in *'/brand/mark.png'*) : ;; *) fail "board nav mark image missing";; esac
+case "$BOARD_HTML" in *"font-family:'Pixelify'"*) : ;; *) fail "Pixelify @font-face missing";; esac
+case "$BOARD_HTML" in *'/brand/sleep.png'*) : ;; *) fail "empty-state mascot missing";; esac
+expect_code 200 "$B/brand/mark.png"
+expect_code 200 "$B/brand/sleep.png"
+expect_code 200 "$B/brand/wave.png"
+expect_code 200 "$B/brand/pixelify.woff2"
+expect_code 200 "$B/brand/favicon.ico"
+expect_code 200 "$B/favicon.ico"
+expect_code 404 "$B/brand/nope.png"
+BRAND_CT=$(curl -s -o /dev/null -w '%{content_type}' "$B/brand/pixelify.woff2")
+case "$BRAND_CT" in font/woff2*) : ;; *) fail "woff2 content-type wrong ($BRAND_CT)";; esac
+pass "v5.2 brand assets served (mark · mascot · font · favicon)"
+
 # v5.0 Part A — navigator rail (machine switcher · repo list · view nav · New)
 case "$BOARD_HTML" in *'id="repoList"'*) : ;; *) fail "rail repo list (#repoList) missing";; esac
 case "$BOARD_HTML" in *'id="viewNav"'*) : ;; *) fail "rail view nav (#viewNav) missing";; esac
@@ -916,6 +931,16 @@ expect_code 401 "$B/api/browse"
 expect_code 200 -u x:pw-e2e "$B/api/machines"
 expect_code 200 -u admin:pw-e2e "$B/api/machines"
 expect_code 200 "$B/design/bookmarklet.js"
+# v5.2 — brand assets are public even on an exposed bind: the UNLOCK page (shown to
+# unauthenticated visitors) must be able to load the logo mark, mascot, wordmark font.
+expect_code 200 "$B/brand/mark.png"
+expect_code 200 "$B/brand/wave.png"
+expect_code 200 "$B/brand/pixelify.woff2"
+expect_code 200 "$B/favicon.ico"
+# and the served unlock page references them (mascot welcome + Pixelify wordmark)
+UNLOCK_HTML=$(curl -s -H 'Accept: text/html' "$B/")
+case "$UNLOCK_HTML" in *'/brand/wave.png'*) : ;; *) fail "unlock page missing welcome mascot";; esac
+case "$UNLOCK_HTML" in *"font-family:'Pixelify'"*) : ;; *) fail "unlock page missing Pixelify wordmark";; esac
 # /share/* 는 무인증 예외(없는 토큰이라도 401 이 아니라 404 여야 함)
 expect_code 404 "$B/share/no-such-token"
 expect_code 201 -X POST "$B/api/design/capture?k=pw-e2e" -H 'content-type: application/json' -d '{"selector":"x"}'

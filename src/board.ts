@@ -8,8 +8,12 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>coxpit · fleet</title>
+<link rel="icon" href="/brand/favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
 <link rel="stylesheet" href="/vendor/xterm.css" />
 <style>
+  @font-face{font-family:'Pixelify';src:url('/brand/pixelify.woff2') format('woff2');font-weight:400 700;font-display:swap}
   :root{
     --bg:#0b0d12; --surface:#12151c; --surface2:#171b24; --line:#222835; --line-hi:#2f3648;
     --ink:#dee4ec; --muted:#8792a2; --faint:#5c6675;
@@ -40,8 +44,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   header{display:flex;align-items:center;gap:14px;height:54px;padding:0 20px;
     border-bottom:1px solid var(--line);background:rgba(18,21,28,.92);backdrop-filter:blur(8px);
     position:sticky;top:0;z-index:10}
-  .brand{display:flex;align-items:baseline;gap:9px;font-family:var(--mono)}
-  .brand .mark{color:var(--brand);font-size:15px;font-weight:700;letter-spacing:.01em}
+  .brand{display:flex;align-items:center;gap:9px;font-family:var(--mono)}
+  .brand .mark{display:inline-flex;align-items:center;gap:6px;line-height:1}
+  .brand .mark img{height:24px;width:auto;display:block}
+  .brand .mark .wm{font-family:'Pixelify';font-size:21px;font-weight:600;color:var(--ink);letter-spacing:.01em;margin-left:-2px}
   .brand .sub{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.14em}
   .daemon-badge{font-family:var(--mono);font-size:10.5px;color:var(--faint);padding:3px 9px;
     border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:default}
@@ -550,14 +556,16 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .selbar .cnt{font-family:var(--mono);font-size:12px;color:var(--brand)}
   .selbar .note{font-family:var(--mono);font-size:11px;color:var(--faint)}
 
-  .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:64px 24px;text-align:center;
+  .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:56px 24px;text-align:center;
     display:flex;flex-direction:column;gap:10px;align-items:center}
   .empty .glyph{font-size:22px;color:#2c3444;letter-spacing:4px}
+  .empty .mascot{width:88px;height:auto;margin-bottom:2px;opacity:.96;user-select:none;-webkit-user-drag:none}
 
   /* ── onboarding (first run) ─────────────── */
   .setup{max-width:560px;margin:40px auto;border:1px solid var(--line);border-radius:14px;
     background:var(--surface);overflow:hidden;text-align:left}
-  .setup-h{padding:18px 22px 14px;border-bottom:1px solid var(--line)}
+  .setup-h{padding:18px 22px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:15px}
+  .setup-h .setup-mascot{width:62px;height:auto;flex:none;-webkit-user-drag:none;user-select:none}
   .setup-h .t{font-weight:700;font-size:16px}
   .setup-h .d{color:var(--muted);font-size:13px;margin-top:3px}
   .setup-sec{padding:14px 22px;border-bottom:1px solid var(--line)}
@@ -834,7 +842,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 ${ICON_SPRITE}
 <header>
   <button class="btn-ghost sm menu-btn" id="menuBtn" aria-label="open launcher">☰</button>
-  <div class="brand"><span class="mark">coxpit</span><span class="sub">fleet console</span></div>
+  <div class="brand"><span class="mark"><img src="/brand/mark.png" alt="" /><span class="wm">coxpit</span></span><span class="sub">fleet console</span></div>
   <span class="daemon-badge" id="daemonBadge" style="display:none"></span>
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles"><svg class="ic"><use href="#i-bell-off"/></svg></button>
@@ -991,7 +999,7 @@ ${ICON_SPRITE}
       <button class="btn-ghost sm" id="selToggle">Select runs</button></div>
     <div class="grid" id="grid"></div>
     <div class="empty" id="empty">
-      <span class="glyph">▚▞▚</span>
+      <img class="mascot" src="/brand/sleep.png" alt="" />
       <span>No runs yet</span>
       <span style="color:#3d4657">register a repo, write a task, hit Run fleet</span>
     </div>
@@ -1821,8 +1829,9 @@ function paintOnboarding(goalsOnly){
   }
   const agentMissing = r && r.agent && !r.agent.ok;
   $('empty').innerHTML = '<div class="setup">'
-    + '<div class="setup-h"><div class="t">Welcome to coxpit</div>'
-    + '<div class="d">Run a fleet of coding agents on this machine — each in its own git worktree.</div></div>'
+    + '<div class="setup-h"><img class="setup-mascot" src="/brand/sleep.png" alt="" />'
+    + '<div><div class="t">Welcome to coxpit</div>'
+    + '<div class="d">Run a fleet of coding agents on this machine — each in its own git worktree.</div></div></div>'
     + '<div class="setup-sec"><p class="setup-label">This machine</p>' + checks
     + (agentMissing
         ? '<div class="setup-fix"># install the agent CLI, then sign in once:\\nnpm i -g @anthropic-ai/claude-code\\n'+esc(agentBin)+'   # first run opens browser login</div>'

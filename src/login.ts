@@ -26,7 +26,11 @@ export function loginPageHTML(setup: boolean, opts: LoginOpts = {}): string {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>coxpit · ${title}</title>
+<link rel="icon" href="/brand/favicon.ico" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png" />
 <style>
+  @font-face{font-family:'Pixelify';src:url('/brand/pixelify.woff2') format('woff2');font-weight:400 700;font-display:swap}
   :root{
     --bg:#0b0d12; --surface:#12151c; --surface2:#171b24; --line:#222835; --line-hi:#2f3648;
     --ink:#dee4ec; --muted:#8792a2; --faint:#5c6675;
@@ -47,8 +51,10 @@ export function loginPageHTML(setup: boolean, opts: LoginOpts = {}): string {
   ::selection{background:var(--brand-dim)}
   .card{width:100%;max-width:380px;background:var(--surface);border:1px solid var(--line);
     border-radius:var(--r-card);box-shadow:var(--shadow);padding:26px 24px 22px}
+  .welcome{width:80px;height:auto;display:block;margin:2px auto 14px;opacity:.97;-webkit-user-drag:none}
   .mark{font-family:var(--mono);font-weight:700;color:var(--brand);font-size:17px;letter-spacing:.02em;
     display:flex;align-items:center;gap:9px}
+  .mark .wm{font-family:'Pixelify';font-weight:600;color:var(--ink);font-size:19px;letter-spacing:.01em}
   .glyph{font-size:18px;line-height:1}
   h1{font-size:15px;font-weight:600;margin:16px 0 4px;color:var(--ink)}
   .sub{color:var(--muted);font-size:12.5px;margin:0 0 18px;line-height:1.5}
@@ -81,7 +87,8 @@ export function loginPageHTML(setup: boolean, opts: LoginOpts = {}): string {
 ${ICON_SPRITE}
   <form class="card" id="f" method="post" action="${action}" autocomplete="off">
     <input type="hidden" name="nav" value="1">
-    <div class="mark"><svg class="ic"><use href="#i-lock"/></svg><span>coxpit</span></div>
+    <img class="welcome" src="/brand/wave.png" alt="" />
+    <div class="mark"><svg class="ic"><use href="#i-lock"/></svg><span class="wm">coxpit</span></div>
     <h1>${setup ? 'Protect this coxpit' : 'Unlock this coxpit'}</h1>
     <p class="sub">${setup
       ? 'Set an access key. You&#39;ll enter it once per device — no accounts, no username.'

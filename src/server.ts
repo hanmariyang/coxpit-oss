@@ -64,6 +64,7 @@ function contentTypeFor(path: string): string {
     avif: 'image/avif', pdf: 'application/pdf', txt: 'text/plain; charset=utf-8',
     md: 'text/plain; charset=utf-8', json: 'application/json', csv: 'text/csv; charset=utf-8',
     html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
+    woff2: 'font/woff2', woff: 'font/woff',
   };
   return map[ext] ?? 'application/octet-stream';
 }
@@ -1322,6 +1323,21 @@ export async function buildServer(): Promise<FastifyInstance> {
     const body = await readFile(path);
     return reply.type(v.type).header('cache-control', 'public, max-age=86400').send(body);
   });
+
+  // 브랜드 에셋 서빙(로고 마크·마스코트 컷·워드마크 폰트·favicon). CDN 없음, 패키지 동봉.
+  const BRAND_FILES = new Set([
+    'mark.png', 'sleep.png', 'wave.png', 'pixelify.woff2',
+    'favicon.ico', 'favicon-16.png', 'favicon-32.png',
+    'apple-touch-icon.png', 'icon-192.png', 'icon-512.png',
+  ]);
+  async function sendBrand(file: string, reply: import('fastify').FastifyReply) {
+    if (!BRAND_FILES.has(file)) return reply.code(404).send({ error: 'not found' });
+    const body = await readFile(new URL('./brand/' + file, import.meta.url));
+    return reply.type(contentTypeFor(file)).header('cache-control', 'public, max-age=86400').send(body);
+  }
+  app.get('/brand/:file', async (req, reply) =>
+    sendBrand((req.params as { file: string }).file, reply));
+  app.get('/favicon.ico', async (_req, reply) => sendBrand('favicon.ico', reply));
 
   // run 터미널 — tmux 세션에 PTY attach, WS 로 중계.
   // client → {t:'i',d:string} 입력 · {t:'r',cols,rows} 리사이즈 / server → {t:'o',d} 출력 · {t:'exit'}
