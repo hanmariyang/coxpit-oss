@@ -39,6 +39,26 @@ export function parseOutputs(raw: string | null | undefined): OutputType[] {
   try { return normalizeOutputs(JSON.parse(raw)); } catch { return []; }
 }
 
+/**
+ * v5.1 A2 — a run that settled clean but did nothing it was asked to.
+ * Deterministic signal (primary): status 'done' with zero files changed.
+ * Gated on intent so an answer-only task legitimately changing nothing stays quiet.
+ * The 'blocked' upgrade is best-effort natural-language matching on the final message —
+ * no provider emits a structured "needs approval" event, so never depend on it.
+ */
+export function noopSignal(
+  status: string,
+  filesChanged: number,
+  exitSummary: string | null | undefined,
+  taskOutputs: string | null | undefined,
+): { noop: boolean; reason: 'blocked' | 'no-changes' | null } {
+  if (status !== 'done' || (filesChanged ?? 0) > 0) return { noop: false, reason: null };
+  const declared = parseOutputs(taskOutputs);
+  if (declared.length > 0 && declared.every((t) => t === 'answer')) return { noop: false, reason: null };
+  const blocked = /\b(approval|permission|not allowed|need(s)?\s+(explicit\s+)?approv|explicit(ly)?\s+approv|allow me to)\b/i.test(exitSummary ?? '');
+  return { noop: true, reason: blocked ? 'blocked' : 'no-changes' };
+}
+
 /** 프롬프트에 붙는 Deliverables 블록(A3). declared 는 비어있지 않다. */
 function deliverablesNote(declared: OutputType[]): string {
   const human: Record<OutputType, string> = {

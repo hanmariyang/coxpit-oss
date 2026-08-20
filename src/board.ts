@@ -452,6 +452,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .chip.running i{animation:pulse 1.2s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
   @media (prefers-reduced-motion:reduce){.chip.running i{animation:none}.card:hover{transform:none}}
+  /* v5.1 A2 — a settled run that changed nothing (intent-gated); 'blocked' = likely stalled on approval */
+  .chip.noop{color:#c9922e;border-color:rgba(201,146,46,.45)}
+  .chip.noop.blk{color:#e0955a;border-color:rgba(224,149,90,.6)}
+  .card-h .chip.noop::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:1px}
   .meta{display:flex;gap:16px;padding:0 14px 10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
   .meta b{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
   .meta .resumable{color:var(--brand);opacity:.75}
@@ -1678,7 +1682,11 @@ function cardHTML(r){
   const selCls = (selectMode?' selmode':'') + (selected.has(r.id)?' selected':'') + (closed?' closed':'');
   return '<div class="card'+selCls+'" id="card-'+r.id+'">'
     + '<div class="card-h"><span class="rid">r'+r.id+'</span><span class="title">'+title+'</span>'
-    + '<span class="selbox">'+ic('check')+'</span>'+chipHTML(r.status)+'</div>'
+    + '<span class="selbox">'+ic('check')+'</span>'+chipHTML(r.status)
+    + (r.noop ? '<span class="chip noop'+(r.noopReason==='blocked'?' blk':'')+'" title="'
+        +(r.noopReason==='blocked'?'settled without making the change it was asked for — likely stalled on approval':'this run changed no files — did it actually do the work?')
+        +'">'+(r.noopReason==='blocked'?'blocked':'no changes')+'</span>' : '')
+    + '</div>'
     + '<div class="meta"><span>branch <b>'+esc(r.branch||'—')+'</b></span>'
     + '<span>files <b>'+(r.filesChanged??0)+'</b></span>'
     + '<span>'+esc(r.agent||'')+'</span>'

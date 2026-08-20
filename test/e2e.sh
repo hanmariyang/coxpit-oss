@@ -109,6 +109,9 @@ case "$BOARD_HTML" in *'.seg-opt{flex:1;display:inline-flex;flex-direction:row'*
 case "$BOARD_HTML" in *'role="button" tabindex="0" data-repo='*) : ;; *) fail "repo rows not role=button divs (nested action buttons would hoist)";; esac
 # rail repo-row actions are icon-ghost (transparent), never white buttons
 case "$BOARD_HTML" in *'#repoList .repo .rmbtn{background:transparent'*) : ;; *) fail "rail repo-row buttons not icon-ghost";; esac
+# v5.1 A2 — settled-but-no-op runs get a distinct chip (not silently 'done')
+case "$BOARD_HTML" in *'.chip.noop{'*) : ;; *) fail "no-op run chip styling missing";; esac
+case "$BOARD_HTML" in *"r.noopReason==='blocked'"*) : ;; *) fail "cardHTML no-op/blocked branch missing";; esac
 pass "board serves dark-control contract (.dd selects · custom model menu · token stepper/no spinner · slim mode seg · icon-ghost rail actions)"
 
 # v4.4 — greenfield launcher affordances present in the board (UI contract)

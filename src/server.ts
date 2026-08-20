@@ -18,7 +18,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -328,9 +328,13 @@ export async function buildServer(): Promise<FastifyInstance> {
       arr.push({ kind: e.kind, payload: e.payload });
       byRun.set(e.runId, arr);
     }
+    const taskOut = new Map(ts.map((t) => [t.id, t.outputs]));
     return {
       machines: ms, repos: rs, tasks: ts, captures: dcs, groups: gs,
-      runs: rns.map((r) => ({ ...r, events: (byRun.get(r.id) ?? []).slice(-EVENT_CAP) })),
+      runs: rns.map((r) => {
+        const sig = noopSignal(r.status, r.filesChanged, r.exitSummary, taskOut.get(r.taskId) ?? '[]');
+        return { ...r, events: (byRun.get(r.id) ?? []).slice(-EVENT_CAP), noop: sig.noop, noopReason: sig.reason };
+      }),
       counts: { activeTasks: activeTasks.length, closedTasks: closedCount },
       // 보드 헤더 "어느 데몬에 붙어 있나" 표시용 (인증 뒤라 dbPath 노출 가능)
       // authOpen = 비밀번호 미설정 → Funnel(공개) 가드가 켜져야 함(원격접근 카드용)
