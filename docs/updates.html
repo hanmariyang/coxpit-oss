@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Coxpit — Updates</title>
+<meta name="description" content="What's new in Coxpit — release highlights and the full changelog for the self-hosted AI agent fleet cockpit." />
+<style>
+  :root{
+    --bg:#0b0d12; --surface:#12151c; --surface2:#171b24; --line:#222835; --line-hi:#2f3648;
+    --ink:#dee4ec; --muted:#8792a2; --faint:#5c6675;
+    --brand:#4ec9b0; --brand-ink:#062822; --brand-dim:rgba(78,201,176,.12);
+    --running:#55a7e0; --done:#58b368; --failed:#e25b67; --stopped:#b58be0;
+    --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.6;
+    -webkit-font-smoothing:antialiased}
+  a{color:var(--brand)}
+  ::selection{background:var(--brand-dim)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  code,pre{font-family:var(--mono)}
+
+  nav{display:flex;align-items:center;gap:16px;padding:18px 0;flex-wrap:wrap}
+  nav .mark{font-family:var(--mono);font-weight:700;font-size:16px;color:var(--brand);text-decoration:none}
+  nav .links{margin-left:auto;display:flex;gap:18px;align-items:center}
+  nav .links a{color:var(--muted);text-decoration:none;font-size:14px}
+  nav .links a:hover,nav .links a.on{color:var(--ink)}
+  .lang{display:inline-flex;border:1px solid var(--line-hi);border-radius:7px;overflow:hidden;font-family:var(--mono)}
+  .lang button{background:transparent;border:none;color:var(--muted);font-size:12px;padding:5px 9px;cursor:pointer}
+  .lang button.on{background:var(--brand);color:var(--brand-ink);font-weight:700}
+
+  h1,h2,h3,p,figcaption,.lead,.sub,nav .links a{word-break:keep-all;overflow-wrap:break-word}
+  @media (max-width:520px){ nav{gap:10px} nav .links{gap:12px} nav .links a{font-size:13px} }
+
+  /* compact hero */
+  .top{padding:44px 0 8px}
+  .top .sect-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--brand);margin:0 0 12px}
+  .top h1{font-family:var(--mono);font-size:clamp(28px,4.6vw,42px);line-height:1.12;margin:0 0 14px;letter-spacing:-.01em;font-weight:700;text-wrap:balance}
+  .top p.sub{color:var(--muted);font-size:clamp(15px,1.8vw,17px);max-width:620px;margin:0}
+
+  section{padding:56px 0 0}
+  .sect-label{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.16em;color:var(--brand);margin:0 0 10px}
+  h2{font-size:clamp(21px,3.2vw,28px);margin:0 0 12px;letter-spacing:-.01em;text-wrap:balance}
+  .lead{color:var(--muted);max-width:640px;margin:0 0 30px}
+
+  /* highlights */
+  .hl{display:grid;gap:14px}
+  .hcard{border:1px solid var(--line);border-radius:13px;background:var(--surface);padding:22px 24px;
+    display:grid;grid-template-columns:104px 1fr;gap:22px;transition:border-color .18s}
+  .hcard:hover{border-color:var(--line-hi)}
+  .hcard .ver{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--brand);
+    font-variant-numeric:tabular-nums;padding-top:2px}
+  .hcard .ver .when{display:block;color:var(--faint);font-weight:400;font-size:11px;margin-top:4px;letter-spacing:.02em}
+  .hcard h3{font-size:16.5px;margin:0 0 7px;letter-spacing:-.005em}
+  .hcard p{font-size:14px;color:var(--muted);margin:0 0 10px}
+  .hcard p b{color:var(--ink);font-weight:600}
+  .hcard a.more{font-family:var(--mono);font-size:12.5px;text-decoration:none}
+  .hcard a.more:hover{text-decoration:underline}
+  @media (max-width:560px){ .hcard{grid-template-columns:1fr;gap:10px} .hcard .ver{padding-top:0} }
+
+  /* release log */
+  .log{display:grid;gap:0;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:var(--surface)}
+  .rel{display:grid;grid-template-columns:88px 1fr;gap:20px;padding:16px 22px;border-top:1px solid var(--line)}
+  .rel:first-child{border-top:none}
+  .rel .rt{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+  .rel .rt .rd{display:block;color:var(--faint);font-weight:400;font-size:11px;margin-top:3px}
+  .rel .rn{font-size:14.5px;color:var(--ink);margin:0}
+  .rel .rb{font-size:13px;color:var(--muted);margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+  .rel .pre{display:inline-block;font-family:var(--mono);font-size:10px;color:var(--stopped);
+    border:1px solid var(--stopped);border-radius:4px;padding:0 5px;margin-left:8px;vertical-align:2px}
+  .rel a.rl{font-family:var(--mono);font-size:12px;text-decoration:none;color:var(--brand)}
+  .log-note{font-family:var(--mono);font-size:12px;color:var(--faint);margin:16px 0 0}
+  .log-load{padding:26px 22px;font-family:var(--mono);font-size:13px;color:var(--faint)}
+  @media (max-width:560px){ .rel{grid-template-columns:1fr;gap:6px} }
+
+  footer{margin-top:80px;border-top:1px solid var(--line);padding:26px 0 40px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+  footer span,footer a{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  footer .sp{flex:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="mark" href="index.html">coxpit</a>
+    <div class="links">
+      <a href="index.html#features" data-i18n="nav.features">Features</a>
+      <a href="index.html#quickstart" data-i18n="nav.quickstart">Quickstart</a>
+      <a href="index.html#download" data-i18n="nav.download">Download</a>
+      <a href="updates.html" class="on" data-i18n="nav.updates">Updates</a>
+      <a id="guideLink" href="https://github.com/hanmariyang/coxpit-oss/blob/main/docs/GUIDE.md" data-i18n="nav.guide">Guide</a>
+      <a href="https://github.com/hanmariyang/coxpit-oss">GitHub</a>
+      <span class="lang" role="group" aria-label="language">
+        <button type="button" data-lang="en">EN</button>
+        <button type="button" data-lang="ko">한국어</button>
+      </span>
+    </div>
+  </nav>
+
+  <div class="top">
+    <p class="sect-label" data-i18n="up.eyebrow">Changelog</p>
+    <h1 data-i18n="up.h1">What's new in Coxpit.</h1>
+    <p class="sub" data-i18n="up.sub">A cockpit that grew from a desktop shell into a full navigator console — in three days and 38 releases. The milestones below, then every release in full.</p>
+  </div>
+
+  <section id="highlights">
+    <p class="sect-label" data-i18n="hl.label">Highlights</p>
+    <h2 data-i18n="hl.h2">The milestones.</h2>
+    <p class="lead" data-i18n="hl.lead">The releases that changed what Coxpit is. Each links to its full notes on GitHub.</p>
+    <div class="hl">
+
+      <div class="hcard">
+        <div class="ver">v5.0<span class="when">2026·08·20</span></div>
+        <div>
+          <h3 data-i18n="hl.5.h">The console redesign</h3>
+          <p data-i18n="hl.5.p">The left rail became a <b>navigator</b> — a scannable repo list with live run counts and board scoping. Launching moved into a focused <b>New sheet</b>. Dark-themed controls, a compact dry/real switch, a pinned rail. Mobile is drawer-nav plus a compose sheet.</p>
+          <a class="more" href="https://github.com/hanmariyang/coxpit-oss/releases/tag/v5.0.0" data-i18n="hl.more">Release notes →</a>
+        </div>
+      </div>
+
+      <div class="hcard">
+        <div class="ver">v4.8<span class="when">2026·08·20</span></div>
+        <div>
+          <h3 data-i18n="hl.48.h">Exposure-aware auth + an icon system</h3>
+          <p data-i18n="hl.48.p">Access-key authentication that knows where it's bound — <b>loopback stays open</b> for zero-friction local use, a <b>public bind requires a key</b>. Plus a unified Lucide icon set across the board.</p>
+          <a class="more" href="https://github.com/hanmariyang/coxpit-oss/releases/tag/v4.8.0" data-i18n="hl.more">Release notes →</a>
+        </div>
+      </div>
+
+      <div class="hcard">
+        <div class="ver">v4.0–4.7<span class="when">2026·08·19–20</span></div>
+        <div>
+          <h3 data-i18n="hl.4.h">Reach, contracts & the converge workroom</h3>
+          <p data-i18n="hl.4.p">Agents that <b>spawn their own sub-agents</b>, GitHub issue/PR import, read-only share links, the group-band logbook, deliverable contracts with real viewers, and a converge workroom to review, steer and merge a swarm.</p>
+          <a class="more" href="https://github.com/hanmariyang/coxpit-oss/releases/tag/v4.0.0" data-i18n="hl.more">Release notes →</a>
+        </div>
+      </div>
+
+      <div class="hcard">
+        <div class="ver">v3.x<span class="when">2026·08·18</span></div>
+        <div>
+          <h3 data-i18n="hl.3.h">Runs became workrooms — and a real terminal</h3>
+          <p data-i18n="hl.3.p">A run stopped being one-shot and became a <b>workroom you live in</b>. A full-screen terminal with tmux session tabs, CJK-safe input, <b>Codex as a second provider</b> for mixed fleets, doc-mode review, and the pocket board for your phone.</p>
+          <a class="more" href="https://github.com/hanmariyang/coxpit-oss/releases/tag/v3.0.0" data-i18n="hl.more">Release notes →</a>
+        </div>
+      </div>
+
+      <div class="hcard">
+        <div class="ver">v2.x<span class="when">2026·08·18</span></div>
+        <div>
+          <h3 data-i18n="hl.2.h">The desktop app & the fleet</h3>
+          <p data-i18n="hl.2.p">A <b>signed, notarized desktop app</b> that embeds the daemon, release CI with installers for every OS, and the ideas that make it a fleet — <b>swarm</b> integration, <b>plan fan-out</b>, and an AI review judge.</p>
+          <a class="more" href="https://github.com/hanmariyang/coxpit-oss/releases/tag/v2.0.0" data-i18n="hl.more">Release notes →</a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="log">
+    <p class="sect-label" data-i18n="log.label">All releases</p>
+    <h2 data-i18n="log.h2">Every version.</h2>
+    <p class="lead" data-i18n="log.lead">Pulled live from GitHub Releases — always current the moment a version ships.</p>
+    <div class="log" id="releaseLog">
+      <div class="log-load" data-i18n="log.loading">Loading releases…</div>
+    </div>
+    <p class="log-note"><a href="https://github.com/hanmariyang/coxpit-oss/releases" data-i18n="log.all">See all releases on GitHub →</a></p>
+  </section>
+
+  <footer>
+    <span>MIT © 2026 coxpit</span>
+    <span class="sp"></span>
+    <a href="https://github.com/hanmariyang/coxpit-oss">github.com/hanmariyang/coxpit-oss</a>
+  </footer>
+</div>
+
+<script>
+  var I18N = {
+    'nav.features':{en:'Features',ko:'기능'},
+    'nav.quickstart':{en:'Quickstart',ko:'시작하기'},
+    'nav.download':{en:'Download',ko:'다운로드'},
+    'nav.updates':{en:'Updates',ko:'업데이트'},
+    'nav.guide':{en:'Guide',ko:'가이드'},
+    'up.eyebrow':{en:'Changelog',ko:'체인지로그'},
+    'up.h1':{en:"What's new in Coxpit.",ko:'Coxpit, 무엇이 바뀌었나.'},
+    'up.sub':{en:'A cockpit that grew from a desktop shell into a full navigator console — in three days and 38 releases. The milestones below, then every release in full.',
+      ko:'데스크톱 껍데기에서 완결된 네비게이터 콘솔로 — 사흘, 38개 릴리스 만에. 아래 마일스톤을 먼저, 그다음 전체 릴리스를 그대로 봅니다.'},
+    'hl.label':{en:'Highlights',ko:'하이라이트'},
+    'hl.h2':{en:'The milestones.',ko:'마일스톤.'},
+    'hl.lead':{en:'The releases that changed what Coxpit is. Each links to its full notes on GitHub.',
+      ko:'Coxpit이 무엇인지를 바꾼 릴리스들. 각 항목은 GitHub의 전체 노트로 연결됩니다.'},
+    'hl.more':{en:'Release notes →',ko:'릴리스 노트 →'},
+    'hl.5.h':{en:'The console redesign',ko:'콘솔 리디자인'},
+    'hl.5.p':{en:'The left rail became a <b>navigator</b> — a scannable repo list with live run counts and board scoping. Launching moved into a focused <b>New sheet</b>. Dark-themed controls, a compact dry/real switch, a pinned rail. Mobile is drawer-nav plus a compose sheet.',
+      ko:'왼쪽 레일이 <b>네비게이터</b>가 됐습니다 — 실시간 run 카운트와 보드 스코핑을 갖춘 훑어보기 좋은 repo 목록. 발사는 집중형 <b>New 시트</b>로 이동. 다크 컨트롤, 슬림한 dry/real 스위치, 고정된 레일. 모바일은 드로어 내비 + 컴포즈 시트.'},
+    'hl.48.h':{en:'Exposure-aware auth + an icon system',ko:'노출 조건부 인증 + 아이콘 시스템'},
+    'hl.48.p':{en:"Access-key authentication that knows where it's bound — <b>loopback stays open</b> for zero-friction local use, a <b>public bind requires a key</b>. Plus a unified Lucide icon set across the board.",
+      ko:'바인딩 위치를 아는 access-key 인증 — <b>loopback은 열려</b> 로컬은 마찰 0, <b>공개 바인딩은 키 필수</b>. 여기에 보드 전반의 통일된 Lucide 아이콘 세트.'},
+    'hl.4.h':{en:'Reach, contracts & the converge workroom',ko:'도달·계약·수렴 작업실'},
+    'hl.4.p':{en:'Agents that <b>spawn their own sub-agents</b>, GitHub issue/PR import, read-only share links, the group-band logbook, deliverable contracts with real viewers, and a converge workroom to review, steer and merge a swarm.',
+      ko:'<b>스스로 서브 에이전트를 낳는</b> 에이전트, GitHub 이슈/PR import, 읽기 전용 공유 링크, 그룹 밴드 로그북, 실제 뷰어가 있는 산출물 계약, 그리고 스웜을 리뷰·조종·머지하는 수렴 작업실.'},
+    'hl.3.h':{en:'Runs became workrooms — and a real terminal',ko:'런이 작업실이 되고, 진짜 터미널'},
+    'hl.3.p':{en:'A run stopped being one-shot and became a <b>workroom you live in</b>. A full-screen terminal with tmux session tabs, CJK-safe input, <b>Codex as a second provider</b> for mixed fleets, doc-mode review, and the pocket board for your phone.',
+      ko:'런이 일회성을 벗고 <b>들어가 사는 작업실</b>이 됐습니다. tmux 세션 탭이 있는 풀스크린 터미널, CJK 안전 입력, 혼합 플릿을 위한 <b>두 번째 프로바이더 Codex</b>, 문서 모드 리뷰, 그리고 폰용 포켓 보드.'},
+    'hl.2.h':{en:'The desktop app & the fleet',ko:'데스크톱 앱과 플릿'},
+    'hl.2.p':{en:'A <b>signed, notarized desktop app</b> that embeds the daemon, release CI with installers for every OS, and the ideas that make it a fleet — <b>swarm</b> integration, <b>plan fan-out</b>, and an AI review judge.',
+      ko:'데몬을 내장한 <b>서명·공증된 데스크톱 앱</b>, 모든 OS 인스톨러를 굽는 릴리스 CI, 그리고 이것을 플릿으로 만드는 아이디어들 — <b>swarm</b> 통합, <b>plan fan-out</b>, AI 리뷰 심판.'},
+    'log.label':{en:'All releases',ko:'전체 릴리스'},
+    'log.h2':{en:'Every version.',ko:'모든 버전.'},
+    'log.lead':{en:'Pulled live from GitHub Releases — always current the moment a version ships.',
+      ko:'GitHub Releases에서 실시간으로 가져옵니다 — 버전이 나오는 순간 항상 최신.'},
+    'log.loading':{en:'Loading releases…',ko:'릴리스 불러오는 중…'},
+    'log.all':{en:'See all releases on GitHub →',ko:'GitHub에서 전체 릴리스 보기 →'},
+    'log.fail':{en:'Couldn’t reach GitHub right now.',ko:'지금 GitHub에 닿지 못했습니다.'},
+    'log.fail.link':{en:'View releases directly →',ko:'릴리스 직접 보기 →'}
+  };
+  var GUIDE = { en:'https://github.com/hanmariyang/coxpit-oss/blob/main/docs/GUIDE.md',
+                ko:'https://github.com/hanmariyang/coxpit-oss/blob/main/docs/GUIDE.ko.md' };
+  var curLang = 'en';
+  function applyLang(lang){
+    curLang = lang;
+    document.documentElement.lang = lang;
+    document.querySelectorAll('[data-i18n]').forEach(function(el){
+      var t = I18N[el.dataset.i18n]; if (t && t[lang] != null) el.innerHTML = t[lang];
+    });
+    var g = document.getElementById('guideLink'); if (g) g.href = GUIDE[lang];
+    document.querySelectorAll('.lang button').forEach(function(b){ b.classList.toggle('on', b.dataset.lang===lang); });
+    try{ localStorage.setItem('coxpit.lang', lang); }catch(e){}
+  }
+  document.querySelectorAll('.lang button').forEach(function(b){
+    b.addEventListener('click', function(){ applyLang(b.dataset.lang); });
+  });
+
+  // ── release log — live from GitHub Releases, cached to dodge the 60/hr unauth limit ──
+  function esc(s){ return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+  function firstBlock(body){
+    if (!body) return '';
+    var lines = body.replace(/\r/g,'').split('\n');
+    var out = [];
+    for (var i=0;i<lines.length;i++){
+      var ln = lines[i];
+      if (/^\s*(#|-{3,}|\*{3,}|<!--)/.test(ln)) continue;      // skip headings / rules / comments
+      if (/^\s*$/.test(ln)) { if (out.length) break; else continue; }
+      out.push(ln.replace(/^\s*[-*]\s+/,'• ').trim());
+      if (out.length >= 3) break;
+    }
+    var t = out.join(' ').replace(/`/g,'');
+    return t.length > 260 ? t.slice(0,258).replace(/\s+\S*$/,'') + '…' : t;
+  }
+  function fmtDate(iso){ return iso ? iso.slice(0,10).replace(/-/g,'·') : ''; }
+  function renderReleases(data){
+    var box = document.getElementById('releaseLog');
+    if (!data || !data.length){ renderFail(); return; }
+    box.innerHTML = data.map(function(r){
+      var name = r.name && r.name.trim() ? r.name.trim() : r.tag_name;
+      // strip a leading "release: vX / vX —" so the name isn't just the tag again
+      var clean = name.replace(/^\s*release:\s*/i,'').replace(new RegExp('^\\s*'+ (r.tag_name||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&') +'\\s*[—:–-]?\\s*','i'),'').trim();
+      var body = firstBlock(r.body);
+      var pre = r.prerelease ? '<span class="pre">pre</span>' : '';
+      return '<article class="rel">'
+        + '<div class="rt">'+esc(r.tag_name)+'<span class="rd">'+fmtDate(r.published_at)+'</span></div>'
+        + '<div>'
+        +   '<p class="rn">'+(clean ? esc(clean) : esc(r.tag_name))+pre+'</p>'
+        +   (body ? '<p class="rb">'+esc(body)+'</p>' : '')
+        +   '<a class="rl" href="'+esc(r.html_url)+'">GitHub →</a>'
+        + '</div>'
+      + '</article>';
+    }).join('');
+  }
+  function renderFail(){
+    var box = document.getElementById('releaseLog');
+    var t = I18N['log.fail'][curLang], l = I18N['log.fail.link'][curLang];
+    box.innerHTML = '<div class="log-load">'+t+' <a class="rl" href="https://github.com/hanmariyang/coxpit-oss/releases">'+l+'</a></div>';
+  }
+  function loadReleases(){
+    var CK = 'coxpit.releases.v1', TTL = 30*60*1000;
+    try{ var c = JSON.parse(localStorage.getItem(CK)||'null'); if (c && (Date.now()-c.t)<TTL && c.d){ renderReleases(c.d); return; } }catch(e){}
+    fetch('https://api.github.com/repos/hanmariyang/coxpit-oss/releases?per_page=100',
+          { headers:{ 'Accept':'application/vnd.github+json' } })
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        d = d.filter(function(x){ return !x.draft; });
+        try{ localStorage.setItem(CK, JSON.stringify({ t:Date.now(), d:d })); }catch(e){}
+        renderReleases(d);
+      })
+      .catch(function(){ renderFail(); });
+  }
+
+  var saved; try{ saved = localStorage.getItem('coxpit.lang'); }catch(e){}
+  applyLang(saved || ((navigator.language||'').toLowerCase().indexOf('ko')===0 ? 'ko' : 'en'));
+  loadReleases();
+</script>
+</body>
+</html>
