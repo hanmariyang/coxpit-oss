@@ -250,11 +250,11 @@ Part A — visibility gates (cheap, ship first):
 - [ ] **Conflict preview** — `git merge-tree --write-tree --name-only` behind
       `GET /api/runs/:id/merge/preview` (+ group roll-up); board shows conflicted files before
       Merge acts. Feature-detect git ≥2.38; degrade to "preview unavailable".
-- [ ] **`blocked` / no-op visibility** — a `done` run at `exit 0` with `filesChanged=0` stops
-      passing as complete: mark `blocked` when the stream shows approval-required, else a
-      "no changes" chip; `taskCloseRisk` surfaces merge/write tasks that changed nothing.
-- [ ] **Sibling overlap + land order** — within a group, intersect `diff --name-only base..branch`
-      across siblings; show overlapping files + a fewest-overlap-first land order on the band.
+- [x] **`blocked` / no-op visibility** *(9fecf1d)* — a `done` run at `exit 0` with `filesChanged=0`
+      no longer passes as complete: `noopSignal()` (deterministic, intent-gated on the deliverable
+      contract; best-effort `blocked` upgrade), surfaced as a distinct board chip.
+- [x] **Sibling overlap + land order** *(9fecf1d)* — `groupOverlap()` + `GET /api/groups/:id/overlap`;
+      an "⧉ Overlap" band panel shows contended files + a fewest-contended-first land order.
 
 Part B — the integration workroom (coxpit owns git; agent resolves markers only):
 - [ ] **Merge becomes a phase** — the agent sandbox blocks git/network, so **coxpit runs all git**
