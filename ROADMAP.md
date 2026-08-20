@@ -247,9 +247,9 @@ branch + PR. Full spec: [design/v5.1-close-the-loop.md](design/v5.1-close-the-lo
 Owner decisions (2026-08-20): land = **push + PR**; default resolver = **resume the run's agent**.
 
 Part A — visibility gates (cheap, ship first):
-- [ ] **Conflict preview** — `git merge-tree --write-tree --name-only` behind
-      `GET /api/runs/:id/merge/preview` (+ group roll-up); board shows conflicted files before
-      Merge acts. Feature-detect git ≥2.38; degrade to "preview unavailable".
+- [x] **Conflict preview** *(d590ec8)* — `mergePreview()` runs `git merge-tree --write-tree
+      --name-only` against the land *target* (not local base) behind `GET /api/runs/:id/merge/preview`;
+      the Merge/PR confirm names the conflicting files up front. Feature-detects git ≥2.38.
 - [x] **`blocked` / no-op visibility** *(9fecf1d)* — a `done` run at `exit 0` with `filesChanged=0`
       no longer passes as complete: `noopSignal()` (deterministic, intent-gated on the deliverable
       contract; best-effort `blocked` upgrade), surfaced as a distinct board chip.
@@ -264,9 +264,9 @@ Part B — the integration workroom (coxpit owns git; agent resolves markers onl
       continues, re-preview until clean. Fallback: one-click **Open as workbench**.
 
 Part C — origin-aware landing (target is chosen, not the base):
-- [ ] **Target resolution + base-drift** — target = `<base>@{u}` (overridable, may differ from the
-      base: field report was base `main`, target `origin/develop`); `git fetch`; then
-      `rev-list --left-right --count base...target` → surface ahead/behind, warn when behind.
+- [x] **Target resolution + base-drift** *(ce07043)* — `landTarget()`: target = `<base>@{u}`
+      (overridable) else `origin/<base>`; optional `git fetch`; `rev-list --left-right --count` →
+      ahead/behind. `GET /api/runs/:id/land-target`; drift warned at the Merge/PR decision point.
 - [ ] **Land to origin** — replay only the run's work onto `origin/<target>` via
       `rebase --onto origin/<target> base branch` **or** a squashed net-diff (avoid the base-merge
       commit `mergeRun:776` leaves) → push → open PR via `gh` (reuse v2.6 PR mode). `gh` optional →
