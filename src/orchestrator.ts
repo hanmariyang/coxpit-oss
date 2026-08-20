@@ -1317,6 +1317,83 @@ export async function prRun(runId: number): Promise<{ ok: boolean; detail: strin
   return { ok: true, detail: 'pull request opened', url: m[0] };
 }
 
+// v5.1 step 5 — the integration loop. coxpit owns git; the agent only edits conflict markers.
+type PendingLand = { target: string; targetBranch: string; landBranch: string; title: string; body: string };
+const pendingLand = new Map<number, PendingLand>();
+
+/**
+ * Start resolving a conflicting land in-app: coxpit stages the run's work, checks out a fresh
+ * branch at the target and 3-way-applies the net diff (leaving conflict markers), then RESUMES
+ * the run's own agent scoped to editing those markers only (no git — that would hit the sandbox
+ * wall that blocked the merge in the first place). When the agent settles, finalizeLand() commits,
+ * pushes and opens the PR. The agent carries the original context, so it resolves knowingly.
+ */
+export async function startLandResolve(runId: number): Promise<{ ok: boolean; detail: string }> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.worktreePath || !run.branch) return { ok: false, detail: 'no worktree/branch' };
+  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — stop it first' };
+  if (!run.sessionId) return { ok: false, detail: 'no agent session — dry runs cannot auto-resolve; open the workbench' };
+  const wt = shq(run.worktreePath);
+  const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
+  await runShellOn(ctx.machine, `cd ${wt} && git add -A && (git diff --cached --quiet || git ${ident} -c commit.gpgsign=false commit -m ${shq(`coxpit r${runId}: agent changes`)})`, 20000);
+  const lt = await landTarget(runId, { fetch: true });
+  const target = lt.target;
+  if (!target) return { ok: false, detail: 'no upstream target to land on' };
+  const targetBranch = target.replace(/^[^/]+\//, '');
+  const tr = await db.select().from(tasks).where(eq(tasks.id, run.taskId)).limit(1);
+  const title = `${tr[0]?.title ?? 'coxpit run'} (r${runId})`;
+  const body = (run.exitSummary ? run.exitSummary + '\n\n' : '') + '🤖 Landed from a coxpit agent run (conflicts resolved by the agent)';
+  const landBranch = `coxpit/${slugify(tr[0]?.title ?? 'run')}-r${runId}`;
+  const range = shq(ctx.baseBranch + '...' + run.branch);
+  const prep = await runShellOn(ctx.machine,
+    `cd ${wt} && git checkout -B ${shq(landBranch)} ${shq(target)} 2>&1 && { git diff ${range} | git apply --3way --index - 2>&1 || true; } && git rev-parse --abbrev-ref HEAD`, 60000);
+  if (!prep.stdout.trim().endsWith(landBranch)) return { ok: false, detail: 'could not prepare land branch: ' + prep.stdout.trim().slice(-200) };
+  pendingLand.set(runId, { target, targetBranch, landBranch, title, body });
+  const prompt = `You are on branch ${landBranch}. Landing your change onto ${target} produced git conflict markers (<<<<<<<, =======, >>>>>>>) in one or more files. Resolve EVERY conflict marker by editing the files to the correct merged result — keep both your change and the target's changes where each belongs. Do NOT run any git commands (no add/commit/rebase/merge) — only edit the files. When every marker is gone, end your turn.`;
+  await setRun(runId, { status: 'running', endedAt: null });
+  await recordEvent(runId, 'integrate', `resolving conflicts to land on ${targetBranch} — the agent is editing markers`);
+  const provider = getProvider(ctx.agent);
+  const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
+  const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
+  const resume = provider.resumeCmd(run.sessionId, prompt, run.model || undefined);
+  const cmd = `cd ${shq(run.worktreePath)} && ${pidPrefix}{ ${resume}; }`;
+  void runAgentChild(runId, ctx.machine, run.worktreePath, cmd, provider).then(() => finalizeLand(runId)).catch(() => { pendingLand.delete(runId); });
+  return { ok: true, detail: `integrating — the agent is resolving conflicts; it lands on ${targetBranch} automatically when clean` };
+}
+
+/** After the resolve agent settles: verify no markers remain, then commit + push + open the PR. */
+async function finalizeLand(runId: number): Promise<void> {
+  const pend = pendingLand.get(runId);
+  if (!pend) return;
+  pendingLand.delete(runId);
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.worktreePath) return;
+  const wt = shq(run.worktreePath);
+  const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
+  const chk = await runShellOn(ctx.machine,
+    `cd ${wt} && git diff --name-only | tr '\\n' '\\0' | xargs -0 -r grep -lE '^(<<<<<<< |>>>>>>> )' 2>/dev/null | head -20`, 15000);
+  const leftover = chk.stdout.trim();
+  if (leftover) {
+    await recordEvent(runId, 'error', 'conflict markers still present after the agent pass — resolve the rest (attach the terminal) or run resolve again:\n' + leftover.slice(0, 300));
+    return;
+  }
+  const c = await runShellOn(ctx.machine,
+    `cd ${wt} && git add -A && (git diff --cached --quiet || git ${ident} -c commit.gpgsign=false commit -m ${shq(pend.title)}) 2>&1`, 30000);
+  if (!c.ok) { await recordEvent(runId, 'error', 'land commit failed: ' + (c.stderr || c.stdout).trim().slice(0, 200)); return; }
+  const push = await runShellOn(ctx.machine, `cd ${wt} && git push -u origin ${shq(pend.landBranch)} 2>&1`, 60000);
+  if (!push.ok) { await recordEvent(runId, 'error', 'push failed: ' + (push.stderr || push.stdout).trim().slice(0, 200)); return; }
+  const pr = await runShellOn(ctx.machine,
+    `cd ${wt} && gh pr create -B ${shq(pend.targetBranch)} -H ${shq(pend.landBranch)} -t ${shq(pend.title)} -b ${shq(pend.body)} 2>&1 || true`, 60000);
+  const m = (pr.stdout + pr.stderr).match(/https:\/\/github\.com\/\S+\/pull\/\d+/);
+  if (!m) { await recordEvent(runId, 'error', 'gh pr create failed: ' + (pr.stdout || pr.stderr).trim().slice(0, 200)); return; }
+  await setRun(runId, { prUrl: m[0] });
+  await recordEvent(runId, 'pr', `${m[0]} (landed on ${pend.targetBranch} after resolve)`);
+}
+
 /**
  * worktree/브랜치/tmux 정리(태스크 종료·run 폐기 시).
  */

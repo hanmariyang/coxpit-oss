@@ -2454,6 +2454,18 @@ $('cmpBody').addEventListener('click', async (e)=>{
     const res = await fetch('/api/runs/'+rid+'/pr',{method:'POST'});
     const j = await res.json().catch(()=>({}));
     if (res.ok){ toast('PR opened: '+j.url, 'ok'); await paintCompare(); hydrate(); }
+    else if (j.conflict){
+      const cf = (j.conflicts||[]);
+      const go = await confirmUI('r'+rid+' conflicts with the target in '+cf.length+' file'+(cf.length>1?'s':'')+'.',
+        { sub: cf.slice(0,6).join(', ')+'. Let the agent resolve the markers, then land automatically — coxpit drives git, the agent only edits files.', okLabel: 'Agent · resolve & land' });
+      if (go){
+        const r2 = await fetch('/api/runs/'+rid+'/land/resolve',{method:'POST'});
+        const j2 = await r2.json().catch(()=>({}));
+        toast(r2.ok ? (j2.detail||'resolving…') : ('resolve: '+(j2.detail||r2.status)), r2.ok?'ok':'error');
+        hydrate();
+      }
+      prBtn.disabled = false;
+    }
     else { toast('PR: '+(j.detail||res.status), 'error'); prBtn.disabled = false; }
     return;
   }

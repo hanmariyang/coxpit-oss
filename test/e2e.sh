@@ -123,6 +123,12 @@ case "$BOARD_HTML" in *'function driftNote'*) : ;; *) fail "drift warning wiring
 # v5.1 step 3 — conflict preview endpoint (merge-tree) shape
 PV=$(curl -s "$B/api/runs/999999/merge/preview")
 case "$PV" in *'"conflicts"'*'"clean"'*|*'"clean"'*'"conflicts"'*) : ;; *) fail "merge preview endpoint shape missing (got $PV)";; esac
+# v5.1 step 4 — origin-aware land: product branch naming + step-5 conflict path wired
+case "$BOARD_HTML" in *'coxpit/<task>-r'*) : ;; *) fail "product PR branch naming copy missing";; esac
+# v5.1 step 5 — in-app conflict resolution loop (agent edits markers, coxpit lands)
+case "$BOARD_HTML" in *'/land/resolve'*) : ;; *) fail "land/resolve wiring missing";; esac
+RS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$B/api/runs/999999/land/resolve")
+case "$RS" in 404) : ;; *) fail "land/resolve endpoint missing (expected 404 for unknown run, got $RS)";; esac
 pass "board serves dark-control contract (.dd selects · custom model menu · token stepper/no spinner · slim mode seg · icon-ghost rail actions)"
 
 # v4.4 — greenfield launcher affordances present in the board (UI contract)
