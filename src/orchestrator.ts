@@ -1395,6 +1395,51 @@ async function finalizeLand(runId: number): Promise<void> {
 }
 
 /**
+ * Documents (문서함) — every output this workspace produced, grouped by run, newest first.
+ * DB-only so it survives merge/close and never shells git: doc/page from doc_snapshots
+ * (persisted), code from filesChanged, answer from the settled run's final message.
+ */
+export async function listDocuments(): Promise<{ runs: Array<{
+  runId: number; taskId: number; title: string; repo: string; status: string; ts: number | null;
+  prUrl: string | null; outputs: Array<{ type: 'answer' | 'code' | 'doc' | 'page' | 'file'; name: string; meta: string }>;
+}> }> {
+  const [allRuns, allTasks, allRepos, snaps] = await Promise.all([
+    db.select().from(agentRuns),
+    db.select().from(tasks),
+    db.select().from(repos),
+    db.select().from(docSnapshots),
+  ]);
+  const taskById = new Map(allTasks.map((t) => [t.id, t]));
+  const repoById = new Map(allRepos.map((r) => [r.id, r.name]));
+  const snapByRun = new Map<number, typeof snaps>();
+  for (const s of snaps) { const a = snapByRun.get(s.runId) ?? []; a.push(s); snapByRun.set(s.runId, a); }
+  const out: Array<{
+    runId: number; taskId: number; title: string; repo: string; status: string; ts: number | null;
+    prUrl: string | null; outputs: Array<{ type: 'answer' | 'code' | 'doc' | 'page' | 'file'; name: string; meta: string }>;
+  }> = [];
+  for (const r of allRuns) {
+    const t = taskById.get(r.taskId);
+    if (!t) continue;
+    const outputs: Array<{ type: 'answer' | 'code' | 'doc' | 'page' | 'file'; name: string; meta: string }> = [];
+    if (['done', 'merged', 'failed', 'stopped'].includes(r.status) && r.exitSummary
+        && !/^(exit -?\d+|stopped by user|orphaned|worktree|no )/i.test(r.exitSummary)) {
+      outputs.push({ type: 'answer', name: 'Final answer', meta: r.exitSummary.replace(/\s+/g, ' ').trim().slice(0, 100) });
+    }
+    if ((r.filesChanged ?? 0) > 0) {
+      outputs.push({ type: 'code', name: 'code changes', meta: '+' + r.filesChanged + ' file' + (r.filesChanged > 1 ? 's' : '') + (r.prUrl ? ' · landed' : '') });
+    }
+    for (const s of (snapByRun.get(r.id) ?? [])) {
+      outputs.push({ type: s.kind === 'html' ? 'page' : 'doc', name: s.path, meta: s.kind === 'html' ? 'html' : 'markdown' });
+    }
+    if (!outputs.length) continue;
+    const ts = r.endedAt ? Math.floor(r.endedAt.getTime() / 1000) : (t.createdAt ? Math.floor(t.createdAt.getTime() / 1000) : null);
+    out.push({ runId: r.id, taskId: t.id, title: t.title, repo: repoById.get(t.repoId) ?? '?', status: r.status, ts, prUrl: r.prUrl ?? null, outputs });
+  }
+  out.sort((a, b) => b.runId - a.runId);
+  return { runs: out };
+}
+
+/**
  * worktree/브랜치/tmux 정리(태스크 종료·run 폐기 시).
  */
 /**

@@ -325,6 +325,55 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .gov-r{color:#c9922e}
   .gov-order{color:var(--muted);border-top:1px solid var(--line);padding-top:6px;margin-top:2px}
   .gov-order b{color:var(--brand)}
+  /* v5.1 Documents (문서함) — grouped by run, list only, no cards */
+  #docbox .db-sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+  .db-tools{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  .db-tools select,.db-tools input{background:var(--surface);border:1px solid var(--line);border-radius:7px;
+    color:var(--muted);font-family:var(--mono);font-size:12px;padding:6px 10px}
+  .db-tools input{flex:1;min-width:160px;color:var(--ink)}
+  .db-count{font-family:var(--mono);font-size:11px;color:var(--faint);margin:0 0 8px}
+  .db-count b{color:var(--brand)}
+  .db-load{padding:24px 14px;font-family:var(--mono);font-size:13px;color:var(--faint);text-align:center;
+    border:1px solid var(--line);border-radius:10px}
+  .db-inner{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+  .db-run{display:grid;grid-template-columns:16px 52px 1fr auto auto auto auto;gap:12px;align-items:center;
+    padding:11px 14px;background:var(--surface2);border-top:1px solid var(--line);cursor:pointer}
+  .db-run:first-child{border-top:none}
+  .db-run:hover{background:#1b212c}
+  .db-run .car{color:var(--faint);font-size:11px;transition:transform .12s}
+  .db-run.fold .car{transform:rotate(-90deg)}
+  .db-run .rid{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--brand)}
+  .db-run .ttl{font-size:13.5px;color:var(--ink);font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .db-run .repo{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .db-run .st{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;
+    display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid;border-radius:999px}
+  .db-run .st::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+  .db-run .st.done{color:var(--s-done);border-color:rgba(88,179,104,.4)}
+  .db-run .st.merged{color:var(--s-merged);border-color:rgba(78,201,176,.4)}
+  .db-run .st.stopped{color:var(--s-stopped);border-color:rgba(181,139,224,.4)}
+  .db-run .st.failed{color:var(--s-failed);border-color:rgba(226,91,103,.4)}
+  .db-run .st.running{color:var(--s-running);border-color:rgba(85,167,224,.4)}
+  .db-run .dt{font-family:var(--mono);font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+  .db-run .cnt{font-family:var(--mono);font-size:11px;color:var(--faint);min-width:26px;text-align:right}
+  .db-run .cnt b{color:var(--muted)}
+  .db-items{border-top:1px solid var(--line)}
+  .db-run.fold + .db-items{display:none}
+  .db-item{display:flex;align-items:center;gap:12px;padding:8px 14px 8px 38px;
+    border-top:1px solid #1a2029;position:relative;cursor:pointer}
+  .db-item:first-child{border-top:none}
+  .db-item:hover{background:#141922}
+  .db-item .tree{position:absolute;left:24px;color:#2a323f;font-family:var(--mono);font-size:12px}
+  .db-item .badge{flex:0 0 46px;width:46px;font-family:var(--mono);font-size:9.5px;font-weight:700;
+    text-transform:uppercase;letter-spacing:.05em;text-align:center;padding:2px 0;border:1px solid;border-radius:5px}
+  .db-item .badge.answer{color:var(--s-running);border-color:rgba(85,167,224,.35);background:rgba(85,167,224,.08)}
+  .db-item .badge.code{color:var(--muted);border-color:var(--line-hi)}
+  .db-item .badge.doc,.db-item .badge.page{color:var(--brand);border-color:rgba(78,201,176,.35);background:var(--brand-dim)}
+  .db-item .badge.file{color:var(--s-stopped);border-color:rgba(181,139,224,.35);background:rgba(181,139,224,.08)}
+  .db-item .nm{flex:1;min-width:0;font-family:var(--mono);font-size:12.5px;color:var(--ink);
+    overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .db-item .nm .meta{color:var(--faint);margin-left:8px;font-size:11px}
+  .db-item .act{flex:0 0 auto;margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--brand);opacity:.8}
+  .db-item:hover .act{opacity:1;text-decoration:underline}
   .attempt{color:var(--brand);opacity:.8}
 
   /* ── goal workroom (v4.6) — 한 goal 을 여는 단일 방 ── */
@@ -818,6 +867,9 @@ ${ICON_SPRITE}
       <button type="button" class="navi" data-view="goals">
         <svg class="ic"><use href="#i-target"/></svg><span>Goals</span><span class="nsp"></span><span class="n" id="navGoalsN"></span>
       </button>
+      <button type="button" class="navi" data-view="documents">
+        <svg class="ic"><use href="#i-file"/></svg><span>Documents</span><span class="nsp"></span><span class="n" id="navDocsN"></span>
+      </button>
       <button type="button" class="navi" data-view="archive">
         <svg class="ic"><use href="#i-archive"/></svg><span>Archive</span><span class="nsp"></span><span class="n" id="navArchiveN"></span>
       </button>
@@ -952,6 +1004,15 @@ ${ICON_SPRITE}
       </div>
       <div id="archList"></div>
       <div style="text-align:center;margin-top:14px"><button class="btn-ghost sm" id="archMore" hidden>load 50 more</button></div>
+    </div>
+    <div id="docbox" hidden>
+      <p class="db-sub">이 워크스페이스가 만든 모든 산출물 — 머지·종료 후에도 DB 스냅샷으로 보존. run 기준으로 묶어 봅니다.</p>
+      <div class="db-tools">
+        <select id="dbRepo"><option value="">all repos</option></select>
+        <select id="dbType"><option value="">all types</option><option value="answer">answer</option><option value="code">code</option><option value="doc">doc</option><option value="page">page</option><option value="file">file</option></select>
+        <input id="dbQ" placeholder="search path or title…" autocomplete="off" />
+      </div>
+      <div class="db-list" id="dbList"></div>
     </div>
   </main>
 </div>
@@ -1563,14 +1624,80 @@ function setView(v){
     b.classList.toggle('on', on); b.setAttribute('aria-pressed', on?'true':'false');
   });
   const archive = v==='archive';
+  const docs = v==='documents';
   $('archive').hidden = !archive;
-  $('grid').style.display = archive ? 'none' : '';
-  $('empty').style.display = archive ? 'none' : ($('grid').innerHTML ? 'none' : 'flex');
-  document.querySelector('.toolbar').style.display = archive ? 'none' : 'flex';
+  $('docbox').hidden = !docs;
+  $('grid').style.display = (archive||docs) ? 'none' : '';
+  $('empty').style.display = (archive||docs) ? 'none' : ($('grid').innerHTML ? 'none' : 'flex');
+  document.querySelector('.toolbar').style.display = (archive||docs) ? 'none' : 'flex';
   if (archive){ paintArchRepos(); $('archRepo').value = selectedRepo!=null ? String(selectedRepo) : ''; archFetch(true); reclaimRefresh(); }
+  else if (docs){ renderDocbox(); }
   else render();
 }
 document.querySelectorAll('#viewNav .navi').forEach(b=>b.addEventListener('click', ()=>setView(b.dataset.view)));
+// v5.1 Documents (문서함) — every output grouped by run, list only.
+let dbData = null; const dbFold = new Set();
+async function renderDocbox(){
+  const box = $('dbList');
+  box.innerHTML = '<div class="db-load">loading…</div>';
+  try { dbData = (await (await fetch('/api/documents')).json()).runs || []; }
+  catch(e){ box.innerHTML = '<div class="db-load">failed to load documents</div>'; return; }
+  $('navDocsN').textContent = dbData.length || '';
+  const reposList = [...new Set(dbData.map(r=>r.repo))].sort();
+  const cur = $('dbRepo').value;
+  $('dbRepo').innerHTML = '<option value="">all repos</option>' + reposList.map(r=>'<option'+(r===cur?' selected':'')+'>'+esc(r)+'</option>').join('');
+  paintDocbox();
+}
+function fmtDbDate(ts){ const d=new Date(ts*1000); const p=n=>String(n).padStart(2,'0'); return p(d.getMonth()+1)+'·'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+function docRunHTML(run){
+  const stCls = ['done','merged','stopped','failed','running'].includes(run.status) ? run.status : 'done';
+  const items = run.outputs.map((o,i,arr)=>{
+    const tree = i===arr.length-1 ? '└' : '├';
+    const act = ({answer:'view',code:'diff',doc:'rendered',page:'open',file:'download'})[o.type] || 'view';
+    return '<div class="db-item" data-run="'+run.runId+'"><span class="tree">'+tree+'</span>'
+      + '<span class="badge '+o.type+'">'+esc(o.type)+'</span>'
+      + '<span class="nm">'+esc(o.name)+(o.meta?'<span class="meta">'+esc(o.meta)+'</span>':'')+'</span>'
+      + '<a class="act">'+act+' →</a></div>';
+  }).join('');
+  return '<div class="db-run'+(dbFold.has(run.runId)?' fold':'')+'" data-run="'+run.runId+'"><span class="car">▾</span>'
+    + '<span class="rid">r'+run.runId+'</span><span class="ttl">'+esc(run.title)+'</span>'
+    + '<span class="repo">'+esc(run.repo)+'</span>'
+    + '<span class="st '+stCls+'">'+esc(run.status)+'</span>'
+    + '<span class="dt">'+(run.ts?fmtDbDate(run.ts):'')+'</span><span class="cnt"><b>'+run.outputs.length+'</b></span></div>'
+    + '<div class="db-items">'+items+'</div>';
+}
+function paintDocbox(){
+  if (!dbData) return;
+  const repo = $('dbRepo').value, type = $('dbType').value, q = ($('dbQ').value||'').toLowerCase().trim();
+  const runs = dbData.map(run=>({ ...run, outputs: type ? run.outputs.filter(o=>o.type===type) : run.outputs }))
+    .filter(run=> run.outputs.length
+      && (!repo || run.repo===repo)
+      && (!q || run.title.toLowerCase().includes(q) || run.outputs.some(o=>o.name.toLowerCase().includes(q))));
+  const box = $('dbList');
+  if (!runs.length){ box.innerHTML = '<div class="db-load">no documents'+((q||repo||type)?' match the filter':' yet')+'</div>'; return; }
+  const total = runs.reduce((n,r)=>n+r.outputs.length,0);
+  box.innerHTML = '<div class="db-count"><b>'+total+'</b> output'+(total>1?'s':'')+' · '+runs.length+' run'+(runs.length>1?'s':'')+'</div>'
+    + '<div class="db-inner">'+runs.map(docRunHTML).join('')+'</div>';
+}
+$('dbList').addEventListener('click', (e)=>{
+  const run = e.target.closest('.db-run');
+  if (run){ const id=Number(run.dataset.run); if(dbFold.has(id))dbFold.delete(id); else dbFold.add(id); paintDocbox(); return; }
+  const item = e.target.closest('.db-item');
+  if (!item) return;
+  const id = Number(item.dataset.run);
+  // documents include closed/archived runs not in the live map — seed a minimal run+task so the modal renders
+  if (!runs.has(id)){
+    const dr = (dbData||[]).find(r=>r.runId===id);
+    if (dr){
+      runs.set(id, { id, taskId: dr.taskId, status: dr.status, branch:'', filesChanged:0, events:[], prUrl: dr.prUrl });
+      if (!tasks.has(dr.taskId)) tasks.set(dr.taskId, { id: dr.taskId, title: dr.title, status:'closed', repoId:0 });
+    }
+  }
+  openModal(id);
+});
+$('dbRepo').addEventListener('change', paintDocbox);
+$('dbType').addEventListener('change', paintDocbox);
+$('dbQ').addEventListener('input', paintDocbox);
 // 뷰 nav 카운트 — Active=스코프 run 수, Goals=스코프 그룹 수, Archive=닫힌 태스크 수(hydrate)
 function paintNavCounts(){
   const scoped = [...runs.values()].filter(runInScope);

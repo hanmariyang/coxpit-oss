@@ -129,6 +129,11 @@ case "$BOARD_HTML" in *'coxpit/<task>-r'*) : ;; *) fail "product PR branch namin
 case "$BOARD_HTML" in *'/land/resolve'*) : ;; *) fail "land/resolve wiring missing";; esac
 RS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$B/api/runs/999999/land/resolve")
 case "$RS" in 404) : ;; *) fail "land/resolve endpoint missing (expected 404 for unknown run, got $RS)";; esac
+# v5.1 Documents (문서함) — aggregate endpoint + rail nav view
+DOCS=$(curl -s "$B/api/documents")
+case "$DOCS" in *'"runs"'*) : ;; *) fail "documents endpoint shape missing (got $DOCS)";; esac
+case "$BOARD_HTML" in *'data-view="documents"'*) : ;; *) fail "Documents nav view missing";; esac
+case "$BOARD_HTML" in *'function renderDocbox'*) : ;; *) fail "docbox render wiring missing";; esac
 pass "board serves dark-control contract (.dd selects · custom model menu · token stepper/no spinner · slim mode seg · icon-ghost rail actions)"
 
 # v4.4 — greenfield launcher affordances present in the board (UI contract)
