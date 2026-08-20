@@ -2427,12 +2427,22 @@ async function paintCompare(){
     }
   }
 }
+// v5.1 step 2 — fetch land target + base drift, and warn at the moment of decision.
+async function driftNote(rid){
+  try{
+    const lt = await (await fetch('/api/runs/'+rid+'/land-target?fetch=1')).json();
+    if (!lt || !lt.target) return '';
+    if ((lt.behind||0) > 0) return ' ⚠ the base is '+lt.behind+' commit'+(lt.behind>1?'s':'')+' behind '+lt.target
+      +' — merging the whole branch as-is may explode into conflicts; landing (rebase onto '+lt.target+') is safer.';
+    return ' Base is up to date with '+lt.target+'.';
+  }catch(e){ return ''; }
+}
 $('cmpBody').addEventListener('click', async (e)=>{
   const prBtn = e.target.closest('button[data-pr]');
   if (prBtn){
     const rid = Number(prBtn.dataset.pr);
     const yes = await confirmUI('Open a pull request from r'+rid+'?',
-      { sub: 'Commits the worktree, pushes the branch to origin, and opens a PR against the base branch (needs gh CLI signed in).', okLabel: 'Open PR' });
+      { sub: 'Commits the worktree, pushes the branch to origin, and opens a PR against the base branch (needs gh CLI signed in).'+(await driftNote(rid)), okLabel: 'Open PR' });
     if (!yes) return;
     prBtn.disabled = true;
     const res = await fetch('/api/runs/'+rid+'/pr',{method:'POST'});
@@ -2444,7 +2454,7 @@ $('cmpBody').addEventListener('click', async (e)=>{
   const btn = e.target.closest('button[data-merge]'); if(!btn) return;
   const rid = Number(btn.dataset.merge);
   const yes = await confirmUI('Merge r'+rid+' into the base branch?',
-    { sub: 'Uncommitted worktree changes are committed first. Conflicts abort automatically.', okLabel: 'Merge' });
+    { sub: 'Uncommitted worktree changes are committed first. Conflicts abort automatically.'+(await driftNote(rid)), okLabel: 'Merge' });
   if (!yes) return;
   btn.disabled = true;
   const res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});

@@ -1357,6 +1357,41 @@ export async function groupOverlap(groupId: number): Promise<{
   return { runs: perRun, contended, order };
 }
 
+/**
+ * v5.1 Part C foundation — resolve the land *target* for a run and measure base drift.
+ * The target is NOT assumed to be the base: default = the base branch's upstream
+ * (`<base>@{u}`, e.g. main→origin/main), else `origin/<base>` if it exists, else null
+ * (the caller must pick one). With { fetch }, refresh the remote first so drift is current.
+ * ahead = commits the local base has that the target lacks; behind = commits the target has
+ * that the local base lacks (the drift that makes a whole-branch merge explode).
+ */
+export async function landTarget(runId: number, opts: { fetch?: boolean } = {}): Promise<{
+  base: string; target: string | null; remote: string | null;
+  ahead: number; behind: number; fetched: boolean; detail?: string;
+}> {
+  const ctx = await loadContext(runId);
+  if (!ctx) return { base: '', target: null, remote: null, ahead: 0, behind: 0, fetched: false, detail: 'no context' };
+  const repo = shq(ctx.repoPath);
+  const base = ctx.baseBranch;
+  const up = await runShellOn(ctx.machine, `git -C ${repo} rev-parse --abbrev-ref ${shq(base + '@{u}')} 2>/dev/null`, 8000);
+  let target: string | null = up.ok && up.stdout.trim() ? up.stdout.trim() : null;
+  let remote: string | null = target ? (target.split('/')[0] ?? null) : null;
+  if (!target) {
+    const has = await runShellOn(ctx.machine, `git -C ${repo} rev-parse --verify --quiet ${shq('origin/' + base)}`, 8000);
+    if (has.ok && has.stdout.trim()) { target = 'origin/' + base; remote = 'origin'; }
+  }
+  if (!target) return { base, target: null, remote: null, ahead: 0, behind: 0, fetched: false, detail: 'no upstream — pick a target' };
+  let fetched = false;
+  if (opts.fetch && remote) {
+    const f = await runShellOn(ctx.machine, `git -C ${repo} fetch ${shq(remote)} 2>&1`, 30000);
+    fetched = f.ok;
+  }
+  const rl = await runShellOn(ctx.machine, `git -C ${repo} rev-list --left-right --count ${shq(base + '...' + target)}`, 10000);
+  let ahead = 0, behind = 0;
+  if (rl.ok) { const [a = '0', b = '0'] = rl.stdout.trim().split(/\s+/); ahead = parseInt(a, 10) || 0; behind = parseInt(b, 10) || 0; }
+  return { base, target, remote, ahead, behind, fetched };
+}
+
 export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: string }> {
   const ctx = await loadContext(runId);
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);

@@ -116,6 +116,10 @@ case "$BOARD_HTML" in *"r.noopReason==='blocked'"*) : ;; *) fail "cardHTML no-op
 case "$BOARD_HTML" in *'data-goverlap='*) : ;; *) fail "group overlap button missing";; esac
 OV=$(curl -s -o /dev/null -w "%{http_code}" "$B/api/groups/999999/overlap")
 case "$OV" in 200) : ;; *) fail "overlap endpoint not 200 for unknown group (got $OV)";; esac
+# v5.1 step 2 — land-target/drift endpoint + decision-point drift warning
+LT=$(curl -s "$B/api/runs/999999/land-target")
+case "$LT" in *'"target"'*) : ;; *) fail "land-target endpoint shape missing (got $LT)";; esac
+case "$BOARD_HTML" in *'function driftNote'*) : ;; *) fail "drift warning wiring missing";; esac
 pass "board serves dark-control contract (.dd selects · custom model menu · token stepper/no spinner · slim mode seg · icon-ghost rail actions)"
 
 # v4.4 — greenfield launcher affordances present in the board (UI contract)

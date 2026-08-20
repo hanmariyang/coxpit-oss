@@ -18,7 +18,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -861,6 +861,15 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     const res = await cleanupRun(id);
     return res;
+  });
+
+  // v5.1 Part C foundation — resolve the land target + base drift for a run.
+  // ?fetch=1 refreshes the remote first (network) so ahead/behind are current.
+  app.get('/api/runs/:id/land-target', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'bad id' });
+    const doFetch = ((req.query ?? {}) as { fetch?: string }).fetch === '1';
+    return await landTarget(id, { fetch: doFetch });
   });
 
   // 승자 run 머지 — run 브랜치를 repo 기본 브랜치로.
