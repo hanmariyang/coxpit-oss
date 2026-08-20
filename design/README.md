@@ -15,6 +15,7 @@ file-level changes, UI classes, edge cases, e2e additions, and a definition of d
 | [v4.7-deliverables-workroom.md](v4.7-deliverables-workroom.md) | v4.7 | deliverable contract + output cards (real per-type viewers) · converge cockpit (per-run review/fix/merge/close) | shipped |
 | [v4.8-auth-and-icons.md](v4.8-auth-and-icons.md) | v4.8 | access-key unlock page + first-run setup (no accounts) · session cookie · Lucide icon system (inlined, replaces emoji) | shipped |
 | [v5.0-console-redesign.md](v5.0-console-redesign.md) | v5.0 | navigator rail (repo list + scoping + view nav) · launch as a New sheet (Task/Goal/Workbench) · pocket board · ⌘K · compare-review fix · English sweep | shipped (core; ⌘K/collapse/split-menu trail 5.0.x) |
+| [v5.1-close-the-loop.md](v5.1-close-the-loop.md) | v5.1 | landing as a phase — conflict preview · `blocked`/no-op visibility · sibling overlap · integration workroom (resume the run's own agent) · origin-aware land (rebase→push→PR) | planned |
 
 Sequencing: **4.1 → 4.2 → 4.3 were one release each.** **4.4 + 4.5 ship together
 as a single tag (4.5.0)** — develop each as its own e2e-green commit on main, then

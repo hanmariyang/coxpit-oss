@@ -237,6 +237,40 @@ Sequencing: develop as e2e-green commits on main (rail → sheet → mobile → 
 polish + fixes), then cut **5.0** once the redesign lands — the major bump signals the new
 console. Design-as-Fable / build-as-Opus continues.
 
+## v5.1 — close the loop (landing as a phase)
+
+The run lifecycle stops at `done`, but the real end is *landed on origin*. Today the last mile
+— conflict resolution + integration — lives outside coxpit, so you drop to a bare terminal and
+a context-less agent to reconcile. v5.1 extends the card lifecycle through **integrating →
+landed**, keeps resolution in-app (resume the run's own agent), and lands on origin as a
+branch + PR. Full spec: [design/v5.1-close-the-loop.md](design/v5.1-close-the-loop.md).
+Owner decisions (2026-08-20): land = **push + PR**; default resolver = **resume the run's agent**.
+
+Part A — visibility gates (cheap, ship first):
+- [ ] **Conflict preview** — `git merge-tree --write-tree --name-only` behind
+      `GET /api/runs/:id/merge/preview` (+ group roll-up); board shows conflicted files before
+      Merge acts. Feature-detect git ≥2.38; degrade to "preview unavailable".
+- [ ] **`blocked` / no-op visibility** — a `done` run at `exit 0` with `filesChanged=0` stops
+      passing as complete: mark `blocked` when the stream shows approval-required, else a
+      "no changes" chip; `taskCloseRisk` surfaces merge/write tasks that changed nothing.
+- [ ] **Sibling overlap + land order** — within a group, intersect `diff --name-only base..branch`
+      across siblings; show overlapping files + a fewest-overlap-first land order on the band.
+
+Part B — the integration workroom:
+- [ ] **Merge becomes a phase** — on conflict, open the integration workroom on the same
+      worktree, **resume the run's own agent** (`sessionId`) to `fetch origin` + resolve the
+      listed conflicts; status `integrating`, tracked live on the card, terminal attachable;
+      re-preview until clean. Fallback: one-click **Open as workbench** (in-app terminal + claude).
+
+Part C — origin-aware landing:
+- [ ] **Base-drift detection at worktree creation** — `rev-list --left-right --count base...@{u}`;
+      surface ahead/behind on the card, warn when base is behind origin.
+- [ ] **Land to origin** — rebase onto `origin/<base>` (or cherry-pick `base..branch` unique
+      commits onto a fresh origin-tracking branch) → push → open PR via `gh` (reuse v2.6 PR mode);
+      card end state `landed` with the PR link. Never ship through local `main`.
+
+Sequencing: A → B → C, e2e-green commits on main; cut **5.1** once the loop closes.
+
 ## Non-goals
 
 - Vendoring or wrapping agent CLIs — external tools stay external (`git`, `tmux`, the agent)
