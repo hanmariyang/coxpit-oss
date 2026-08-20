@@ -85,6 +85,13 @@ BRAND_CT=$(curl -s -o /dev/null -w '%{content_type}' "$B/brand/pixelify.woff2")
 case "$BRAND_CT" in font/woff2*) : ;; *) fail "woff2 content-type wrong ($BRAND_CT)";; esac
 pass "v5.2 brand assets served (mark · mascot · font · favicon)"
 
+# v5.2.1 — Add-repository opens ONLY the folder browser (no stray New-task sheet);
+# every close-X has a base style so no overlay renders a native white button.
+case "$BOARD_HTML" in *"function openRepoBrowse"*) : ;; *) fail "openRepoBrowse helper missing";; esac
+case "$BOARD_HTML" in *"repoAdd').addEventListener('click', openRepoBrowse"*) : ;; *) fail "Add-repository must open the browser directly (not the New sheet)";; esac
+case "$BOARD_HTML" in *"button.x{"*) : ;; *) fail "close-X base style missing (white-button guard)";; esac
+pass "v5.2.1 repo-add opens browser only · close-X base style present"
+
 # v5.0 Part A — navigator rail (machine switcher · repo list · view nav · New)
 case "$BOARD_HTML" in *'id="repoList"'*) : ;; *) fail "rail repo list (#repoList) missing";; esac
 case "$BOARD_HTML" in *'id="viewNav"'*) : ;; *) fail "rail view nav (#viewNav) missing";; esac

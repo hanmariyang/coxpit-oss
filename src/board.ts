@@ -39,6 +39,11 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   ::-webkit-scrollbar-track{background:transparent}
   button{font-family:var(--sans)}
   :focus-visible{outline:2px solid rgba(78,201,176,.5);outline-offset:1px;border-radius:4px}
+  /* close-X buttons — base reset so no overlay ever renders a native white button.
+     Scoped rules (.modal-h .x / .rh .x, font-size:19px for text ×) keep higher specificity. */
+  button.x{background:none;border:none;color:var(--muted);cursor:pointer;padding:2px;
+    display:inline-flex;align-items:center;justify-content:center;border-radius:6px}
+  button.x:hover{color:var(--ink);background:var(--surface2)}
 
   /* ── header ─────────────────────────────── */
   header{display:flex;align-items:center;gap:14px;height:54px;padding:0 20px;
@@ -1372,13 +1377,14 @@ async function brwRegister(fullPath){
   }
   toast('register: '+(j.detail||j.error||res.status), 'error');
 }
-$('repoBrowse').addEventListener('click', ()=>{
+function openRepoBrowse(){
   const m = machines.find(x=>x.slug===$('repoMachine').value);
   if (m && m.address){ toast('remote machine — type the path manually for now', 'error'); return; }
   $('brwNewForm').hidden = true; $('brwNewName').value = '';
   $('brwOverlay').classList.add('open');
   brwGo(brwCur || '');
-});
+}
+$('repoBrowse').addEventListener('click', openRepoBrowse);
 $('brwList').addEventListener('click',(e)=>{
   const reg = e.target.closest('button[data-reg]');
   if (reg){ brwRegister(brwCur.replace(/\\/$/,'')+'/'+reg.dataset.reg); return; }
@@ -3681,8 +3687,9 @@ $('newBtn').addEventListener('click', ()=>openLaunch('task'));
 $('fab').addEventListener('click', ()=>openLaunch('task'));   // mobile pocket-board FAB → same sheet
 $('sheetClose').addEventListener('click', closeLaunch);
 $('newSheet').addEventListener('click', (e)=>{ if(e.target===$('newSheet')) closeLaunch(); });
-// Add repository — 시트를 열고 repo 피커(Browse/New-folder/Path 내장)를 노출
-$('repoAdd').addEventListener('click', ()=>{ openLaunch('task'); $('repoActions').hidden = false; $('repoBrowse').click(); });
+// Add repository — repo 브라우저를 바로 연다(New 태스크 시트는 열지 않음: repoBrowse 핸들러가
+// #brwOverlay 를 직접 띄우고, machineSlug 는 hydrate 가 채운 #repoMachine 값을 씀).
+$('repoAdd').addEventListener('click', openRepoBrowse);
 // machine switcher — 컴팩트 버튼 + 메뉴(기존 #repoMachine 이 선택 상태 보관)
 function positionMachineMenu(){
   const b = $('machineSwitch').getBoundingClientRect();
