@@ -58,7 +58,10 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .mdot.on{background:var(--s-done)}
 
   /* ── layout ─────────────────────────────── */
-  .layout{display:grid;grid-template-columns:318px 1fr;min-height:calc(100vh - 55px)}
+  /* fixed viewport height so the rail stays put and each column scrolls on its own
+     (the board grew tall with many cards and dragged the rail's + New below the fold) */
+  .layout{display:grid;grid-template-columns:318px 1fr;height:calc(100vh - 55px);overflow:hidden}
+  .layout > aside,.layout > main{min-height:0}
   aside{border-right:1px solid var(--line);padding:20px 18px;background:var(--surface);
     display:flex;flex-direction:column;gap:26px}
   main{padding:20px;overflow:auto}
@@ -138,7 +141,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   /* rail repo-row actions — icon-ghost, never white: transparent bg · muted icon · hover ink + surface */
   #repoList .repo .rmbtn{background:transparent;border:1px solid transparent;color:var(--muted);cursor:pointer;
     padding:3px;display:inline-flex;border-radius:6px;transition:color .15s,background .15s,border-color .15s}
-  #repoList .repo .rmbtn:hover{color:var(--ink);background:var(--surface);border-color:var(--line-hi)}
+  #repoList .repo .rmbtn:hover{color:var(--ink);background:var(--surface2)}
   #repoList .repo .rmbtn .ic{width:13px;height:13px;color:inherit}
   .navi{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:var(--muted);
     cursor:pointer;font-size:13px;border:none;background:transparent;width:100%;text-align:left;font-family:var(--sans)}
@@ -221,7 +224,8 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .dd-btn:hover{border-color:var(--line-hi)}
   .dd.open .dd-btn{border-color:rgba(78,201,176,.55)}
   .dd-lbl{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-  .dd-car{color:var(--faint);font-size:10px;transition:transform .15s}
+  .dd-car{color:var(--faint);display:inline-flex;align-items:center;transition:transform .15s}
+  .dd-car .ic{width:13px;height:13px}
   .dd.open .dd-car{transform:rotate(180deg)}
   .dd-panel{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:40;background:var(--surface2);
     border:1px solid var(--line-hi);border-radius:9px;box-shadow:var(--shadow);max-height:230px;
@@ -710,7 +714,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .menu-btn{display:none;font-size:15px;padding:5px 10px}
   .scrim{position:fixed;inset:0;top:54px;background:rgba(5,7,10,.5);z-index:29;display:none}
   @media (max-width:860px){
-    .layout{grid-template-columns:1fr;min-height:calc(100dvh - 55px)}
+    .layout{grid-template-columns:1fr;height:calc(100dvh - 55px)}
     /* 사이드바 = 오프캔버스 드로어 — 플릿이 첫 화면, 런처는 ☰ 뒤에 */
     .menu-btn{display:inline-flex}
     aside{position:fixed;top:54px;bottom:0;left:0;width:min(86vw,340px);max-width:100vw;z-index:30;
@@ -1199,7 +1203,7 @@ function dressSelect(id){
   const sel = $(id); if(!sel || sel.dataset.dd) return;
   sel.dataset.dd = '1';
   const dd = document.createElement('div'); dd.className = 'dd';
-  dd.innerHTML = '<button type="button" class="dd-btn"><span class="dd-lbl"></span><span class="dd-car">▾</span></button><div class="dd-panel"></div>';
+  dd.innerHTML = '<button type="button" class="dd-btn"><span class="dd-lbl"></span><span class="dd-car"><svg class="ic"><use href="#i-chevron-down"/></svg></span></button><div class="dd-panel"></div>';
   sel.parentNode.insertBefore(dd, sel);
   sel.style.display = 'none';
   dd.querySelector('.dd-btn').addEventListener('click', (e)=>{
