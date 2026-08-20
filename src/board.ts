@@ -185,9 +185,24 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .sheet-h .sp{flex:1}.sheet-h .x{color:var(--muted);cursor:pointer;background:none;border:none;padding:2px}
   .sheet #taskForm{display:flex;flex-direction:column;gap:13px;min-height:0}
   .sheet-body{display:flex;flex-direction:column;gap:8px;overflow-y:auto;min-height:0;max-height:60vh;padding:1px}
-  .sheet-f{display:flex;align-items:center;gap:8px;padding-top:12px;border-top:1px solid var(--line)}
-  .sheet-f #modeSeg{flex:1}
-  .sheet-f #runFleetBtn{flex:0 0 auto}
+  .sheet-f{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding-top:12px;border-top:1px solid var(--line)}
+  .sheet-f #modeSeg{flex:0 0 auto}
+  .sheet-f #taskCountStep{flex:0 0 auto;margin-left:auto}
+  .sheet-f #runFleetBtn{flex:1 1 100%;justify-content:center}
+  /* agent-mode switch — compact toggle (dry ⇄ real), never a native checkbox/white box */
+  .realtog{display:inline-flex;align-items:center;gap:8px;background:#0e1118;border:1px solid var(--line);
+    border-radius:999px;padding:5px 13px 5px 6px;cursor:pointer;font-family:var(--sans);font-size:12px;
+    font-weight:600;color:var(--muted);white-space:nowrap;transition:color .15s,border-color .15s}
+  .realtog:hover{border-color:var(--brand)}
+  .realtog .realtog-knob{width:30px;height:17px;border-radius:999px;background:var(--surface2);
+    position:relative;flex:none;transition:background .18s}
+  .realtog .realtog-knob::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;
+    border-radius:50%;background:var(--faint);transition:transform .18s,background .18s}
+  .realtog .realtog-hint{font-family:var(--mono);font-size:10px;font-weight:400;color:var(--faint)}
+  .realtog[aria-checked="true"]{color:var(--brand);border-color:rgba(78,201,176,.4)}
+  .realtog[aria-checked="true"] .realtog-knob{background:var(--brand-dim)}
+  .realtog[aria-checked="true"] .realtog-knob::after{transform:translateX(13px);background:var(--brand)}
+  .realtog:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
   /* progressive Options reveal (rarely-used Task fields) */
   .opt{border:1px solid var(--line);border-radius:var(--r-ctl);background:#0e1118;overflow:hidden}
   .opt-h{width:100%;display:flex;align-items:center;gap:8px;background:transparent;border:none;cursor:pointer;
@@ -253,7 +268,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .seg{display:flex;gap:3px;padding:3px;border:1px solid var(--line);border-radius:var(--r-ctl);background:#0e1118}
   /* slim single-row option — matches the type/provider seg height; the risky hint rides inline, subtle */
   .seg-opt{flex:1;display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:5px;
-    padding:6px 8px;border:none;min-width:0;
+    padding:6px 8px;border:none;min-width:0;white-space:nowrap;line-height:1.2;
     background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;
     border-radius:calc(var(--r-ctl) - 3px);transition:background .15s,color .15s}
   .seg-opt:hover{color:var(--ink)}
@@ -884,10 +899,11 @@ ${ICON_SPRITE}
           </div>
         </div>
         <div class="sheet-f" id="sheetFooter">
-          <div class="seg" id="modeSeg" role="group" aria-label="agent mode">
-            <button type="button" class="seg-opt" data-real="0">Dry run</button>
-            <button type="button" class="seg-opt" data-real="1">Real agent<span class="seg-hint">spends credits</span></button>
-          </div>
+          <button type="button" id="modeSeg" class="realtog" role="switch" aria-checked="false" title="Dry run rehearses the full pipeline with zero credits. Turn on to run the real agent CLI.">
+            <span class="realtog-knob"></span>
+            <span class="realtog-lbl" id="modeRealLbl">Dry run</span>
+            <span class="realtog-hint" id="modeRealHint">rehearsal</span>
+          </button>
           <input type="checkbox" id="taskReal" hidden />
           <div class="stepper" id="taskCountStep" title="agents — 1 for a job, N to explore variants">
             <button type="button" class="stp" id="cntDown" aria-label="fewer agents"><svg class="ic"><use href="#i-minus"/></svg></button>
@@ -1764,19 +1780,19 @@ function renderRail(){
   const cnt = railCounts();
   let html = '';
   if (repos.length){
-    html += '<button type="button" class="repo'+(selectedRepo==null?' on':'')+'" data-repo="all">'
-      + ic('layers')+'<span class="nm">All repositories</span></button>';
+    html += '<div class="repo'+(selectedRepo==null?' on':'')+'" role="button" tabindex="0" data-repo="all">'
+      + ic('layers')+'<span class="nm">All repositories</span></div>';
     for (const r of repos){
       const c = cnt.get(r.id) || { active:0, attn:false };
       const on = selectedRepo===r.id;
-      html += '<button type="button" class="repo'+(on?' on':'')+'" data-repo="'+r.id+'" title="'+escA(r.path||r.name)+'">'
+      html += '<div class="repo'+(on?' on':'')+'" role="button" tabindex="0" data-repo="'+r.id+'" title="'+escA(r.path||r.name)+'">'
         + ic('folder')+'<span class="nm">'+esc(r.name)+'</span>'
         + (c.attn ? '<span class="attn" title="a run needs a hand"></span>' : '')
         + (c.active>0 ? '<span class="cnt">'+c.active+'</span>' : '')
         + '<span class="rowmenu">'
         +   '<button type="button" class="rmbtn" data-rbranch="'+r.id+'" title="base branch">'+ic('branch')+'</button>'
         +   '<button type="button" class="rmbtn" data-rremove="'+r.id+'" title="remove">'+ic('x')+'</button>'
-        + '</span></button>';
+        + '</span></div>';
     }
   } else {
     // empty state — 첫 repo 추가 CTA
@@ -1802,6 +1818,12 @@ $('repoList').addEventListener('click', (e)=>{
   const rm = e.target.closest('button[data-rremove]');
   if (rm){ e.stopPropagation(); removeRepoById(Number(rm.dataset.rremove)); return; }
   const row = e.target.closest('.repo[data-repo]'); if(!row) return;
+  setScope(row.dataset.repo==='all' ? null : Number(row.dataset.repo));
+});
+$('repoList').addEventListener('keydown', (e)=>{
+  if (e.key!=='Enter' && e.key!==' ') return;
+  const row = e.target.closest('.repo[data-repo]'); if(!row) return;
+  e.preventDefault();
   setScope(row.dataset.repo==='all' ? null : Number(row.dataset.repo));
 });
 $('captures').addEventListener('click', async (e)=>{
@@ -3034,7 +3056,7 @@ function setV(tab){
   $('panelBench').hidden = tab!=='bench';
   $('panelBench').style.display = tab==='bench' ? 'flex' : 'none';
   // footer adapts: Task=Dry/Real·count·Run fleet · Goal=Dry/Real·Plan & run · Workbench=Open workbench only
-  $('modeSeg').style.display  = tab==='bench' ? 'none' : 'flex';  // workbench 는 에이전트 없음
+  $('modeSeg').style.display  = tab==='bench' ? 'none' : 'inline-flex';  // workbench 는 에이전트 없음
   $('taskCountStep').style.display = tab==='task' ? 'flex' : 'none'; // count 는 Task 만(플래너·워크벤치는 1)
   $('runFleetBtn').innerHTML = ic(L_ICON[tab]) + ' ' + L_LABEL[tab];
 }
@@ -3178,18 +3200,15 @@ $('cntDown').addEventListener('click', ()=>stepCount(-1));
 $('cntUp').addEventListener('click', ()=>stepCount(1));
 $('taskCount').addEventListener('change', ()=>stepCount(0)); // clamp manual typing
 
-/* ── agent mode segmented control (mirrors hidden #taskReal) ── */
-const segOpts = Array.from(document.querySelectorAll('#modeSeg .seg-opt'));
+/* ── agent mode switch (compact toggle mirroring hidden #taskReal) ── */
 function setMode(real, persist){
   $('taskReal').checked = real;
-  for (const b of segOpts){
-    const on = (b.dataset.real === '1') === real;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  }
+  $('modeSeg').setAttribute('aria-checked', real ? 'true' : 'false');
+  $('modeRealLbl').textContent = real ? 'Real agent' : 'Dry run';
+  $('modeRealHint').textContent = real ? 'spends credits' : 'rehearsal';
   if (persist) try { localStorage.setItem('coxpit.real', real ? '1' : '0'); } catch {}
 }
-for (const b of segOpts) b.addEventListener('click', ()=>setMode(b.dataset.real === '1', true));
+$('modeSeg').addEventListener('click', ()=>setMode(!$('taskReal').checked, true));
 let savedMode = null;
 try { savedMode = localStorage.getItem('coxpit.real'); } catch {}
 setMode(savedMode === '1', false);

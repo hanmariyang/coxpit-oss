@@ -100,8 +100,13 @@ case "$BOARD_HTML" in *'id="taskCountStep"'*) : ;; *) fail "count stepper wrappe
 case "$BOARD_HTML" in *'id="cntUp"'*) : ;; *) fail "count + stepper button missing";; esac
 case "$BOARD_HTML" in *'id="cntDown"'*) : ;; *) fail "count - stepper button missing";; esac
 case "$BOARD_HTML" in *'webkit-inner-spin-button'*) : ;; *) fail "native number spinner not suppressed";; esac
-# mode seg is slim: .seg-opt is a single row (never the boxy flex-direction:column stack)
-case "$BOARD_HTML" in *'.seg-opt{flex:1;display:inline-flex;flex-direction:row'*) : ;; *) fail "mode seg still boxy (.seg-opt not slimmed to a single row)";; esac
+# agent mode is a compact switch toggle (role=switch), not a boxy two-option seg
+case "$BOARD_HTML" in *'id="modeSeg" class="realtog" role="switch"'*) : ;; *) fail "agent mode toggle (realtog switch) missing";; esac
+case "$BOARD_HTML" in *'.realtog[aria-checked="true"] .realtog-knob::after{transform'*) : ;; *) fail "realtog knob does not slide on real mode";; esac
+# type/provider segs stay slim single-row (never the boxy flex-direction:column stack)
+case "$BOARD_HTML" in *'.seg-opt{flex:1;display:inline-flex;flex-direction:row'*) : ;; *) fail "type/provider seg still boxy (.seg-opt not a single row)";; esac
+# rail repo rows render as role=button divs so nested action buttons stay valid HTML (not hoisted → white)
+case "$BOARD_HTML" in *'role="button" tabindex="0" data-repo='*) : ;; *) fail "repo rows not role=button divs (nested action buttons would hoist)";; esac
 # rail repo-row actions are icon-ghost (transparent), never white buttons
 case "$BOARD_HTML" in *'#repoList .repo .rmbtn{background:transparent'*) : ;; *) fail "rail repo-row buttons not icon-ghost";; esac
 pass "board serves dark-control contract (.dd selects · custom model menu · token stepper/no spinner · slim mode seg · icon-ghost rail actions)"
