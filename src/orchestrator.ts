@@ -1239,7 +1239,19 @@ export async function exportRun(runId: number, destIn?: string): Promise<{ ok: b
  * PR 모드 — run 브랜치를 origin 에 push 하고 gh 로 pull request 를 연다.
  * 팀 repo·리뷰 흐름용: 로컬 merge 대신 PR 로 결과를 보낸다.
  */
-export async function prRun(runId: number): Promise<{ ok: boolean; detail: string; url?: string }> {
+/** Product-appropriate PR branch name: coxpit/<task-slug>-r<id> — meaningful, unique, namespaced. */
+function slugify(s: string): string {
+  return (s || 'run').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'run';
+}
+
+/**
+ * v5.1 step 4 — land a run: origin-aware. Resolve the target (origin/<x>, may differ from the
+ * local base), preview conflicts, then squash the run's net diff onto a fresh branch AT the
+ * target (avoids the base-merge-commit drag, C6), push under the product name, and open a PR
+ * against the target branch. On conflict returns { conflict } for the integration loop (step 5).
+ * Falls back to the legacy push-branch/PR-against-base when the base has no upstream.
+ */
+export async function prRun(runId: number): Promise<{ ok: boolean; detail: string; url?: string; conflict?: boolean; conflicts?: string[] }> {
   const ctx = await loadContext(runId);
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
@@ -1247,32 +1259,59 @@ export async function prRun(runId: number): Promise<{ ok: boolean; detail: strin
   if (liveChildren.has(runId)) return { ok: false, detail: 'still running — stop it first' };
   if (!['done', 'failed', 'stopped', 'open'].includes(run.status)) return { ok: false, detail: `cannot open a PR from a '${run.status}' run` };
   const wt = shq(run.worktreePath);
+  const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
 
-  // 0) 사전 조건: origin 리모트 + gh CLI
+  // 0) preconditions: origin remote + gh CLI
   const pre = await runShellOn(ctx.machine,
     `cd ${wt} && { git remote get-url origin >/dev/null 2>&1 && echo R1 || echo R0; } && { command -v gh >/dev/null 2>&1 && echo G1 || echo G0; }`, 10000);
   if (!pre.stdout.includes('R1')) return { ok: false, detail: 'no origin remote on this repo' };
   if (!pre.stdout.includes('G1')) return { ok: false, detail: 'GitHub CLI (gh) not found on the machine' };
 
-  // 1) worktree 미커밋 변경 자동 커밋
-  const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
+  // 1) commit worktree changes
   const c1 = await runShellOn(ctx.machine,
     `cd ${wt} && git add -A && (git diff --cached --quiet || git ${ident} -c commit.gpgsign=false commit -m ${shq(`coxpit r${runId}: agent changes`)})`, 20000);
   if (!c1.ok) return { ok: false, detail: 'worktree commit failed: ' + (c1.stderr || c1.stdout).trim().slice(0, 300) };
 
-  // 2) push
-  const push = await runShellOn(ctx.machine, `cd ${wt} && git push -u origin ${shq(run.branch)} 2>&1`, 60000);
-  if (!push.ok) return { ok: false, detail: 'push failed: ' + (push.stderr || push.stdout).trim().slice(0, 300) };
-
-  // 3) PR 생성 (동일 브랜치 PR 이 이미 있으면 그 URL 재사용)
   const tr = await db.select().from(tasks).where(eq(tasks.id, run.taskId)).limit(1);
   const title = `${tr[0]?.title ?? 'coxpit run'} (r${runId})`;
   const body = (run.exitSummary ? run.exitSummary + '\n\n' : '') + '🤖 Opened from a coxpit agent run';
+
+  // 2) resolve the land target (fresh) — origin-aware path when the base tracks a remote
+  const lt = await landTarget(runId, { fetch: true });
+  const target = lt.target;
+  if (target) {
+    const pv = await mergePreview(runId, { target });
+    if (pv.supported && !pv.clean && pv.conflicts.length) {
+      return { ok: false, conflict: true, conflicts: pv.conflicts,
+        detail: `would conflict on ${target} in ${pv.conflicts.length} file(s): ${pv.conflicts.slice(0, 6).join(', ')} — resolve on the branch first, then land.` };
+    }
+    const targetBranch = target.replace(/^[^/]+\//, '');           // origin/develop -> develop
+    const landBranch = `coxpit/${slugify(tr[0]?.title ?? 'run')}-r${runId}`;
+    const range = shq(ctx.baseBranch + '...' + run.branch);
+    // squash the run's net diff onto a fresh branch at the target (3-way apply; clean per preview)
+    const land = await runShellOn(ctx.machine,
+      `cd ${wt} && git checkout -B ${shq(landBranch)} ${shq(target)} 2>&1 && ` +
+      `git diff ${range} | git apply --3way --index - 2>&1 && ` +
+      `(git diff --cached --quiet || git ${ident} -c commit.gpgsign=false commit -m ${shq(title)}) 2>&1`, 60000);
+    if (!land.ok) return { ok: false, detail: `land (onto ${target}) failed: ` + (land.stderr || land.stdout).trim().slice(0, 300) };
+    const push = await runShellOn(ctx.machine, `cd ${wt} && git push -u origin ${shq(landBranch)} 2>&1`, 60000);
+    if (!push.ok) return { ok: false, detail: 'push failed: ' + (push.stderr || push.stdout).trim().slice(0, 300) };
+    const pr = await runShellOn(ctx.machine,
+      `cd ${wt} && gh pr create -B ${shq(targetBranch)} -H ${shq(landBranch)} -t ${shq(title)} -b ${shq(body)} 2>&1 || true`, 60000);
+    const m = (pr.stdout + pr.stderr).match(/https:\/\/github\.com\/\S+\/pull\/\d+/);
+    if (!m) return { ok: false, detail: 'gh pr create failed: ' + (pr.stdout || pr.stderr).trim().slice(0, 300) };
+    await setRun(runId, { prUrl: m[0] });
+    await recordEvent(runId, 'pr', `${m[0]} (landed on ${targetBranch})`);
+    return { ok: true, detail: `landed on ${targetBranch} · PR opened`, url: m[0] };
+  }
+
+  // fallback: no upstream target — legacy push-branch / PR-against-base
+  const push = await runShellOn(ctx.machine, `cd ${wt} && git push -u origin ${shq(run.branch)} 2>&1`, 60000);
+  if (!push.ok) return { ok: false, detail: 'push failed: ' + (push.stderr || push.stdout).trim().slice(0, 300) };
   const pr = await runShellOn(ctx.machine,
     `cd ${wt} && gh pr create -B ${shq(ctx.baseBranch)} -H ${shq(run.branch)} -t ${shq(title)} -b ${shq(body)} 2>&1 || true`, 60000);
   const m = (pr.stdout + pr.stderr).match(/https:\/\/github\.com\/\S+\/pull\/\d+/);
   if (!m) return { ok: false, detail: 'gh pr create failed: ' + (pr.stdout || pr.stderr).trim().slice(0, 300) };
-
   await setRun(runId, { prUrl: m[0] });
   await recordEvent(runId, 'pr', m[0]);
   return { ok: true, detail: 'pull request opened', url: m[0] };

@@ -2447,8 +2447,8 @@ $('cmpBody').addEventListener('click', async (e)=>{
   const prBtn = e.target.closest('button[data-pr]');
   if (prBtn){
     const rid = Number(prBtn.dataset.pr);
-    const yes = await confirmUI('Open a pull request from r'+rid+'?',
-      { sub: 'Commits the worktree, pushes the branch to origin, and opens a PR against the base branch (needs gh CLI signed in).'+(await driftNote(rid)), okLabel: 'Open PR' });
+    const yes = await confirmUI('Land r'+rid+' as a pull request?',
+      { sub: 'Rebases this run onto the latest origin target, pushes it as coxpit/<task>-r'+rid+', and opens a PR against that target (needs gh signed in).'+(await driftNote(rid)), okLabel: 'Land · PR' });
     if (!yes) return;
     prBtn.disabled = true;
     const res = await fetch('/api/runs/'+rid+'/pr',{method:'POST'});
