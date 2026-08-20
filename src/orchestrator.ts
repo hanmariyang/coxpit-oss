@@ -1392,6 +1392,50 @@ export async function landTarget(runId: number, opts: { fetch?: boolean } = {}):
   return { base, target, remote, ahead, behind, fetched };
 }
 
+/**
+ * v5.1 A1 (step 3) — conflict preview: what WOULD conflict if this run landed on the target,
+ * computed with `git merge-tree --write-tree` (git ≥ 2.38) — no working tree, no commit, no
+ * side effects. Previews against the land *target* (origin/<x>), not the local base (a run never
+ * conflicts with the base it descends from). Folds in the drift (ahead/behind) from landTarget so
+ * one call answers "is landing safe, and if not, which files".
+ *
+ * merge-tree output: line 0 = tree OID; on conflict, the conflicted paths follow until a blank
+ * line (informational messages after). Exit 0 = clean, non-zero = conflicts.
+ */
+export async function mergePreview(runId: number, opts: { fetch?: boolean; target?: string } = {}): Promise<{
+  supported: boolean; clean: boolean; conflicts: string[]; target: string | null;
+  ahead: number; behind: number; detail?: string;
+}> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run || !run.branch) return { supported: true, clean: false, conflicts: [], target: null, ahead: 0, behind: 0, detail: 'no branch' };
+  const lt = await landTarget(runId, { fetch: opts.fetch });
+  const target = opts.target ?? lt.target;
+  if (!target) return { supported: true, clean: false, conflicts: [], target: null, ahead: lt.ahead, behind: lt.behind, detail: 'no target — pick one' };
+  const repo = shq(ctx.repoPath);
+  const mt = await runShellOn(
+    ctx.machine,
+    `git -C ${repo} merge-tree --write-tree --name-only ${shq(target)} ${shq(run.branch)} 2>&1; echo "EXIT=$?"`,
+    20000,
+  );
+  const raw = mt.stdout;
+  if (/usage: git merge-tree|unknown option|error: unknown/i.test(raw)) {
+    return { supported: false, clean: false, conflicts: [], target, ahead: lt.ahead, behind: lt.behind, detail: 'git >= 2.38 required for conflict preview' };
+  }
+  const m = raw.match(/EXIT=(\d+)\s*$/);
+  const code = m ? parseInt(m[1] ?? '1', 10) : 1;
+  const body = raw.replace(/\n?EXIT=\d+\s*$/, '');
+  const lines = body.split('\n');
+  const conflicts: string[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]?.trim() === '') break;
+    const p = lines[i]?.trim();
+    if (p) conflicts.push(p);
+  }
+  return { supported: true, clean: code === 0, conflicts, target, ahead: lt.ahead, behind: lt.behind };
+}
+
 export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: string }> {
   const ctx = await loadContext(runId);
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);

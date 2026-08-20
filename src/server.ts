@@ -18,7 +18,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -870,6 +870,15 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!Number.isFinite(id)) return reply.code(400).send({ error: 'bad id' });
     const doFetch = ((req.query ?? {}) as { fetch?: string }).fetch === '1';
     return await landTarget(id, { fetch: doFetch });
+  });
+
+  // v5.1 A1 — conflict preview: what would conflict if this run landed on the target (merge-tree,
+  // read-only). ?fetch=1 refreshes origin first; ?target=origin/x overrides the resolved target.
+  app.get('/api/runs/:id/merge/preview', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isFinite(id)) return reply.code(400).send({ error: 'bad id' });
+    const q = (req.query ?? {}) as { fetch?: string; target?: string };
+    return await mergePreview(id, { fetch: q.fetch === '1', target: q.target && q.target.trim() ? q.target.trim() : undefined });
   });
 
   // 승자 run 머지 — run 브랜치를 repo 기본 브랜치로.

@@ -2427,14 +2427,20 @@ async function paintCompare(){
     }
   }
 }
-// v5.1 step 2 — fetch land target + base drift, and warn at the moment of decision.
+// v5.1 step 2+3 — preview the land (target drift + conflict files) and warn at the decision point.
 async function driftNote(rid){
   try{
-    const lt = await (await fetch('/api/runs/'+rid+'/land-target?fetch=1')).json();
-    if (!lt || !lt.target) return '';
-    if ((lt.behind||0) > 0) return ' ⚠ the base is '+lt.behind+' commit'+(lt.behind>1?'s':'')+' behind '+lt.target
-      +' — merging the whole branch as-is may explode into conflicts; landing (rebase onto '+lt.target+') is safer.';
-    return ' Base is up to date with '+lt.target+'.';
+    const p = await (await fetch('/api/runs/'+rid+'/merge/preview?fetch=1')).json();
+    if (!p || !p.target) return '';
+    if (p.supported && !p.clean && (p.conflicts||[]).length){
+      const files = p.conflicts.slice(0,4).join(', ') + (p.conflicts.length>4 ? ' +'+(p.conflicts.length-4)+' more' : '');
+      return ' ⚠ landing on '+p.target+' would conflict in '+p.conflicts.length+' file'+(p.conflicts.length>1?'s':'')
+        +' ('+files+'). Resolve on the branch first, or land (rebase) instead of a whole-branch merge.';
+    }
+    if ((p.behind||0) > 0) return ' ⚠ the base is '+p.behind+' commit'+(p.behind>1?'s':'')+' behind '+p.target
+      +' — a whole-branch merge may conflict; landing (rebase onto '+p.target+') is safer.';
+    if (p.supported && p.clean) return ' ✓ clean against '+p.target+'.';
+    return '';
   }catch(e){ return ''; }
 }
 $('cmpBody').addEventListener('click', async (e)=>{
