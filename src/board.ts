@@ -339,20 +339,21 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   /* v5.1 Documents (문서함) — grouped by run, list only, no cards */
   #docbox .db-sub,#setbox .db-sub{color:var(--muted);font-size:13px;margin:0 0 14px}
   #setbox .db-sub code{font-family:var(--mono);color:var(--brand);font-size:12px}
-  .set-list{max-width:620px;display:flex;flex-direction:column;gap:14px}
-  .set-sec{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px 16px}
+  .set-list{max-width:620px;min-width:0;display:flex;flex-direction:column;gap:14px}
+  .set-sec{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px 16px;min-width:0}
   .set-h{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--faint);margin:0 0 12px}
   .set-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
-  .set-lbl{flex:0 0 140px;font-size:13px;color:var(--muted)}
-  .set-row input:not([type=checkbox]),.set-row select{flex:1;background:#0e1118;border:1px solid var(--line);border-radius:7px;
+  .set-lbl{flex:0 0 150px;font-size:13px;color:var(--muted)}
+  .set-row input:not([type=checkbox]),.set-row select{flex:1;box-sizing:border-box;max-width:100%;background:#0e1118;border:1px solid var(--line);border-radius:7px;
     color:var(--ink);font-family:var(--mono);font-size:13px;padding:8px 10px;outline:none;min-width:0}
   .set-row input:focus,.set-row select:focus{border-color:var(--brand)}
-  .set-row input:disabled,.set-row select:disabled{opacity:.5;cursor:not-allowed}
+  .set-row input:disabled,.set-row select:disabled,.set-check input:disabled{opacity:.4;cursor:not-allowed;background:#0b0d12}
+  .set-check input:disabled ~ span{opacity:.5}
   .set-check{align-items:flex-start;gap:10px}
   .set-check input[type=checkbox]{flex:0 0 auto;width:15px;height:15px;margin:2px 0 0;accent-color:var(--brand)}
   .set-check span{flex:1;min-width:0;font-size:12.5px;color:var(--muted);line-height:1.5}
   .set-note{font-size:11.5px;color:var(--faint);margin-top:6px}
-  .set-lock{font-family:var(--mono);font-size:10px;color:var(--s-preparing);margin-left:6px}
+  .set-lock{display:block;font-family:var(--mono);font-size:10px;color:var(--s-preparing);margin-top:2px;text-transform:none;letter-spacing:0}
   .set-state{font-size:12.5px;color:var(--ink);margin-bottom:10px}
   .set-actions{display:flex;gap:8px;margin-top:4px}
   .set-kv{display:flex;justify-content:space-between;gap:12px;font-family:var(--mono);font-size:12px;padding:3px 0;color:var(--muted)}
@@ -856,6 +857,11 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     /* 온보딩 패널이 좁은 화면을 넘치지 않게 */
     .empty{padding:24px 0}
     .setup{max-width:100%;width:100%;margin:8px 0}
+    /* Settings — 좁은 화면에선 라벨 위/인풋 아래로 스택(가로 넘침 방지) */
+    .set-row:not(.set-check){flex-direction:column;align-items:stretch;gap:6px}
+    .set-row:not(.set-check) .set-lbl{flex:auto}
+    .set-kv{flex-direction:column;gap:2px}
+    .set-kv b{text-align:left}
     .chk .v{min-width:0}
     .cmp{flex-direction:column;overflow-y:auto;overflow-x:hidden}
     .cmp-col{min-width:0;border-right:none;border-bottom:1px solid var(--line);flex:0 0 auto;max-height:72vh}
