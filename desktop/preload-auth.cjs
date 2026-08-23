@@ -5,4 +5,5 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('coxpitAuth', {
   submit: (user, pass) => ipcRenderer.send('coxpit-auth-submit', { user, pass }),
   cancel: () => ipcRenderer.send('coxpit-auth-cancel'),
+  useLocal: () => ipcRenderer.send('coxpit-use-local'),   // 탈출구 — 격리 로컬 데몬으로
 });

@@ -92,6 +92,26 @@ case "$BOARD_HTML" in *"repoAdd').addEventListener('click', openRepoBrowse"*) : 
 case "$BOARD_HTML" in *"button.x{"*) : ;; *) fail "close-X base style missing (white-button guard)";; esac
 pass "v5.2.1 repo-add opens browser only · close-X base style present"
 
+# v5.3 — Settings view (board) + settings API
+case "$BOARD_HTML" in *'data-view="settings"'*) : ;; *) fail "Settings nav entry missing";; esac
+case "$BOARD_HTML" in *'id="setbox"'*) : ;; *) fail "Settings view container missing";; esac
+case "$BOARD_HTML" in *"function renderSettings"*) : ;; *) fail "renderSettings missing";; esac
+# GET /api/settings shape + env locks (this suite boots with COXPIT_PORT/AUTH_DISABLED/WEBHOOK_URL set)
+SET=$(curl -s "$B/api/settings")
+case "$SET" in *'"effective"'*'"envLocked"'*'"auth"'*) : ;; *) fail "settings GET shape: $SET";; esac
+case "$SET" in *'"port":true'*) : ;; *) fail "envLocked.port should be true (COXPIT_PORT set): $SET";; esac
+# env-locked port is ignored by PATCH (no restart flag); an editable field (host) flags restartRequired
+curl -s -X PATCH "$B/api/settings" -H 'content-type: application/json' -d '{"port":8299}' | grep -q '"restartRequired":false' || fail "env-locked port must be ignored (no restart flag)"
+PR=$(curl -s -X PATCH "$B/api/settings" -H 'content-type: application/json' -d '{"host":"127.0.0.1"}')
+case "$PR" in *'"restartRequired":true'*) : ;; *) fail "host change should flag restartRequired: $PR";; esac
+# PATCH persists an agent default (count)
+curl -sf -X PATCH "$B/api/settings" -H 'content-type: application/json' -d '{"agent":{"count":3}}' | grep -q '"ok":true' || fail "settings PATCH (agent.count)"
+curl -s "$B/api/settings" | grep -q '"count":3' || fail "settings PATCH did not persist count"
+# key management refused under env auth control (COXPIT_AUTH_DISABLED here) → 409
+expect_code 409 -X POST "$B/api/settings/key" -H 'content-type: application/json' -d '{"key":"abcdef"}'
+expect_code 409 -X DELETE "$B/api/settings/key"
+pass "v5.3 settings view + API (GET shape · env-lock respected · PATCH persists · key env-guard)"
+
 # v5.0 Part A — navigator rail (machine switcher · repo list · view nav · New)
 case "$BOARD_HTML" in *'id="repoList"'*) : ;; *) fail "rail repo list (#repoList) missing";; esac
 case "$BOARD_HTML" in *'id="viewNav"'*) : ;; *) fail "rail view nav (#viewNav) missing";; esac

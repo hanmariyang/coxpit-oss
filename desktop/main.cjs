@@ -3,7 +3,7 @@
 // attach to it instead of spawning a second one — two daemons on one DB would
 // settle each other's live runs as orphans. Only when none is running do we embed
 // our own (ELECTRON_RUN_AS_NODE; libsql/node-pty are N-API prebuilds, no rebuilds).
-const { app, BrowserWindow, shell, Menu, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, Menu, dialog, ipcMain, safeStorage } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
 const http = require('node:http');
@@ -12,9 +12,43 @@ const fs = require('node:fs');
 
 const EMBED_PORT = Number(process.env.COXPIT_PORT || 8321);
 const DATA_DIR = path.join(os.homedir(), '.coxpit');
+// 탈출용 격리 인스턴스 — 잠긴 데몬을 못 뚫을 때 별도 데이터 폴더로 자기 데몬을 띄운다(락·포트 충돌 0).
+const PRIVATE_DIR = path.join(os.homedir(), '.coxpit-desktop');
+const CRED_PATH = path.join(DATA_DIR, 'desktop-cred.bin');
 let boardOrigin = { host: '127.0.0.1', port: EMBED_PORT }; // where the window points (embedded or attached)
 let daemon = null;
+let daemonDir = DATA_DIR;   // 현재 임베드 데몬의 데이터 폴더(기본 or 격리)
 let win = null;
+let restarting = false;     // 의도된 데몬 재시작 중 — exit 핸들러가 에러 페이지 대신 respawn 을 기다림
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 데몬이 락에 기록한 실제 포트 읽기(자동 포트 이동 후 실주소를 안다).
+function readLockPort(dataDir) {
+  try {
+    const lock = JSON.parse(fs.readFileSync(path.join(dataDir, 'daemon.lock.json'), 'utf8'));
+    return Number.isInteger(lock.port) && Number.isInteger(lock.pid) ? { pid: lock.pid, port: lock.port } : null;
+  } catch { return null; }
+}
+// 스폰한 데몬이 락에 자기 포트를 쓸 때까지 폴링 → 실제 포트 반환(자기 pid 확인으로 stale 락 무시).
+async function awaitDaemonPort(dataDir, childPid, tries = 80) {
+  for (let i = 0; i < tries; i++) {
+    const lk = readLockPort(dataDir);
+    if (lk && lk.pid === childPid) return lk.port;
+    await sleep(150);
+  }
+  return null;
+}
+
+// 자격 증명 저장(safeStorage=OS 키체인) — 매번 사인인 방지.
+function saveCred(user, pass) {
+  try { if (safeStorage.isEncryptionAvailable()) fs.writeFileSync(CRED_PATH, safeStorage.encryptString(JSON.stringify({ user, pass }))); } catch { /* */ }
+}
+function loadCred() {
+  try { if (safeStorage.isEncryptionAvailable() && fs.existsSync(CRED_PATH)) return JSON.parse(safeStorage.decryptString(fs.readFileSync(CRED_PATH))); } catch { /* */ }
+  return null;
+}
+function clearCred() { try { fs.unlinkSync(CRED_PATH); } catch { /* */ } }
 
 // v3.2 이하 데스크톱은 DB 를 Electron userData 에 뒀다 — 공유 기본 경로로 1회 이관.
 function migrateLegacyDb() {
@@ -75,14 +109,18 @@ function promptBasicAuth(callback) {
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'preload-auth.cjs') },
   });
   authPrompt.setMenuBarVisibility(false);
+  authPrompt.setContentSize(380, 300);
   const page = `<body style="background:#0b0d12;color:#dbe2ea;font:13px/1.5 -apple-system,system-ui,sans-serif;padding:24px;margin:0">
-    <div style="margin-bottom:14px;color:#8b93a1">This coxpit daemon requires sign-in.</div>
+    <div style="margin-bottom:4px;font-weight:600">Sign in</div>
+    <div style="margin-bottom:14px;color:#8b93a1">The coxpit daemon on :${boardOrigin.port} has an access key set. Enter it, or run your own local one.</div>
     <input id=u placeholder="user (default: admin)" style="display:block;width:100%;box-sizing:border-box;margin-bottom:8px;padding:8px 10px;background:#141822;border:1px solid #2a3140;color:#dbe2ea;border-radius:6px;outline:none">
-    <input id=p type=password placeholder="password" style="display:block;width:100%;box-sizing:border-box;margin-bottom:14px;padding:8px 10px;background:#141822;border:1px solid #2a3140;color:#dbe2ea;border-radius:6px;outline:none">
+    <input id=p type=password placeholder="access key" style="display:block;width:100%;box-sizing:border-box;margin-bottom:14px;padding:8px 10px;background:#141822;border:1px solid #2a3140;color:#dbe2ea;border-radius:6px;outline:none">
     <button id=go style="width:100%;padding:9px;background:#4ec9b0;border:0;color:#06231d;font-weight:600;border-radius:6px;cursor:pointer">Sign in</button>
+    <button id=loc style="width:100%;margin-top:8px;padding:9px;background:transparent;border:1px solid #2a3140;color:#8b93a1;border-radius:6px;cursor:pointer">Use my own local daemon</button>
     <script>
       const send=()=>coxpitAuth.submit(document.getElementById('u').value||'admin',document.getElementById('p').value);
       document.getElementById('go').onclick=send;
+      document.getElementById('loc').onclick=()=>coxpitAuth.useLocal();
       document.getElementById('p').addEventListener('keydown',e=>{if(e.key==='Enter')send()});
       document.getElementById('u').focus();
     </script></body>`;
@@ -94,6 +132,7 @@ function promptBasicAuth(callback) {
   });
 }
 ipcMain.on('coxpit-auth-submit', (_e, { user, pass }) => {
+  saveCred(user, pass);   // OS 키체인에 기억 — 다음 실행부터 자동 시도
   const pending = authCallbacks; authCallbacks = [];
   for (const cb of pending) cb(user, pass);
   if (authPrompt && !authPrompt.isDestroyed()) { authPrompt.removeAllListeners('closed'); authPrompt.close(); authPrompt = null; }
@@ -101,8 +140,18 @@ ipcMain.on('coxpit-auth-submit', (_e, { user, pass }) => {
 ipcMain.on('coxpit-auth-cancel', () => {
   if (authPrompt && !authPrompt.isDestroyed()) authPrompt.close();
 });
+ipcMain.on('coxpit-use-local', () => {
+  const pending = authCallbacks; authCallbacks = [];
+  for (const cb of pending) cb();   // 이 요청 인증은 취소(격리 데몬으로 갈아탐)
+  if (authPrompt && !authPrompt.isDestroyed()) { authPrompt.removeAllListeners('closed'); authPrompt.close(); authPrompt = null; }
+  startPrivateDaemon();
+});
+let authTries = 0;
 app.on('login', (event, _wc, _req, _authInfo, callback) => {
   event.preventDefault();
+  authTries++;
+  if (authTries === 1) { const c = loadCred(); if (c) { callback(c.user, c.pass); return; } }  // 기억한 키 먼저
+  else { clearCred(); }   // 저장한 키가 틀렸다 → 지우고 물어본다
   promptBasicAuth(callback);
 });
 
@@ -111,32 +160,58 @@ function daemonRoot() {
   return app.isPackaged ? path.join(process.resourcesPath, 'daemon') : path.join(__dirname, '..');
 }
 
-function startDaemon() {
+// 데몬 스폰 — COXPIT_PORT 는 선호값(점유 시 데몬이 자동으로 빈 포트로 이동). 실제 포트는 락에서 읽는다.
+function spawnDaemon({ dataDir, preferPort }) {
   const root = daemonRoot();
-  daemon = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'index.ts')], {
+  const child = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'index.ts')], {
     cwd: root,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
       COXPIT_HOST: '127.0.0.1',
-      COXPIT_PORT: String(EMBED_PORT),
-      // 공유 기본 경로 — npm 데몬과 같은 상태를 본다(동시 실행은 데몬 락이 차단).
-      COXPIT_DB: path.join(DATA_DIR, 'coxpit.db'),
+      COXPIT_PORT: String(preferPort),
+      COXPIT_DB: path.join(dataDir, 'coxpit.db'),
       // 데스크톱 = 로컬 앱: 루프백 전용 바인드라 내부 인증은 끈다.
       COXPIT_AUTH_DISABLED: '1',
     },
     stdio: 'ignore',
   });
-  daemon.on('exit', (code) => {
+  child.on('exit', (code) => {
     daemon = null;
     if (restarting) return; // 의도된 재시작 — 에러 페이지 대신 respawn 이 이어진다
     if (win && !win.isDestroyed()) {
       win.loadURL('data:text/html,<body style="background:%230b0d12;color:%23e25b67;font-family:monospace;padding:40px">coxpit daemon exited (code ' + code + '). Restart the app.</body>');
     }
   });
+  return child;
 }
 
-let restarting = false;
+// 기본 임베드 데몬 기동 + 실제 포트 read-back → boardOrigin 갱신(선호 포트 점유돼도 안전).
+async function startDaemon() {
+  daemonDir = DATA_DIR;
+  daemon = spawnDaemon({ dataDir: DATA_DIR, preferPort: EMBED_PORT });
+  const port = await awaitDaemonPort(DATA_DIR, daemon.pid);
+  boardOrigin = { host: '127.0.0.1', port: port ?? EMBED_PORT };
+}
+
+// 탈출구 — 잠긴 데몬을 못 뚫을 때: 별도 데이터 폴더(격리) + 인증 없음 + 자동 포트로 자기 데몬을 띄우고
+// 창을 거기로. 락·포트 충돌이 구조적으로 불가(다른 폴더). 빈 워크스페이스로 시작된다.
+async function startPrivateDaemon() {
+  restarting = true;
+  if (daemon) { try { daemon.kill(); } catch { /* gone */ } daemon = null; }
+  try { fs.mkdirSync(PRIVATE_DIR, { recursive: true }); } catch { /* */ }
+  await sleep(300);
+  daemonDir = PRIVATE_DIR;
+  daemon = spawnDaemon({ dataDir: PRIVATE_DIR, preferPort: EMBED_PORT });
+  const port = await awaitDaemonPort(PRIVATE_DIR, daemon.pid) ?? EMBED_PORT;
+  boardOrigin = { host: '127.0.0.1', port };
+  restarting = false;
+  if (win && !win.isDestroyed()) {
+    try { await waitHealth(); await win.loadURL('http://127.0.0.1:' + port + '/'); win.setTitle('Coxpit — private local'); }
+    catch (e) { /* exit handler surfaces failure */ }
+  }
+}
+
 function restartEmbeddedDaemon() {
   if (!daemon) {
     dialog.showMessageBox({
@@ -146,14 +221,17 @@ function restartEmbeddedDaemon() {
     return;
   }
   restarting = true;
+  const dir = daemonDir;
   try { daemon.kill(); } catch { /* gone */ }
   setTimeout(async () => {
-    startDaemon();
+    daemon = spawnDaemon({ dataDir: dir, preferPort: EMBED_PORT });
+    const port = await awaitDaemonPort(dir, daemon.pid) ?? boardOrigin.port;
+    boardOrigin = { host: '127.0.0.1', port };
+    restarting = false;
     try {
       await waitHealth();
-      if (win && !win.isDestroyed()) win.reload();
+      if (win && !win.isDestroyed()) await win.loadURL('http://127.0.0.1:' + port + '/');
     } catch { /* error page will show via exit handler on next failure */ }
-    restarting = false;
   }, 600);
 }
 
@@ -269,6 +347,7 @@ function buildMenu() {
         { type: 'separator' },
         { label: 'Daemon Info…', click: showDaemonInfo },
         { label: 'Restart Daemon', click: restartEmbeddedDaemon },
+        { label: 'Start Private Local Daemon…', click: startPrivateDaemon },
         { type: 'separator' },
         { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
         { type: 'separator' },
@@ -284,6 +363,7 @@ function buildMenu() {
         { label: 'Check for Updates…', click: checkForUpdatesManually },
         { label: 'Daemon Info…', click: showDaemonInfo },
         { label: 'Restart Daemon', click: restartEmbeddedDaemon },
+        { label: 'Start Private Local Daemon…', click: startPrivateDaemon },
       ],
     }] : []),
   ];
@@ -297,8 +377,7 @@ app.whenReady().then(async () => {
   if (running) {
     boardOrigin = running; // attach — the machine's daemon is the single source of truth
   } else {
-    boardOrigin = { host: '127.0.0.1', port: EMBED_PORT };
-    startDaemon();
+    await startDaemon();
   }
   createWindow();
   setupAutoUpdate();

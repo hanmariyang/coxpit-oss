@@ -39,6 +39,16 @@ function pidAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
+/** 실제 바인드 포트를 락에 반영(자동 포트 이동 후 — 데스크톱/외부가 실제 포트를 읽게). */
+export function updateLockPort(port: number): void {
+  try {
+    const cur = readLock(config.lockPath);
+    if (cur?.pid === process.pid && cur.port !== port) {
+      fs.writeFileSync(config.lockPath, JSON.stringify({ ...cur, port } satisfies LockInfo));
+    }
+  } catch { /* best effort */ }
+}
+
 /**
  * 락 획득. 이미 살아있는 데몬이 같은 DB 를 잡고 있으면 안내 후 종료.
  * 죽은 프로세스가 남긴 stale 락은 치우고 진행한다.

@@ -10,10 +10,11 @@ import { eq, inArray, and, like, desc } from 'drizzle-orm';
 import { authGate } from './auth';
 import { loginPageHTML } from './login';
 import {
-  authMode, authIsOpen, verifyKey, storeKey, signSession, SESSION_COOKIE,
+  authMode, authIsOpen, verifyKey, storeKey, clearStored, isExposedBind, signSession, SESSION_COOKIE,
   clientKey, rateCheck, rateFail, rateReset, setupAllowed,
 } from './authkey';
 import { config } from './config';
+import { readSettings, writeSettings } from './settings';
 import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
@@ -350,6 +351,72 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // v5.1 Documents (문서함) — every output the workspace produced, grouped by run (DB-only).
   app.get('/api/documents', async () => await listDocuments());
+
+  // ── Settings (settings.json 레이어) ──────────────────────────────
+  // 현재 유효값 + env 잠금 + 인증 상태. 시크릿(키)은 절대 안 내보낸다(hasKey 만).
+  app.get('/api/settings', async () => {
+    const s = readSettings();
+    const m = authMode();
+    return {
+      effective: {
+        port: config.port, portStrict: config.portStrict, host: config.host,
+        webhookUrl: config.webhookUrl, publicUrl: config.publicUrl,
+        agent: { provider: config.agent.provider, model: config.agent.model, count: config.agent.count, real: config.agent.real },
+      },
+      stored: s,
+      envLocked: config.envLocked,
+      auth: { mode: m.mode, exposed: isExposedBind(), hasKey: m.mode === 'stored' || m.mode === 'env', canManage: m.mode !== 'env' && !config.envLocked.authDisabled },
+      dataDir: pdirname(config.dbPath),
+      version: config.version,
+    };
+  });
+
+  // 부분 저장. env 로 고정된 필드는 무시(파일이 env 를 못 이김). 포트·호스트는 재시작 반영.
+  app.patch('/api/settings', async (req, reply) => {
+    const b = (req.body ?? {}) as {
+      port?: unknown; portStrict?: unknown; host?: unknown; webhookUrl?: unknown; publicUrl?: unknown;
+      agent?: { provider?: unknown; model?: unknown; count?: unknown; real?: unknown };
+    };
+    const patch: Record<string, unknown> = {};
+    const L = config.envLocked;
+    if (!L.port && b.port !== undefined) {
+      const p = Number(b.port);
+      if (!Number.isInteger(p) || p < 1 || p > 65535) return reply.code(400).send({ error: 'port must be 1–65535' });
+      patch.port = p;
+    }
+    if (!L.port && b.portStrict !== undefined) patch.portStrict = !!b.portStrict;
+    if (!L.host && b.host !== undefined) patch.host = String(b.host);
+    if (!L.webhookUrl && b.webhookUrl !== undefined) patch.webhookUrl = String(b.webhookUrl);
+    if (!L.publicUrl && b.publicUrl !== undefined) patch.publicUrl = String(b.publicUrl);
+    if (b.agent) {
+      const a: Record<string, unknown> = {};
+      if (b.agent.provider === 'claude-code' || b.agent.provider === 'codex') a.provider = b.agent.provider;
+      if (b.agent.model !== undefined) a.model = String(b.agent.model);
+      if (b.agent.count !== undefined) { const c = Number(b.agent.count); if (Number.isInteger(c) && c >= 1 && c <= 12) a.count = c; }
+      if (!L.real && b.agent.real !== undefined) a.real = !!b.agent.real;
+      if (Object.keys(a).length) patch.agent = a;
+    }
+    const next = writeSettings(patch);
+    const portChanged = 'port' in patch || 'portStrict' in patch || 'host' in patch;
+    return { ok: true, stored: next, restartRequired: portChanged };
+  });
+
+  // 접근 키 셀프서비스 — 설정/변경. env 모드(COXPIT_AUTH_PASS)면 파일로 못 바꿈(409).
+  app.post('/api/settings/key', async (req, reply) => {
+    if (authMode().mode === 'env' || config.envLocked.authDisabled) return reply.code(409).send({ error: 'auth is controlled by env — unset COXPIT_AUTH_PASS/COXPIT_AUTH_DISABLED to manage the key here' });
+    const b = (req.body ?? {}) as { key?: unknown };
+    const key = typeof b.key === 'string' ? b.key : '';
+    if (key.length < 6) return reply.code(400).send({ error: 'key must be at least 6 characters' });
+    storeKey(key);
+    return { ok: true };
+  });
+
+  // 접근 키 해제 — loopback 이면 무인증, 노출이면 첫 방문 셋업 상태로 되돌아감.
+  app.delete('/api/settings/key', async (_req, reply) => {
+    if (authMode().mode === 'env' || config.envLocked.authDisabled) return reply.code(409).send({ error: 'auth is controlled by env' });
+    clearStored();
+    return { ok: true };
+  });
 
   // 아카이브 — 닫힌 태스크 목록(최신순, 페이지네이션·필터). 카드가 아니라 한 줄 행.
   app.get('/api/archive', async (req) => {

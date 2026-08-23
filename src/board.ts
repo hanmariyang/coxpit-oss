@@ -337,7 +337,28 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .gov-order{color:var(--muted);border-top:1px solid var(--line);padding-top:6px;margin-top:2px}
   .gov-order b{color:var(--brand)}
   /* v5.1 Documents (문서함) — grouped by run, list only, no cards */
-  #docbox .db-sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+  #docbox .db-sub,#setbox .db-sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+  #setbox .db-sub code{font-family:var(--mono);color:var(--brand);font-size:12px}
+  .set-list{max-width:620px;display:flex;flex-direction:column;gap:14px}
+  .set-sec{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:14px 16px}
+  .set-h{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--faint);margin:0 0 12px}
+  .set-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+  .set-lbl{flex:0 0 140px;font-size:13px;color:var(--muted)}
+  .set-row input:not([type=checkbox]),.set-row select{flex:1;background:#0e1118;border:1px solid var(--line);border-radius:7px;
+    color:var(--ink);font-family:var(--mono);font-size:13px;padding:8px 10px;outline:none;min-width:0}
+  .set-row input:focus,.set-row select:focus{border-color:var(--brand)}
+  .set-row input:disabled,.set-row select:disabled{opacity:.5;cursor:not-allowed}
+  .set-check{align-items:flex-start;gap:10px}
+  .set-check input[type=checkbox]{flex:0 0 auto;width:15px;height:15px;margin:2px 0 0;accent-color:var(--brand)}
+  .set-check span{flex:1;min-width:0;font-size:12.5px;color:var(--muted);line-height:1.5}
+  .set-note{font-size:11.5px;color:var(--faint);margin-top:6px}
+  .set-lock{font-family:var(--mono);font-size:10px;color:var(--s-preparing);margin-left:6px}
+  .set-state{font-size:12.5px;color:var(--ink);margin-bottom:10px}
+  .set-actions{display:flex;gap:8px;margin-top:4px}
+  .set-kv{display:flex;justify-content:space-between;gap:12px;font-family:var(--mono);font-size:12px;padding:3px 0;color:var(--muted)}
+  .set-kv b{color:var(--ink);font-weight:500;word-break:break-all;text-align:right}
+  .set-save{display:flex;align-items:center;gap:12px;margin-top:2px}
+  .set-saved{font-family:var(--mono);font-size:12px;color:var(--done)}
   .db-tools{display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
   .db-tools select,.db-tools input{background:var(--surface);border:1px solid var(--line);border-radius:7px;
     color:var(--muted);font-family:var(--mono);font-size:12px;padding:6px 10px}
@@ -886,6 +907,9 @@ ${ICON_SPRITE}
       <button type="button" class="navi" data-view="archive">
         <svg class="ic"><use href="#i-archive"/></svg><span>Archive</span><span class="nsp"></span><span class="n" id="navArchiveN"></span>
       </button>
+      <button type="button" class="navi" data-view="settings">
+        <svg class="ic"><use href="#i-settings"/></svg><span>Settings</span>
+      </button>
     </nav>
 
     <div class="railsp"></div>
@@ -1026,6 +1050,10 @@ ${ICON_SPRITE}
         <input id="dbQ" placeholder="search path or title…" autocomplete="off" />
       </div>
       <div class="db-list" id="dbList"></div>
+    </div>
+    <div id="setbox" hidden>
+      <p class="db-sub">이 데몬의 설정 — 데이터 폴더의 <code>settings.json</code> 에 저장. env 로 고정된 값은 잠깁니다.</p>
+      <div class="set-list" id="setList"></div>
     </div>
   </main>
 </div>
@@ -1639,13 +1667,17 @@ function setView(v){
   });
   const archive = v==='archive';
   const docs = v==='documents';
+  const settings = v==='settings';
+  const alt = archive||docs||settings;
   $('archive').hidden = !archive;
   $('docbox').hidden = !docs;
-  $('grid').style.display = (archive||docs) ? 'none' : '';
-  $('empty').style.display = (archive||docs) ? 'none' : ($('grid').innerHTML ? 'none' : 'flex');
-  document.querySelector('.toolbar').style.display = (archive||docs) ? 'none' : 'flex';
+  $('setbox').hidden = !settings;
+  $('grid').style.display = alt ? 'none' : '';
+  $('empty').style.display = alt ? 'none' : ($('grid').innerHTML ? 'none' : 'flex');
+  document.querySelector('.toolbar').style.display = alt ? 'none' : 'flex';
   if (archive){ paintArchRepos(); $('archRepo').value = selectedRepo!=null ? String(selectedRepo) : ''; archFetch(true); reclaimRefresh(); }
   else if (docs){ renderDocbox(); }
+  else if (settings){ renderSettings(); }
   else render();
 }
 document.querySelectorAll('#viewNav .navi').forEach(b=>b.addEventListener('click', ()=>setView(b.dataset.view)));
@@ -1712,6 +1744,109 @@ $('dbList').addEventListener('click', (e)=>{
 $('dbRepo').addEventListener('change', paintDocbox);
 $('dbType').addEventListener('change', paintDocbox);
 $('dbQ').addEventListener('input', paintDocbox);
+
+// ── Settings 뷰 ──────────────────────────────
+let setData = null;
+async function renderSettings(){
+  const box = $('setList');
+  box.innerHTML = '<div class="db-load">loading…</div>';
+  try { setData = await (await fetch('/api/settings')).json(); }
+  catch(e){ box.innerHTML = '<div class="db-load">failed to load settings</div>'; return; }
+  const s = setData, ef = s.effective, L = s.envLocked, au = s.auth;
+  const lockNote = (on, envVar)=> on ? '<span class="set-lock">set by '+esc(envVar)+'</span>' : '';
+  const dis = (on)=> on ? ' disabled' : '';
+  const keyState = au.mode==='env' ? 'Managed by env (COXPIT_AUTH_PASS)'
+    : L.authDisabled ? 'Disabled by env (COXPIT_AUTH_DISABLED)'
+    : au.hasKey ? 'Access key is set' + (au.exposed?'':' (loopback trusted — asked only when exposed)')
+    : au.exposed ? 'No key yet — this daemon is exposed, set one' : 'No key — loopback trusted, no sign-in needed';
+  box.innerHTML =
+    '<div class="set-sec"><div class="set-h">Daemon</div>'
+      + '<label class="set-row"><span class="set-lbl">Port '+lockNote(L.port,'COXPIT_PORT')+'</span>'
+        + '<input id="setPort" type="number" min="1" max="65535" value="'+esc(String(ef.port))+'"'+dis(L.port)+'></label>'
+      + '<label class="set-row set-check"><input id="setStrict" type="checkbox"'+(ef.portStrict?' checked':'')+dis(L.port)+'>'
+        + '<span>Fail if the port is busy (instead of auto-moving to the next free port)</span></label>'
+      + '<label class="set-row"><span class="set-lbl">Bind host '+lockNote(L.host,'COXPIT_HOST')+'</span>'
+        + '<input id="setHost" value="'+escA(ef.host)+'" placeholder="127.0.0.1"'+dis(L.host)+'></label>'
+      + '<div class="set-note">Port and host apply on the next daemon restart.</div>'
+    + '</div>'
+    + '<div class="set-sec"><div class="set-h">Access key</div>'
+      + '<div class="set-state">'+esc(keyState)+'</div>'
+      + (au.canManage
+          ? '<label class="set-row"><span class="set-lbl">'+(au.hasKey?'Change key':'Set key')+'</span>'
+              + '<input id="setKey" type="password" placeholder="at least 6 characters" autocomplete="new-password"></label>'
+            + '<div class="set-actions"><button type="button" class="btn sm" id="setKeySave">'+(au.hasKey?'Update key':'Set key')+'</button>'
+              + (au.hasKey?'<button type="button" class="btn-ghost sm" id="setKeyClear">Remove key</button>':'')+'</div>'
+          : '<div class="set-note">Unset COXPIT_AUTH_PASS / COXPIT_AUTH_DISABLED to manage the key here.</div>')
+    + '</div>'
+    + '<div class="set-sec"><div class="set-h">Agent defaults</div>'
+      + '<label class="set-row"><span class="set-lbl">Provider</span>'
+        + '<select id="setProv"><option value="claude-code"'+(ef.agent.provider==='claude-code'?' selected':'')+'>Claude</option>'
+        + '<option value="codex"'+(ef.agent.provider==='codex'?' selected':'')+'>Codex</option></select></label>'
+      + '<label class="set-row"><span class="set-lbl">Model</span>'
+        + '<input id="setModel" value="'+escA(ef.agent.model||'')+'" placeholder="CLI default"></label>'
+      + '<label class="set-row"><span class="set-lbl">Default run count</span>'
+        + '<input id="setCount" type="number" min="1" max="12" value="'+esc(String(ef.agent.count))+'"></label>'
+      + '<label class="set-row set-check"><input id="setReal" type="checkbox"'+(ef.agent.real?' checked':'')+dis(L.real)+'>'
+        + '<span>Default to Real agent (spends credits) instead of Dry run '+lockNote(L.real,'COXPIT_AGENT_REAL')+'</span></label>'
+    + '</div>'
+    + '<div class="set-sec"><div class="set-h">Notifications</div>'
+      + '<label class="set-row"><span class="set-lbl">Webhook URL '+lockNote(L.webhookUrl,'COXPIT_WEBHOOK_URL')+'</span>'
+        + '<input id="setWebhook" value="'+escA(ef.webhookUrl||'')+'" placeholder="https://… (POSTed when a run settles)"'+dis(L.webhookUrl)+'></label>'
+      + '<label class="set-row"><span class="set-lbl">Public URL '+lockNote(L.publicUrl,'COXPIT_PUBLIC_URL')+'</span>'
+        + '<input id="setPublic" value="'+escA(ef.publicUrl||'')+'" placeholder="https://… (deep-link base in notifications)"'+dis(L.publicUrl)+'></label>'
+    + '</div>'
+    + '<div class="set-sec"><div class="set-h">About</div>'
+      + '<div class="set-kv"><span>version</span><b>'+esc(s.version)+'</b></div>'
+      + '<div class="set-kv"><span>data folder</span><b>'+esc(s.dataDir)+'</b></div>'
+    + '</div>'
+    + '<div class="set-save"><button type="button" class="btn" id="setSave">Save settings</button>'
+      + '<span class="set-saved" id="setSaved"></span></div>';
+  wireSettings();
+}
+function wireSettings(){
+  const save = $('setSave'); if (!save) return;
+  save.addEventListener('click', async ()=>{
+    const L = setData.envLocked;
+    const body = { agent:{} };
+    if (!L.port){ body.port = Number($('setPort').value); body.portStrict = $('setStrict').checked; }
+    if (!L.host) body.host = $('setHost').value.trim();
+    if (!L.webhookUrl) body.webhookUrl = $('setWebhook').value.trim();
+    if (!L.publicUrl) body.publicUrl = $('setPublic').value.trim();
+    body.agent.provider = $('setProv').value;
+    body.agent.model = $('setModel').value.trim();
+    body.agent.count = Number($('setCount').value);
+    if (!L.real) body.agent.real = $('setReal').checked;
+    try {
+      const r = await fetch('/api/settings', { method:'PATCH', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok){ toast(j.error||'save failed','error'); return; }
+      $('setSaved').textContent = j.restartRequired ? 'saved — restart the daemon to apply port/host' : 'saved';
+      setTimeout(()=>{ const el=$('setSaved'); if(el) el.textContent=''; }, 5000);
+      toast('settings saved'+(j.restartRequired?' — restart to apply port/host':''), 'ok');
+    } catch(e){ toast('save failed','error'); }
+  });
+  const ks = $('setKeySave');
+  if (ks) ks.addEventListener('click', async ()=>{
+    const key = $('setKey').value;
+    if ((key||'').length < 6){ toast('key must be at least 6 characters','error'); return; }
+    try {
+      const r = await fetch('/api/settings/key', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ key }) });
+      const j = await r.json();
+      if (!r.ok){ toast(j.error||'failed','error'); return; }
+      toast('access key set','ok'); renderSettings();
+    } catch(e){ toast('failed','error'); }
+  });
+  const kc = $('setKeyClear');
+  if (kc) kc.addEventListener('click', async ()=>{
+    if (!(await confirmUI('Remove the access key?', { sub:'On a loopback bind this means no sign-in. On an exposed bind the daemon returns to first-run setup.', okLabel:'Remove key' }))) return;
+    try {
+      const r = await fetch('/api/settings/key', { method:'DELETE' });
+      const j = await r.json();
+      if (!r.ok){ toast(j.error||'failed','error'); return; }
+      toast('access key removed','ok'); renderSettings();
+    } catch(e){ toast('failed','error'); }
+  });
+}
 // 뷰 nav 카운트 — Active=스코프 run 수, Goals=스코프 그룹 수, Archive=닫힌 태스크 수(hydrate)
 function paintNavCounts(){
   const scoped = [...runs.values()].filter(runInScope);

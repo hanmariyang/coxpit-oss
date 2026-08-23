@@ -2,9 +2,10 @@ import { config } from './config';
 import { authMode, ensureSetupToken, isExposedBind } from './authkey';
 import { db, ensureSchema } from './db';
 import { machines } from './db/schema';
-import { acquireDaemonLock } from './lock';
+import { acquireDaemonLock, updateLockPort } from './lock';
 import { reconcileOrphanRuns } from './orchestrator';
 import { buildServer } from './server';
+import type { AddressInfo } from 'node:net';
 
 // Windows 네이티브는 에이전트 실행 계층(sh·tmux·git worktree over sh)이 성립하지 않는다.
 // 보드/원격 머신 관제는 되지만 로컬 run 은 불가 — WSL 데몬을 안내한다.
@@ -31,15 +32,35 @@ const orphans = await reconcileOrphanRuns();
 if (orphans > 0) console.log(`[coxpit] settled ${orphans} orphaned run(s) from a previous daemon instance`);
 
 const app = await buildServer();
-try {
-  await app.listen({ host: config.host, port: config.port });
-} catch (e) {
-  if ((e as NodeJS.ErrnoException)?.code === 'EADDRINUSE') {
-    console.error(`[coxpit] port ${config.port} is already in use — is another daemon (or app) running? Set COXPIT_PORT to change.`);
-    process.exit(1);
+
+// 포트 바인드 — 선호 포트가 점유면 자동으로 다음 빈 포트로 이동(고정 포트가 필수면
+// COXPIT_PORT_STRICT=1 로 실패 처리). 어떤 고정 포트에도 의존하지 않아 "포트 점유로 죽는" 케이스 소멸.
+async function listenAuto(): Promise<number> {
+  const pref = config.port;
+  const tryBind = async (p: number) => { await app.listen({ host: config.host, port: p }); };
+  try {
+    await tryBind(pref);
+    return pref;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== 'EADDRINUSE') throw e;
+    if (config.portStrict) {
+      console.error(`[coxpit] port ${pref} is already in use and COXPIT_PORT_STRICT=1 — refusing to move. Free the port or unset strict.`);
+      process.exit(1);
+    }
   }
-  throw e;
+  // pref+1..+20 스캔 → 그래도 없으면 OS 배정(:0).
+  for (let p = pref + 1; p <= pref + 20; p++) {
+    try { await tryBind(p); console.warn(`[coxpit] port ${pref} was busy — moved to ${p}.`); return p; }
+    catch (e) { if ((e as NodeJS.ErrnoException)?.code !== 'EADDRINUSE') throw e; }
+  }
+  await app.listen({ host: config.host, port: 0 });
+  const p = (app.server.address() as AddressInfo).port;
+  console.warn(`[coxpit] ports ${pref}..${pref + 20} were busy — moved to OS-assigned ${p}.`);
+  return p;
 }
+const boundPort = await listenAuto();
+updateLockPort(boundPort);   // 락에 실제 포트 반영 — 데스크톱/외부가 이걸 읽어 붙는다.
+console.log(`[coxpit] listening on http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${boundPort}/`);
 
 // 접근키 인증 상태 안내. 첫 실행(키 미설정)이면 브랜디드 셋업 페이지 + 1회용 셋업 토큰을 찍는다.
 // (토큰 = Jupyter 스타일: 로그 접근자 = 머신 소유자. 터널/타넷/로컬 어디서 붙어도 이 토큰으로 셋업 가능.)
@@ -55,7 +76,7 @@ try {
     const token = ensureSetupToken();
     console.log(
       '[coxpit] no access key configured yet — open the board to set one (first-run setup).\n' +
-      `[coxpit] one-time setup token (needed unless you visit http://127.0.0.1:${config.port} directly): ${token}`,
+      `[coxpit] one-time setup token (needed unless you visit http://127.0.0.1:${boundPort} directly): ${token}`,
     );
   } else if (m.mode === 'env') {
     console.log('[coxpit] access-key auth ON (COXPIT_AUTH_PASS) — the branded unlock page asks for that key.');
