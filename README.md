@@ -1,5 +1,7 @@
 <p align="center"><img src="docs/brand/og-lockup.png" alt="coxpit — the cockpit for your agent fleet" width="640"></p>
 
+> 📓 **Build log** · how this was built, on the [AIP Lab blog](https://aiplab.kr/blog/coxpit-fleet.html).
+
 # Coxpit
 
 **Own your agent fleet. Run parallel AI coding agents across your own machines — steer them from any browser.**
