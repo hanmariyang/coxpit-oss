@@ -96,6 +96,9 @@ pass "v5.2.1 repo-add opens browser only · close-X base style present"
 case "$BOARD_HTML" in *'data-view="settings"'*) : ;; *) fail "Settings nav entry missing";; esac
 case "$BOARD_HTML" in *'id="setbox"'*) : ;; *) fail "Settings view container missing";; esac
 case "$BOARD_HTML" in *"function renderSettings"*) : ;; *) fail "renderSettings missing";; esac
+# Remote access moved out of onboarding into Settings
+case "$BOARD_HTML" in *'rmtSettings'*) : ;; *) fail "Settings remote-access container missing";; esac
+case "$BOARD_HTML" in *'rmtOnboard'*) fail "remote access should be removed from onboarding (rmtOnboard present)";; *) : ;; esac
 # GET /api/settings shape + env locks (this suite boots with COXPIT_PORT/AUTH_DISABLED/WEBHOOK_URL set)
 SET=$(curl -s "$B/api/settings")
 case "$SET" in *'"effective"'*'"envLocked"'*'"auth"'*) : ;; *) fail "settings GET shape: $SET";; esac

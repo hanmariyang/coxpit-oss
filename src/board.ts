@@ -1801,6 +1801,10 @@ async function renderSettings(){
       + '<label class="set-row"><span class="set-lbl">Public URL '+lockNote(L.publicUrl,'COXPIT_PUBLIC_URL')+'</span>'
         + '<input id="setPublic" value="'+escA(ef.publicUrl||'')+'" placeholder="https://… (deep-link base in notifications)"'+dis(L.publicUrl)+'></label>'
     + '</div>'
+    + '<div class="set-sec"><div class="set-h">Remote access</div>'
+      + '<div class="set-state">Reach this daemon from your other devices — coxpit detects your Tailscale and drives it, or hands a copy-paste recipe. It never hosts a relay.</div>'
+      + '<div id="rmtSettings" class="rmt">checking…</div>'
+    + '</div>'
     + '<div class="set-sec"><div class="set-h">About</div>'
       + '<div class="set-kv"><span>version</span><b>'+esc(s.version)+'</b></div>'
       + '<div class="set-kv"><span>data folder</span><b>'+esc(s.dataDir)+'</b></div>'
@@ -1808,6 +1812,7 @@ async function renderSettings(){
     + '<div class="set-save"><button type="button" class="btn" id="setSave">Save settings</button>'
       + '<span class="set-saved" id="setSaved"></span></div>';
   wireSettings();
+  loadRemote();   // Remote access 섹션(#rmtSettings) 채우기 + 토글 배선
 }
 function wireSettings(){
   const save = $('setSave'); if (!save) return;
@@ -1989,10 +1994,9 @@ function paintOnboarding(goalsOnly){
     + '<li><b>Write a task</b> — title + a prompt that names the target files</li>'
     + '<li><b>Run fleet</b> — try <b>Dry run</b> first (free rehearsal), then <b>Real agent</b></li>'
     + '</ol></div>'
-    + '<div class="setup-sec"><p class="setup-label">Remote access</p>'
-    + '<div id="rmtOnboard" class="rmt">checking Tailscale…</div></div>'
     + '</div>';
-  loadRemote();
+  // Remote access(Serve/Funnel)는 대다수 사용자에겐 불필요 → 온보딩에서 제거하고 Settings 에서 상세히 다룬다.
+  // (헤더 ⤢ 버튼으로도 여전히 접근 가능)
 }
 function cardHTML(r){
   const task = tasks.get(r.taskId);
@@ -3764,9 +3768,9 @@ async function loadRemote(){
 function paintRemote(){
   const html = remoteCardHTML(remoteData);
   const ov = $('remoteBody'); if (ov) ov.innerHTML = html;
-  const ob = $('rmtOnboard'); if (ob) ob.innerHTML = html;
+  const st = $('rmtSettings'); if (st) st.innerHTML = html;   // Settings 페이지 인라인
   wireRemote($('remoteOverlay'));
-  wireRemote(document.getElementById('empty'));
+  wireRemote(document.getElementById('setbox'));
 }
 
 function wireRemote(scope){
