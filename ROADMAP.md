@@ -2,7 +2,7 @@
 
 Coxpit's goal is simple: prove that a self-hosted, owner-first agent-fleet cockpit can be small, sharp, and genuinely daily-drivable — one daemon, one self-contained board, no build step, no telemetry.
 
-Where the big players (Orca's desktop ADE, Paseo's multi-client daemon) go wide, Coxpit stays narrow and deep: tmux-native terminals, git worktrees as the isolation unit, and a swarm loop (plan → fan-out → integrate) you can read end-to-end in an afternoon.
+Where the big agent desktops go wide, Coxpit stays narrow and deep: tmux-native terminals, git worktrees as the isolation unit, and a swarm loop (plan → fan-out → integrate) you can read end-to-end in an afternoon.
 
 ## Shipped
 
