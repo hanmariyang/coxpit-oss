@@ -102,11 +102,17 @@ case "$BOARD_HTML" in *'rmtOnboard'*) fail "remote access should be removed from
 # Phase 0 — Cockpit scaffold (terminal-first shell, parallel dev at /cockpit)
 expect_code 200 "$B/cockpit"
 CKPT=$(curl -s "$B/cockpit")
-case "$CKPT" in *'preview · Phase 0'*) : ;; *) fail "cockpit scaffold marker missing";; esac
-case "$CKPT" in *'터미널 우선 셸'*) : ;; *) fail "cockpit shell title missing";; esac
+case "$CKPT" in *'preview · Phase'*) : ;; *) fail "cockpit preview marker missing";; esac
+case "$CKPT" in *'coxpit · cockpit'*'workspace'*) : ;; *) fail "cockpit shell title missing";; esac
 case "$CKPT" in *"location.replace('/')"*) : ;; *) fail "cockpit mobile→board redirect missing";; esac
 case "$BOARD_HTML" in *'href="/cockpit"'*) : ;; *) fail "board Cockpit-preview link missing";; esac
 pass "Phase 0 cockpit scaffold served + board toggle (parallel, non-breaking)"
+
+# Phase 2 — workspace tree + pane-grid terminal (xterm via /vendor + /api/fleet + /ws/term)
+case "$CKPT" in *'/vendor/xterm.js'*'/vendor/addon-fit.js'*'/vendor/addon-unicode11.js'*) : ;; *) fail "cockpit xterm vendor scripts missing";; esac
+case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "cockpit tree/pane logic missing";; esac
+case "$CKPT" in *'/api/fleet?view=all'*'/ws/term/'*) : ;; *) fail "cockpit fleet/term wiring missing";; esac
+pass "Phase 2 cockpit workspace tree + pane-grid terminal (xterm attach, auto-tile)"
 # GET /api/settings shape + env locks (this suite boots with COXPIT_PORT/AUTH_DISABLED/WEBHOOK_URL set)
 SET=$(curl -s "$B/api/settings")
 case "$SET" in *'"effective"'*'"envLocked"'*'"auth"'*) : ;; *) fail "settings GET shape: $SET";; esac
