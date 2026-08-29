@@ -106,11 +106,43 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .empty h1{font-family:var(--mono);font-size:16px;margin:0 0 8px;color:var(--ink)}
   .empty p{color:var(--muted);font-size:13px;margin:0}
 
-  .reqbar{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line);background:var(--surface);padding:11px 14px;font-family:var(--mono)}
-  .reqbar .ctx{font-size:11px;color:var(--brand-ink);background:var(--brand);border-radius:6px;padding:3px 9px;font-weight:600}
-  .reqbar .caret{color:var(--brand)}
-  .reqbar .ph{color:var(--faint);font-size:13px;flex:1}
-  .reqbar .kbd{border:1px solid var(--line-hi);border-radius:5px;padding:1px 6px;color:var(--faint);font-size:11px}
+  .reqbar{display:flex;align-items:center;gap:9px;border-top:1px solid var(--line);background:var(--surface);padding:9px 12px;font-family:var(--mono)}
+  .modes{display:inline-flex;gap:2px;border:1px solid var(--line);border-radius:8px;padding:2px;background:var(--panel)}
+  .mode{font-size:11px;color:var(--muted);padding:4px 9px;border-radius:6px;cursor:pointer;background:none;border:none;font-family:var(--mono);white-space:nowrap}
+  .mode.on{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.3)}
+  .reqbar select{font-family:var(--mono);font-size:11.5px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:5px 7px;max-width:150px}
+  .reqbar select:disabled{opacity:.35}
+  .reqbar .tgt{font-size:11px;color:var(--brand);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+  .rlbl{display:inline-flex;align-items:center;gap:5px}
+  .rchk{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap}
+  .reqinput{flex:1;min-width:80px;font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 11px}
+  .reqinput:focus{outline:none;border-color:var(--line-hi);box-shadow:0 0 0 2px rgba(78,201,176,.18)}
+  .reqinput::placeholder{color:var(--faint)}
+  .reqgo{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:8px 13px;cursor:pointer}
+  .reqgo:disabled{opacity:.4;cursor:default}
+  .reqgo.bcast{background:var(--open);color:#0b0d12}
+  .reqgo.steer{background:var(--running);color:#04121e}
+  .toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line-hi);color:var(--ink);
+    font-family:var(--mono);font-size:12px;padding:8px 14px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40;max-width:80vw}
+  .toast.show{opacity:1}
+
+  /* ── Review (compare/merge) ── */
+  .review{position:absolute;inset:46px 0 0 0;background:var(--bg);display:none;flex-direction:column;overflow:hidden;z-index:20}
+  .review.on{display:flex}
+  .rv-head{display:flex;align-items:center;gap:10px;height:40px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .rv-head select{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:5px 8px;max-width:340px}
+  .rv-cols{flex:1;display:flex;gap:1px;background:var(--line);overflow-x:auto;min-height:0}
+  .rv-col{flex:1 0 340px;min-width:300px;display:flex;flex-direction:column;background:var(--bg)}
+  .rv-col-h{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);background:var(--surface);font-family:var(--mono);font-size:12px}
+  .rv-col-h .rid{color:var(--ink);font-weight:600}
+  .rv-col-h .stat{color:var(--faint);font-size:11px;margin-left:auto}
+  .rv-merge{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:6px;padding:4px 9px;cursor:pointer}
+  .rv-merge:disabled{opacity:.35;cursor:default;background:var(--line-hi);color:var(--faint)}
+  .rv-diff{flex:1;overflow:auto;padding:8px 10px;font-family:var(--mono);font-size:11.5px;line-height:1.5;white-space:pre;color:var(--muted)}
+  .rv-diff > span{display:block;min-height:1.2em}
+  .dl-file{color:var(--brand)} .dl-hunk{color:var(--open)} .dl-ctx{color:var(--muted)}
+  .dl-add{color:#7fdca0;background:rgba(88,179,104,.08)} .dl-del{color:#e58a92;background:rgba(226,91,103,.08)}
+  .rv-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--faint);font-family:var(--mono);font-size:13px;text-align:center;padding:24px}
 </style>
 </head>
 <body>
@@ -118,13 +150,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   <a class="brand" href="/"><img src="/brand/mark.png" alt="" /><span class="wm">coxpit</span></a>
   <span class="mach"><span class="dot"></span><span id="mach">local</span></span>
   <div class="vtabs">
-    <button type="button" class="vtab on"><span class="g">⌗</span>Terminal</button>
-    <button type="button" class="vtab" disabled title="Phase 3"><span class="g">⧉</span>Review</button>
-    <button type="button" class="vtab" disabled title="Phase 3"><span class="g">▤</span>Docs</button>
+    <button type="button" class="vtab on" id="vtTerm"><span class="g">⌗</span>Terminal</button>
+    <button type="button" class="vtab" id="vtReview"><span class="g">⧉</span>Review</button>
+    <button type="button" class="vtab" disabled title="Docs = 보드"><span class="g">▤</span>Docs</button>
   </div>
   <div class="right">
     <span class="ws" id="ws"><span class="dot"></span><span id="wstext">connecting</span></span>
-    <span class="wip">preview · Phase 2</span>
+    <span class="wip">preview · Phase 3</span>
     <a class="toggle" href="/">← Board</a>
   </div>
 </header>
@@ -152,12 +184,37 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       </div>
     </div>
     <div class="reqbar">
-      <span class="ctx">cockpit</span><span class="caret">›</span>
-      <span class="ph">요청바 — Phase 3 (repo 문맥에서 팬아웃)</span>
-      <span class="kbd">⏎</span>
+      <div class="modes">
+        <button type="button" class="mode on" data-mode="new" title="새 태스크를 만들고 N개 에이전트로 팬아웃">⌗ New</button>
+        <button type="button" class="mode" data-mode="steer" title="포커스한 run 에 후속 지시">➤ Steer</button>
+        <button type="button" class="mode" data-mode="bcast" title="열린 모든 페인 터미널에 그대로 입력">⊞ Broadcast</button>
+      </div>
+      <span class="rlbl" id="newCtl">
+        <select id="reqRepo" title="대상 repo"></select>
+        <select id="reqAgent" title="에이전트"></select>
+        <select id="reqCount" title="팬아웃 개수">
+          <option value="1">×1</option><option value="2">×2</option><option value="3" selected>×3</option><option value="4">×4</option>
+        </select>
+        <label class="rchk" title="실제 CLI 실행 (기본=드라이런)"><input type="checkbox" id="reqReal" /> real</label>
+      </span>
+      <span class="tgt" id="reqTgt" style="display:none"></span>
+      <input class="reqinput" id="reqInput" placeholder="무엇을 만들까요? — 요청을 적고 ⏎ 로 3개 에이전트에 팬아웃" autocomplete="off" />
+      <button type="button" class="reqgo" id="reqGo">Run ⏎</button>
     </div>
   </main>
 </div>
+
+<section class="review" id="review">
+  <div class="rv-head">
+    <span style="color:var(--brand)">⧉ Review</span>
+    <span>·</span>
+    <select id="rvTask" title="비교할 태스크"></select>
+    <span id="rvHint" style="margin-left:auto;color:var(--faint)">run diff 를 나란히 · 승자를 base 에 merge</span>
+  </div>
+  <div class="rv-cols" id="rvCols"></div>
+</section>
+
+<div class="toast" id="toast"></div>
 
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
@@ -168,21 +225,44 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); };
   var $ = function(id){ return document.getElementById(id); };
 
+  function toast(msg){ var t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._h); toast._h=setTimeout(function(){ t.classList.remove('show'); }, 2600); }
+
   // ── fleet 상태 ──
-  var fleet = { machines:[], repos:[], tasks:[], groups:[], runs:[] };
-  var runById = {};
+  var fleet = { machines:[], repos:[], tasks:[], groups:[], runs:[], providers:[] };
+  var runById = {}, taskById = {}, repoById = {};
   var fold = {};   // 접힘 상태(repo/goal/task 노드)
   function isFold(k){ return fold[k]===true; }
+  function repoOfRun(runId){ var r=runById[runId]; var t=r&&taskById[r.taskId]; return t?t.repoId:null; }
 
   async function hydrate(){
     try{
       var d = await (await fetch('/api/fleet?view=all')).json();
-      fleet = d; runById = {};
+      fleet = d; runById = {}; taskById = {}; repoById = {};
       (d.runs||[]).forEach(function(r){ runById[r.id]=r; });
+      (d.tasks||[]).forEach(function(t){ taskById[t.id]=t; });
+      (d.repos||[]).forEach(function(r){ repoById[r.id]=r; });
       if (d.machines && d.machines[0]) { $('mach').textContent = d.machines[0].slug; $('machName').textContent = d.machines[0].slug; }
       renderTree();
       syncPanes();
+      populateReq();
+      if (reviewOn) renderReviewPicker();
     }catch(e){ /* 재시도는 WS 재연결 or 다음 hydrate */ }
+  }
+
+  // ── 요청바 셀렉트 채우기(선택 유지) ──
+  function fillSelect(sel, items, val, label, keep){
+    var cur = keep && sel.value; sel.innerHTML='';
+    items.forEach(function(it){ var o=document.createElement('option'); o.value=val(it); o.textContent=label(it); sel.appendChild(o); });
+    if (cur){ for (var i=0;i<sel.options.length;i++){ if (sel.options[i].value===cur){ sel.value=cur; break; } } }
+  }
+  function populateReq(){
+    var repos = fleet.repos||[];
+    fillSelect($('reqRepo'), repos, function(r){return String(r.id);}, function(r){return r.name;}, true);
+    // repo 미선택 상태면 포커스 페인의 repo 로 기본
+    if (focusId){ var rp = repoOfRun((panes.find(function(p){return p.id===focusId;})||{}).runId); if (rp!=null) $('reqRepo').value=String(rp); }
+    var provs = fleet.providers||[];
+    if (provs.length) fillSelect($('reqAgent'), provs, function(p){return p.id;}, function(p){return p.label||p.id;}, true);
+    else if (!$('reqAgent').options.length){ var o=document.createElement('option'); o.value='claude-code'; o.textContent='claude-code'; $('reqAgent').appendChild(o); }
   }
 
   // ── 트리 렌더: Machine ▸ Repo ▸ Goal ▸ Task ▸ Run ──
@@ -246,6 +326,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     host.style.display = n ? 'grid' : 'none';
     $('paneCount').textContent = n + ' pane' + (n===1?'':'s');
     $('closeBtn').disabled = !focusId;
+    if (typeof reqMode!=='undefined' && reqMode==='bcast') setMode('bcast');
     if (!n) return;
     var cols = Math.ceil(Math.sqrt(n));
     var rows = Math.ceil(n / cols);
@@ -264,6 +345,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     $('closeBtn').disabled = !focusId;
     var p = panes.find(function(x){return x.id===id;});
     if (p && p.term) try{ p.term.focus(); }catch(e){}
+    if (typeof reqMode!=='undefined' && reqMode!=='new') setMode(reqMode);
   }
   function openRunPane(runId){
     var existing = paneByRun[runId];
@@ -345,6 +427,137 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   $('closeBtn').addEventListener('click', function(){ if (focusId) closePane(focusId); });
 
+  // ── 요청바: New(팬아웃) / Steer / Broadcast ──
+  var reqMode = 'new';
+  function focusRun(){ if (!focusId) return null; var p = panes.find(function(x){return x.id===focusId;}); return p?p.runId:null; }
+  function setMode(m){
+    reqMode = m;
+    Array.prototype.forEach.call(document.querySelectorAll('.mode'), function(b){ b.classList.toggle('on', b.dataset.mode===m); });
+    var go=$('reqGo'), inp=$('reqInput');
+    $('newCtl').style.display = m==='new'?'inline-flex':'none';
+    $('reqTgt').style.display = m==='new'?'none':'inline';
+    go.className = 'reqgo' + (m==='bcast'?' bcast':m==='steer'?' steer':'');
+    if (m==='new'){ go.textContent='Run ⏎'; inp.placeholder='무엇을 만들까요? — 요청을 적고 ⏎ 로 팬아웃'; }
+    else if (m==='steer'){ var rid=focusRun(); go.textContent='Steer ⏎';
+      $('reqTgt').textContent = rid?('➤ r'+rid+' 에 후속 지시'):'포커스한 페인 없음';
+      inp.placeholder = rid?('r'+rid+' 에이전트에게 다음 지시…'):'왼쪽 트리에서 run 을 열어 포커스하세요'; }
+    else { go.textContent='Send ⏎'; var n=panes.length;
+      $('reqTgt').textContent = '⊞ 열린 페인 '+n+'개에 브로드캐스트';
+      inp.placeholder = n?('열린 '+n+'개 터미널에 그대로 전송 (엔터 포함)'):'열린 페인이 없습니다'; }
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.mode'), function(b){ b.addEventListener('click', function(){ setMode(b.dataset.mode); $('reqInput').focus(); }); });
+
+  var submitting = false;
+  async function submitReq(){
+    var inp = $('reqInput'); var text = inp.value.trim();
+    if (reqMode==='new'){
+      if (!text || submitting) return;
+      var repoId = Number($('reqRepo').value); if (!repoId){ toast('repo 를 먼저 등록/선택하세요'); return; }
+      submitting=true; $('reqGo').disabled=true;
+      try{
+        var title = text.length>72 ? text.slice(0,69)+'…' : text;
+        var tk = await (await fetch('/api/tasks',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({repoId:repoId, title:title, prompt:text})})).json();
+        if (!tk || !tk.task){ toast('태스크 생성 실패'); return; }
+        var count = Number($('reqCount').value)||1;
+        var rr = await (await fetch('/api/tasks/'+tk.task.id+'/run',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({agent:$('reqAgent').value, count:count, real:$('reqReal').checked})})).json();
+        var ids = (rr&&rr.runs||[]).map(function(x){return x.id;});
+        inp.value='';
+        await hydrate();
+        // 팬아웃 자동 타일: 생성된 run 을 전부 페인으로
+        ids.forEach(function(id){ openRunPane(id); });
+        toast(ids.length+'개 에이전트 팬아웃 · r'+ids.join(' r'));
+      }catch(e){ toast('요청 실패: '+e); }
+      finally{ submitting=false; $('reqGo').disabled=false; }
+    } else if (reqMode==='steer'){
+      var rid = focusRun(); if (!rid){ toast('포커스한 페인이 없습니다'); return; }
+      if (!text || submitting) return;
+      submitting=true; $('reqGo').disabled=true;
+      try{
+        var res = await fetch('/api/runs/'+rid+'/steer',{method:'POST',headers:{'content-type':'application/json'},
+          body:JSON.stringify({message:text})});
+        if (res.ok){ inp.value=''; toast('r'+rid+' 에 후속 지시 전송'); }
+        else { var j = await res.json().catch(function(){return{};}); toast('steer 불가: '+(j.error||res.status)); }
+      }catch(e){ toast('steer 실패: '+e); }
+      finally{ submitting=false; $('reqGo').disabled=false; }
+    } else { // broadcast
+      if (!panes.length){ toast('열린 페인이 없습니다'); return; }
+      var payload = text + '\\r';
+      var sent=0;
+      panes.forEach(function(p){ if (p.ws && p.ws.readyState===1){ p.ws.send(JSON.stringify({t:'i',d:payload})); sent++; } });
+      inp.value='';
+      toast('브로드캐스트 → '+sent+'개 페인');
+    }
+  }
+  $('reqGo').addEventListener('click', submitReq);
+  $('reqInput').addEventListener('keydown', function(e){ if (e.key==='Enter' && !e.isComposing){ e.preventDefault(); submitReq(); } });
+
+  // ── Review 탭: compare(diff 나란히) + merge 승자 ──
+  var reviewOn = false, rvTaskId = null;
+  function showTerminal(){ reviewOn=false; $('review').classList.remove('on'); $('vtReview').classList.remove('on'); $('vtTerm').classList.add('on'); }
+  function showReview(){ reviewOn=true; $('review').classList.add('on'); $('vtReview').classList.add('on'); $('vtTerm').classList.remove('on'); renderReviewPicker(); }
+  $('vtTerm').addEventListener('click', showTerminal);
+  $('vtReview').addEventListener('click', showReview);
+  function reviewableTasks(){
+    var byTask = {}; (fleet.runs||[]).forEach(function(r){ byTask[r.taskId]=(byTask[r.taskId]||0)+1; });
+    return (fleet.tasks||[]).filter(function(t){ return (byTask[t.id]||0)>=1; })
+      .sort(function(a,b){ return b.id-a.id; });
+  }
+  function renderReviewPicker(){
+    var tasks = reviewableTasks(); var sel=$('rvTask');
+    var cur = rvTaskId!=null ? String(rvTaskId) : (focusRun()!=null && runById[focusRun()] ? String(runById[focusRun()].taskId) : (tasks[0]?String(tasks[0].id):''));
+    sel.innerHTML='';
+    tasks.forEach(function(t){ var rp=repoById[t.repoId]; var o=document.createElement('option'); o.value=String(t.id);
+      o.textContent = (rp?rp.name+' · ':'')+t.title; sel.appendChild(o); });
+    if (!tasks.length){ $('rvCols').innerHTML='<div class="rv-empty">비교할 run 이 있는 태스크가 아직 없습니다. Terminal 에서 팬아웃해 보세요.</div>'; rvTaskId=null; return; }
+    if (cur){ sel.value=cur; } rvTaskId = Number(sel.value);
+    loadCompare(rvTaskId);
+  }
+  $('rvTask').addEventListener('change', function(){ rvTaskId=Number(this.value); loadCompare(rvTaskId); });
+  function diffHTML(text){
+    if (!text || !text.trim()) return '<span style="color:var(--faint)">no changes</span>';
+    return text.split('\\n').map(function(l){
+      var e = esc(l) || '&nbsp;';
+      if (l.indexOf('diff --git')===0 || l.indexOf('+++')===0 || l.indexOf('---')===0) return '<span class="dl-file">'+e+'</span>';
+      if (l.indexOf('@@')===0) return '<span class="dl-hunk">'+e+'</span>';
+      if (l.charAt(0)==='+') return '<span class="dl-add">'+e+'</span>';
+      if (l.charAt(0)==='-') return '<span class="dl-del">'+e+'</span>';
+      return '<span class="dl-ctx">'+e+'</span>';
+    }).join('');
+  }
+  async function loadCompare(taskId){
+    var host=$('rvCols'); host.innerHTML='<div class="rv-empty">불러오는 중…</div>';
+    try{
+      var d = await (await fetch('/api/tasks/'+taskId+'/compare')).json();
+      var rns = (d.runs||[]).sort(function(a,b){return a.id-b.id;});
+      if (!rns.length){ host.innerHTML='<div class="rv-empty">run 이 없습니다.</div>'; return; }
+      host.innerHTML='';
+      rns.forEach(function(r){
+        var col=document.createElement('div'); col.className='rv-col';
+        var st = typeof r.stat==='string' ? r.stat.split('\\n').pop().trim() : '';
+        var mergeable = (r.status==='done'||r.status==='open'||r.status==='merged') && r.filesChanged>0;
+        col.innerHTML = '<div class="rv-col-h"><span class="st '+esc(r.status)+'" style="width:7px;height:7px;border-radius:50%;display:inline-block"></span>'
+          + '<span class="rid">r'+r.id+'</span><span class="chip '+esc(r.status)+'">'+esc(r.status)+'</span>'
+          + '<span class="stat">'+esc(st)+'</span>'
+          + '<button class="rv-merge" data-merge="'+r.id+'"'+((r.status==='merged'||!mergeable)?' disabled':'')+'>'
+          + (r.status==='merged'?'merged':'merge ▸')+'</button></div>'
+          + '<div class="rv-diff">'+diffHTML(r.diff)+'</div>';
+        host.appendChild(col);
+      });
+    }catch(e){ host.innerHTML='<div class="rv-empty">compare 실패: '+esc(String(e))+'</div>'; }
+  }
+  $('rvCols').addEventListener('click', async function(e){
+    var b = e.target.closest('[data-merge]'); if (!b) return;
+    var rid = b.dataset.merge; b.disabled=true; b.textContent='merging…';
+    try{
+      var res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});
+      var j = await res.json().catch(function(){return{};});
+      if (res.ok){ toast('r'+rid+' merge 완료'); await hydrate(); if (rvTaskId!=null) loadCompare(rvTaskId); }
+      else { toast('merge 불가: '+(j.error||j.reason||res.status)); b.disabled=false; b.textContent='merge ▸'; }
+    }catch(err){ toast('merge 실패: '+err); b.disabled=false; b.textContent='merge ▸'; }
+  });
+
   // ── /ws 라이브 구독 → 트리·페인 갱신 ──
   function wsConnect(){
     var proto = location.protocol==='https:'?'wss':'ws';
@@ -356,6 +569,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var hydT=null;
   function scheduleHydrate(){ if (hydT) return; hydT = setTimeout(function(){ hydT=null; hydrate(); }, 400); }
 
+  setMode('new');
   hydrate();
   wsConnect();
   window.addEventListener('resize', function(){ panes.forEach(fitPane); });

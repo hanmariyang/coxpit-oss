@@ -113,6 +113,13 @@ case "$CKPT" in *'/vendor/xterm.js'*'/vendor/addon-fit.js'*'/vendor/addon-unicod
 case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "cockpit tree/pane logic missing";; esac
 case "$CKPT" in *'/api/fleet?view=all'*'/ws/term/'*) : ;; *) fail "cockpit fleet/term wiring missing";; esac
 pass "Phase 2 cockpit workspace tree + pane-grid terminal (xterm attach, auto-tile)"
+
+# Phase 3 — request bar (New fan-out / Steer / Broadcast) + Review tab (compare/merge)
+case "$CKPT" in *'data-mode="new"'*'data-mode="steer"'*'data-mode="bcast"'*) : ;; *) fail "cockpit request-bar modes missing";; esac
+case "$CKPT" in *'function submitReq'*"'/api/tasks'"*"/run'"*) : ;; *) fail "cockpit fan-out wiring missing";; esac
+case "$CKPT" in *"/steer'"*"{t:'i',d:payload}"*) : ;; *) fail "cockpit steer/broadcast wiring missing";; esac
+case "$CKPT" in *'function loadCompare'*'/compare'*"/merge'"*) : ;; *) fail "cockpit Review compare/merge missing";; esac
+pass "Phase 3 cockpit request bar (fan-out/steer/broadcast) + Review compare/merge"
 # GET /api/settings shape + env locks (this suite boots with COXPIT_PORT/AUTH_DISABLED/WEBHOOK_URL set)
 SET=$(curl -s "$B/api/settings")
 case "$SET" in *'"effective"'*'"envLocked"'*'"auth"'*) : ;; *) fail "settings GET shape: $SET";; esac
