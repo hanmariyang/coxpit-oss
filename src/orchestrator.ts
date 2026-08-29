@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { posix as ppath } from 'node:path';
 import { createInterface } from 'node:readline';
-import { existsSync } from 'node:fs';
-import { mkdir, copyFile, readFile, writeFile, rm } from 'node:fs/promises';
+import { existsSync, statSync, openSync, readSync, closeSync, mkdirSync } from 'node:fs';
+import { mkdir, copyFile, readFile, writeFile, rm, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { ChildProcess } from 'node:child_process';
 import { eq, inArray } from 'drizzle-orm';
@@ -111,6 +111,80 @@ async function setRun(runId: number, patch: Partial<typeof agentRuns.$inferInser
 // 실행 중 run 의 자식 프로세스(stop 용). stoppedRuns = 사용자가 멈춘 run 표식.
 const liveChildren = new Map<number, ChildProcess>();
 const stoppedRuns = new Set<number>();
+// 재시작 후 재-adopt 되어 로그를 tail 중인 run(자식 객체는 없지만 살아있음).
+const adoptedRuns = new Set<number>();
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+function pidAlive(pid: number): boolean {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+// ── 내구 실행 로그(재시작 내성 토대) ──────────────────────────
+// 에이전트 출력은 데몬 파이프가 아니라 이 파일로 리다이렉트된다 → 데몬이 죽어도
+// detached 에이전트가 계속 파일에 쓰고, 데몬은 부팅 후 offset 부터 재-tail 한다.
+function runsDir(): string {
+  const d = ppath.join(ppath.dirname(config.dbPath), 'runs');
+  try { mkdirSync(d, { recursive: true }); } catch { /* best effort */ }
+  return d;
+}
+function runLogPath(runId: number): string { return ppath.join(runsDir(), `r${runId}.log`); }
+const DONE_RE = /^__COXPIT_DONE__:(-?\d+)\s*$/;
+/** 로그 파일 tail — offset 부터 새 바이트를 읽어 라인 파싱→이벤트, 종료 센티넬(__COXPIT_DONE__) 감지.
+ *  aliveCheck 가 false 면(센티넬 없이 프로세스 사망) code=-1 로 종료. offset 은 주기적으로 영속. */
+async function tailRunLog(
+  runId: number, provider: Provider, fromOffset: number,
+  aliveCheck?: () => boolean,
+): Promise<{ code: number; lastResult: string; offset: number }> {
+  const log = runLogPath(runId);
+  let offset = Math.max(0, fromOffset);
+  let buf = '';
+  let lastResult = '';
+  let code = 0;
+  let done = false;
+  let sincePersist = 0;
+  const consume = () => {
+    if (!existsSync(log)) return;
+    const size = statSync(log).size;
+    if (size <= offset) return;
+    const fd = openSync(log, 'r');
+    try {
+      const b = Buffer.alloc(size - offset);
+      readSync(fd, b, 0, b.length, offset);
+      offset = size; buf += b.toString('utf8');
+    } finally { closeSync(fd); }
+    let nl: number;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+      const m = DONE_RE.exec(line);
+      if (m) { code = parseInt(m[1] ?? '0', 10) || 0; done = true; continue; }
+      const p = provider.parseLine(line);
+      if (p) {
+        if (p.sessionId) void setRun(runId, { sessionId: p.sessionId });
+        if (p.resultText != null) lastResult = p.resultText;
+        void recordEvent(runId, p.kind, p.stored.slice(0, 2000));
+        continue;
+      }
+      // stdout+stderr 를 한 로그로 합쳤으므로(2>&1), stream-json 이 아닌 non-json 라인 = stderr 로 살린다.
+      const t = line.trim();
+      if (t && t[0] !== '{') void recordEvent(runId, 'stderr', t.slice(0, 2000));
+    }
+  };
+  while (!done) {
+    consume();
+    if (done) break;
+    if (aliveCheck && !aliveCheck()) { consume(); if (!done) { code = -1; } break; }
+    if (++sincePersist >= 8) { sincePersist = 0; void persistLogOffset(runId, offset); }
+    await sleep(250);
+  }
+  consume();
+  void persistLogOffset(runId, offset);
+  return { code, lastResult, offset };
+}
+/** offset 만 가볍게 영속(broadcast 없이 — setRun 은 매번 broadcast 라 부적합). */
+async function persistLogOffset(runId: number, offset: number): Promise<void> {
+  try { await db.update(agentRuns).set({ logOffset: offset }).where(eq(agentRuns.id, runId)); } catch { /* best effort */ }
+}
 
 // ── 에이전트 셀프 오케스트레이션 ──────────────────────────────
 // run 마다 1회용 토큰을 발급해 에이전트 env 로 준다. 에이전트는 그 토큰으로
@@ -130,9 +204,9 @@ export function resolveAgentToken(token: string): number | null {
   return agentTokens.get(token) ?? null;
 }
 
-/** run 이 지금 살아 있는가(자식 프로세스 보유). aggregate 뷰의 live/steerable 판정용. */
+/** run 이 지금 살아 있는가(자식 프로세스 보유 or 재-adopt tail 중). aggregate 뷰의 live/steerable 판정용. */
 export function isRunLive(runId: number): boolean {
-  return liveChildren.has(runId);
+  return liveChildren.has(runId) || adoptedRuns.has(runId);
 }
 
 /** 에이전트 프롬프트에 붙는 능력 고지 — 독립 하위작업을 병렬 서브런으로 뺄 수 있다.
@@ -408,34 +482,48 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
  * 에이전트 자식 프로세스 배선(공용) — 프로바이더가 stdout 라인을 정규화 이벤트로
  * 파싱, session 캡처, 종료 시 files_changed 집계 + 상태 전이. launchRun/steerRun 공유.
  */
-async function runAgentChild(runId: number, machine: MachineTarget, wtPath: string, cmd: string, provider: Provider): Promise<void> {
-  const child = spawnShellOn(machine, cmd);
-  liveChildren.set(runId, child);
-
+async function runAgentChild(runId: number, machine: MachineTarget, wtPath: string, cmd: string, provider: Provider, opts?: { fresh?: boolean }): Promise<void> {
+  const isRemote = machine.kind !== 'local' && machine.address !== '';
+  let code: number;
   let lastResult = '';
-  if (child.stdout) {
-    const rl = createInterface({ input: child.stdout });
-    rl.on('line', (line: string) => {
-      const p = provider.parseLine(line);
-      if (!p) return;
-      if (p.sessionId) void setRun(runId, { sessionId: p.sessionId }); // steer(resume)용 세션 키
-      if (p.resultText != null) lastResult = p.resultText;
-      void recordEvent(runId, p.kind, p.stored.slice(0, 2000));
-    });
-  }
-  if (child.stderr) {
-    const rle = createInterface({ input: child.stderr });
-    rle.on('line', (line: string) => {
-      const s = line.trim();
-      if (s) void recordEvent(runId, 'stderr', s.slice(0, 2000));
-    });
-  }
 
-  const code: number = await new Promise((resolve) => {
-    child.on('close', (c) => resolve(c ?? 0));
-    child.on('error', () => resolve(-1));
-  });
-  liveChildren.delete(runId);
+  if (isRemote) {
+    // 원격: ssh stdout 파이프를 실시간 파싱(기존 동작). 로그 파일/재-adopt 는 로컬 전용.
+    const child = spawnShellOn(machine, cmd);
+    liveChildren.set(runId, child);
+    if (child.stdout) {
+      const rl = createInterface({ input: child.stdout });
+      rl.on('line', (line: string) => {
+        const p = provider.parseLine(line);
+        if (!p) return;
+        if (p.sessionId) void setRun(runId, { sessionId: p.sessionId });
+        if (p.resultText != null) lastResult = p.resultText;
+        void recordEvent(runId, p.kind, p.stored.slice(0, 2000));
+      });
+    }
+    if (child.stderr) {
+      const rle = createInterface({ input: child.stderr });
+      rle.on('line', (line: string) => { const s = line.trim(); if (s) void recordEvent(runId, 'stderr', s.slice(0, 2000)); });
+    }
+    code = await new Promise((resolve) => { child.on('close', (c) => resolve(c ?? 0)); child.on('error', () => resolve(-1)); });
+    liveChildren.delete(runId);
+  } else {
+    // 로컬: 에이전트 출력을 내구 로그로 리다이렉트 + 파일 tail(재시작 내성). 종료는 __COXPIT_DONE__ 센티넬.
+    const fresh = opts?.fresh !== false;   // launch=새 로그 / steer=이어쓰기
+    const log = runLogPath(runId);
+    const wrapped = `{ ${cmd} ; } ${fresh ? '>' : '>>'} ${shq(log)} 2>&1; printf '\\n__COXPIT_DONE__:%s\\n' "$?" >> ${shq(log)}`;
+    let fromOffset = 0;
+    if (fresh) { await setRun(runId, { logOffset: 0, agentPid: 0 }); }
+    else { const r = (await db.select({ o: agentRuns.logOffset }).from(agentRuns).where(eq(agentRuns.id, runId)).limit(1))[0]; fromOffset = r?.o ?? 0; }
+    const child = spawnShellOn(machine, wrapped);
+    liveChildren.set(runId, child);
+    child.on('error', () => { /* 파이프 미사용 — 로그 tail 이 진실 */ });
+    const pid = child.pid ?? 0;
+    if (pid) await setRun(runId, { agentPid: pid });
+    const r = await tailRunLog(runId, provider, fromOffset, () => pidAlive(pid));
+    code = r.code; lastResult = r.lastResult;
+    liveChildren.delete(runId);
+  }
 
   const stat = await runShellOn(machine, `git -C ${shq(wtPath)} status --porcelain | wc -l`, 10000);
   const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
@@ -443,7 +531,7 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
   const wasStopped = stoppedRuns.delete(runId);
   const status = wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed';
   const exitSummary = wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`;
-  await setRun(runId, { status, endedAt: new Date(), filesChanged, exitSummary });
+  await setRun(runId, { status, endedAt: new Date(), filesChanged, exitSummary, agentPid: 0 });
   // 문서 산출물을 정착 시점에 스냅샷 — worktree 소멸(머지·Close) 후에도 렌더 뷰 유지. best-effort.
   if (filesChanged > 0) void snapshotRunDocs(runId);
   void notifySettle(runId, status, filesChanged, exitSummary);
@@ -528,9 +616,9 @@ export async function steerRun(runId: number, message: string, mode: 'work' | 'a
   const cmd = `cd ${shq(wt)} && ${envPrefix}${pidPrefix}{ ${resume}; }`;
   if (!isRemote && config.agentOrch) {
     const orchTimer = startOrchWatch(runId, wt, true);
-    void runAgentChild(runId, ctx.machine, wt, cmd, provider).finally(() => clearInterval(orchTimer));
+    void runAgentChild(runId, ctx.machine, wt, cmd, provider, { fresh: false }).finally(() => clearInterval(orchTimer));
   } else {
-    void runAgentChild(runId, ctx.machine, wt, cmd, provider);
+    void runAgentChild(runId, ctx.machine, wt, cmd, provider, { fresh: false });
   }
   return { ok: true, detail: 'steering' };
 }
@@ -554,6 +642,12 @@ export async function stopRun(runId: number): Promise<{ ok: boolean; detail: str
     // stop 요청을 정산으로 처리해 카드가 영원히 '진행 중'으로 남지 않게 한다.
     const zr = (await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1))[0];
     if (zr && (zr.status === 'running' || zr.status === 'starting')) {
+      // 재-adopt 되어 tail 중인 살아있는 로컬 에이전트 — 프로세스 그룹 종료. tailer 가 stopped 로 정산.
+      if (zr.agentPid && pidAlive(zr.agentPid)) {
+        stoppedRuns.add(runId);
+        try { process.kill(-zr.agentPid, 'SIGTERM'); } catch { try { process.kill(zr.agentPid, 'SIGTERM'); } catch { /* gone */ } }
+        return { ok: true, detail: 'stopping (re-adopted agent)' };
+      }
       await setRun(runId, { status: 'stopped', endedAt: new Date(), exitSummary: 'orphaned (daemon restarted) — settled by stop' });
       await recordEvent(runId, 'meta', JSON.stringify({ orphanSettled: true }));
       return { ok: true, detail: 'no live process — settled as stopped' };
@@ -1446,15 +1540,67 @@ export async function listDocuments(): Promise<{ runs: Array<{
  * 부팅 정산 — 데몬 재시작 후 살아있는 자식이 있을 수 없는데 DB 가 running/starting 인
  * run(고아)을 failed 로 정리한다. workbench('open')는 에이전트가 없으므로 대상 아님.
  */
+/** 재-adopt: 살아있는 로컬 run 의 로그를 offset 부터 이어 tail → 완료 시 정산. status 는 running 유지. */
+async function reAdoptRun(run: typeof agentRuns.$inferSelect): Promise<void> {
+  adoptedRuns.add(run.id);
+  await recordEvent(run.id, 'meta', JSON.stringify({ reAdopted: true }));
+  const ctx = await loadContext(run.id);
+  const provider = getProvider(run.agent || 'claude-code');
+  const machine: MachineTarget = ctx?.machine ?? { slug: 'local', kind: 'local', address: '', sshUser: '' };
+  const wasStopped0 = stoppedRuns.has(run.id);
+  const { code, lastResult } = await tailRunLog(run.id, provider, run.logOffset ?? 0, () => pidAlive(run.agentPid));
+  adoptedRuns.delete(run.id);
+  const stat = await runShellOn(machine, `git -C ${shq(run.worktreePath)} status --porcelain | wc -l`, 10000);
+  const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
+  const wasStopped = stoppedRuns.delete(run.id) || wasStopped0;
+  const status = wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed';
+  const exitSummary = wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`;
+  await setRun(run.id, { status, endedAt: new Date(), filesChanged, exitSummary, agentPid: 0 });
+  if (filesChanged > 0) void snapshotRunDocs(run.id);
+  void notifySettle(run.id, status, filesChanged, exitSummary);
+}
+
+/**
+ * 부팅 시 이전 인스턴스의 라이브 run 정산 — 이제 무조건 failed 가 아니라:
+ *  ① 에이전트 프로세스(agentPid)가 살아있으면 로그를 이어 tail(재-adopt) → running 유지
+ *  ② 이미 로그에 __COXPIT_DONE__ 이 있거나 프로세스 죽음 → 그 결과로 정산
+ *  ③ 그 외(원격·pid 없음) → orphaned failed (기존 동작, worktree/diff 보존)
+ * 반환 = 재-adopt 된 run 수(정산된 고아는 미포함).
+ */
 export async function reconcileOrphanRuns(): Promise<number> {
   const stale = (await db.select().from(agentRuns)).filter(
     (r) => r.status === 'running' || r.status === 'starting',
   );
+  let adopted = 0;
   for (const r of stale) {
-    await setRun(r.id, { status: 'failed', endedAt: new Date(), exitSummary: 'orphaned by daemon restart' });
+    if (r.agentPid && pidAlive(r.agentPid)) {
+      // 아직 살아있는 로컬 에이전트 — 이어받는다(백그라운드 tail).
+      void reAdoptRun(r);
+      adopted++;
+      continue;
+    }
+    // 죽었지만 로그에 완료 센티넬이 있으면 그 결과로 정산(다운타임 중 끝난 경우).
+    const log = runLogPath(r.id);
+    let doneCode: number | null = null;
+    try {
+      if (existsSync(log)) {
+        const tail = (await readFile(log, 'utf8')).slice(-4000);
+        const m = /__COXPIT_DONE__:(-?\d+)/.exec(tail);
+        if (m) doneCode = parseInt(m[1] ?? '0', 10) || 0;
+      }
+    } catch { /* ignore */ }
+    if (doneCode !== null) {
+      const stat = await runShellOn({ slug: 'local', kind: 'local', address: '', sshUser: '' }, `git -C ${shq(r.worktreePath)} status --porcelain | wc -l`, 10000);
+      const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
+      const status = doneCode === 0 ? 'done' : 'failed';
+      await setRun(r.id, { status, endedAt: new Date(), filesChanged, exitSummary: `settled on restart (exit ${doneCode})`, agentPid: 0 });
+      if (filesChanged > 0) void snapshotRunDocs(r.id);
+      continue;
+    }
+    await setRun(r.id, { status: 'failed', endedAt: new Date(), exitSummary: 'orphaned by daemon restart', agentPid: 0 });
     await recordEvent(r.id, 'error', 'daemon restarted while this run was live — settled as failed (worktree/branch preserved; diff still reviewable)');
   }
-  return stale.length;
+  return adopted;
 }
 
 /**
@@ -1614,6 +1760,8 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
   if (!ctx || !run || !run.worktreePath) return { ok: false, detail: 'no worktree' };
   // worktree 를 지우기 전에 문서 스냅샷(정착 안 하는 워크벤치·수정편집도 포착). best-effort.
   await snapshotRunDocs(runId).catch(() => { /* 스냅샷 실패는 정리를 막지 않음 */ });
+  // 내구 실행 로그도 정리(무한 증가 방지). best-effort. (아래 지역변수 rm 과 이름 충돌 회피로 unlink 사용)
+  try { await unlink(runLogPath(runId)); } catch { /* gone */ }
   // 원격에 잔존 에이전트가 있으면 worktree 제거 전에 죽인다(파일 잠금·좀비 방지).
   if (ctx.machine.kind !== 'local' && ctx.machine.address !== '') {
     await runShellOn(ctx.machine, remoteKillScript(run.worktreePath), 15000);

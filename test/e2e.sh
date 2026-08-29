@@ -99,6 +99,14 @@ case "$BOARD_HTML" in *"function renderSettings"*) : ;; *) fail "renderSettings 
 # Remote access moved out of onboarding into Settings
 case "$BOARD_HTML" in *'rmtSettings'*) : ;; *) fail "Settings remote-access container missing";; esac
 case "$BOARD_HTML" in *'rmtOnboard'*) fail "remote access should be removed from onboarding (rmtOnboard present)";; *) : ;; esac
+# Phase 0 — Cockpit scaffold (terminal-first shell, parallel dev at /cockpit)
+expect_code 200 "$B/cockpit"
+CKPT=$(curl -s "$B/cockpit")
+case "$CKPT" in *'preview · Phase 0'*) : ;; *) fail "cockpit scaffold marker missing";; esac
+case "$CKPT" in *'터미널 우선 셸'*) : ;; *) fail "cockpit shell title missing";; esac
+case "$CKPT" in *"location.replace('/')"*) : ;; *) fail "cockpit mobile→board redirect missing";; esac
+case "$BOARD_HTML" in *'href="/cockpit"'*) : ;; *) fail "board Cockpit-preview link missing";; esac
+pass "Phase 0 cockpit scaffold served + board toggle (parallel, non-breaking)"
 # GET /api/settings shape + env locks (this suite boots with COXPIT_PORT/AUTH_DISABLED/WEBHOOK_URL set)
 SET=$(curl -s "$B/api/settings")
 case "$SET" in *'"effective"'*'"envLocked"'*'"auth"'*) : ;; *) fail "settings GET shape: $SET";; esac
@@ -884,9 +892,24 @@ COXPIT_AUTH_DISABLED=1 COXPIT_AGENT_BIN="$STALL" COXPIT_DB="$DB" COXPIT_PORT="$P
   node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
 DPID=$!
 for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
-# after restart the orphaned run is 'failed' with its worktree preserved
-RCS=$(curl -s "$B/api/runs/$RCRUN" | { grep -oE '"status":"(failed|error|stopped|done|running)"' || true; } | head -1)
-case "$RCS" in '"status":"failed"'|'"status":"error"'|'"status":"stopped"') : ;; *) fail "reclaim victim not orphaned to failed: $RCS";; esac
+# Phase 1 re-adopt: the agent was spawned DETACHED, so killing the daemon left it alive.
+# On restart reconcileOrphanRuns must RE-ADOPT it (still 'running'), not orphan it to failed.
+RS2=''
+for i in $(seq 1 20); do
+  RS2=$(curl -s "$B/api/runs/$RCRUN" | { grep -oE '"status":"[a-z]+"' || true; } | head -1)
+  [ "$RS2" = '"status":"running"' ] && break; sleep 0.5
+done
+[ "$RS2" = '"status":"running"' ] || fail "re-adopt: live agent should stay running across restart, got: $RS2"
+pass "Phase 1 re-adopt: a live agent survives a daemon restart (running, not orphaned)"
+
+# now kill the orphaned agent → the re-adopt tailer settles it (failed), worktree preserved (reclaimable).
+pkill -f stall-agent.sh 2>/dev/null || true; sleep 1
+RCS=''
+for i in $(seq 1 30); do
+  RCS=$(curl -s "$B/api/runs/$RCRUN" | { grep -oE '"status":"(failed|error|stopped|done|running)"' || true; } | head -1)
+  case "$RCS" in '"status":"failed"'|'"status":"error"'|'"status":"stopped"') break;; esac; sleep 0.5
+done
+case "$RCS" in '"status":"failed"'|'"status":"error"'|'"status":"stopped"') : ;; *) fail "reclaim victim not settled after agent kill: $RCS";; esac
 
 # an OPEN task with a settled 'done' run — it must NOT be reclaimable (dry run settles done)
 SAFET=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' \

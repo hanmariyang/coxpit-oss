@@ -88,6 +88,8 @@ export const agentRuns = sqliteTable('agent_runs', {
   prUrl: text('pr_url').notNull().default(''), // PR 모드로 올린 pull request URL
   model: text('model').notNull().default(''), // 런치별 모델 지정(빈값 = CLI 기본)
   filesChanged: integer('files_changed').notNull().default(0),
+  agentPid: integer('agent_pid').notNull().default(0),   // detached sh pgid — 재시작 후 생존 판정/stop
+  logOffset: integer('log_offset').notNull().default(0), // 내구 로그에서 tail 이 소비한 바이트(재-adopt 시 여기부터)
   startedAt: integer('started_at', { mode: 'timestamp' }),
   endedAt: integer('ended_at', { mode: 'timestamp' }),
   exitSummary: text('exit_summary').notNull().default(''),

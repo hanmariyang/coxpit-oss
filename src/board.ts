@@ -57,6 +57,9 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .daemon-badge{font-family:var(--mono);font-size:10.5px;color:var(--faint);padding:3px 9px;
     border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:default}
   .daemon-badge b{color:var(--muted);font-weight:500}
+  .cockpit-link{text-decoration:none;color:var(--muted);font-family:var(--mono);font-size:11.5px;
+    border:1px solid var(--line);border-radius:7px;padding:5px 10px;display:inline-flex;align-items:center;gap:4px}
+  .cockpit-link:hover{color:var(--brand);border-color:var(--line-hi)}
   .ws{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--muted);
     padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--s-failed);transition:background .3s}
@@ -842,7 +845,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     .fab{display:inline-flex}
     #newBtn,.newnote{display:none}
     header{padding:0 12px;gap:9px}
-    .brand .sub,.daemon-badge,.machines{display:none}
+    .brand .sub,.daemon-badge,.machines,.cockpit-link{display:none}
     main{padding:14px}
     .grid{grid-template-columns:1fr}
     /* 모달 = 풀블리드 */
@@ -879,6 +882,7 @@ ${ICON_SPRITE}
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles"><svg class="ic"><use href="#i-bell-off"/></svg></button>
   <button class="btn-ghost sm" id="remoteBtn" title="reach this daemon from elsewhere (Tailscale · recipes)"><svg class="ic"><use href="#i-external-link"/></svg></button>
+  <a class="cockpit-link" href="/cockpit" title="터미널 우선 셸 (preview)">◨ Cockpit</a>
   <div class="machines" id="machines"></div>
 </header>
 <div class="scrim" id="scrim"></div>

@@ -25,6 +25,7 @@ import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
 import { BOARD_HTML } from './board';
+import { COCKPIT_HTML } from './cockpit';
 
 const require_ = createRequire(import.meta.url);
 
@@ -203,6 +204,8 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨(무인증 요청은 게이트가 login/setup 페이지로 응답).
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
+  // 터미널 우선 셸(병행 개발) — 백엔드는 보드와 공유. Phase 5에서 데스크톱 기본을 여기로 플립 예정.
+  app.get('/cockpit', async (_req, reply) => reply.type('text/html').send(COCKPIT_HTML));
 
   // ─── 접근키 인증(access-key) ────────────────────────────────────
   // 요청이 tunnel/https 를 탔나 — Secure 쿠키 여부 결정용.
