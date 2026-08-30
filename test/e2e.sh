@@ -102,8 +102,8 @@ case "$BOARD_HTML" in *'rmtOnboard'*) fail "remote access should be removed from
 # Phase 0 — Cockpit scaffold (terminal-first shell, parallel dev at /cockpit)
 expect_code 200 "$B/cockpit"
 CKPT=$(curl -s "$B/cockpit")
-case "$CKPT" in *'preview · Phase'*) : ;; *) fail "cockpit preview marker missing";; esac
 case "$CKPT" in *'coxpit · cockpit'*'workspace'*) : ;; *) fail "cockpit shell title missing";; esac
+case "$CKPT" in *'class="toggle" href="/"'*) : ;; *) fail "cockpit → board toggle missing";; esac
 case "$CKPT" in *"location.replace('/')"*) : ;; *) fail "cockpit mobile→board redirect missing";; esac
 case "$BOARD_HTML" in *'href="/cockpit"'*) : ;; *) fail "board Cockpit-preview link missing";; esac
 pass "Phase 0 cockpit scaffold served + board toggle (parallel, non-breaking)"
@@ -125,6 +125,14 @@ pass "Phase 3 cockpit request bar (fan-out/steer/broadcast) + Review compare/mer
 case "$CKPT" in *"'✓ verify'"*'function vbadge'*'merge anyway'*) : ;; *) fail "cockpit verify badge / green-gate missing";; esac
 case "$CKPT" in *'id="rvVcmd"'*"/verify'"*'function saveVcmd'*) : ;; *) fail "cockpit verify cmd editor missing";; esac
 pass "Phase 4 cockpit verify badge + green-gate + verifyCmd editor (UI)"
+
+# Phase 5 — desktop app default entry flips to /cockpit (web `/` stays board; mobile self-redirects)
+DMAIN=$(cat "$ROOT/desktop/main.cjs" 2>/dev/null || cat desktop/main.cjs)
+case "$DMAIN" in *"ENTRY_PATH = process.env.COXPIT_ENTRY || '/cockpit'"*) : ;; *) fail "desktop ENTRY_PATH default not /cockpit";; esac
+case "$DMAIN" in *"port + ENTRY_PATH"*"boardOrigin.port + ENTRY_PATH"*) : ;; *) fail "desktop loadURL not using ENTRY_PATH";; esac
+# no window-content loadURL should still hardcode board '/'
+case "$DMAIN" in *"loadURL('http://127.0.0.1:' + port + '/'"*) fail "desktop still loads board '/' as window entry";; *) : ;; esac
+pass "Phase 5 desktop default entry = /cockpit (env-overridable, board still reachable in-app)"
 # GET /api/settings shape + env locks (this suite boots with COXPIT_PORT/AUTH_DISABLED/WEBHOOK_URL set)
 SET=$(curl -s "$B/api/settings")
 case "$SET" in *'"effective"'*'"envLocked"'*'"auth"'*) : ;; *) fail "settings GET shape: $SET";; esac

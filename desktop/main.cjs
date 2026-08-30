@@ -11,6 +11,9 @@ const os = require('node:os');
 const fs = require('node:fs');
 
 const EMBED_PORT = Number(process.env.COXPIT_PORT || 8321);
+// 데스크톱 앱의 기본 진입 = 터미널 우선 셸(cockpit). 보드는 앱 안에서 "← Board" 로 오갈 수 있고, 웹 `/` 는 그대로 보드.
+// 좁은/터치 화면은 cockpit 이 스스로 보드(`/`)로 리다이렉트하므로 모바일은 자동으로 보드에 남는다.
+const ENTRY_PATH = process.env.COXPIT_ENTRY || '/cockpit';
 const DATA_DIR = path.join(os.homedir(), '.coxpit');
 // 탈출용 격리 인스턴스 — 잠긴 데몬을 못 뚫을 때 별도 데이터 폴더로 자기 데몬을 띄운다(락·포트 충돌 0).
 const PRIVATE_DIR = path.join(os.homedir(), '.coxpit-desktop');
@@ -207,7 +210,7 @@ async function startPrivateDaemon() {
   boardOrigin = { host: '127.0.0.1', port };
   restarting = false;
   if (win && !win.isDestroyed()) {
-    try { await waitHealth(); await win.loadURL('http://127.0.0.1:' + port + '/'); win.setTitle('Coxpit — private local'); }
+    try { await waitHealth(); await win.loadURL('http://127.0.0.1:' + port + ENTRY_PATH); win.setTitle('Coxpit — private local'); }
     catch (e) { /* exit handler surfaces failure */ }
   }
 }
@@ -230,7 +233,7 @@ function restartEmbeddedDaemon() {
     restarting = false;
     try {
       await waitHealth();
-      if (win && !win.isDestroyed()) await win.loadURL('http://127.0.0.1:' + port + '/');
+      if (win && !win.isDestroyed()) await win.loadURL('http://127.0.0.1:' + port + ENTRY_PATH);
     } catch { /* error page will show via exit handler on next failure */ }
   }, 600);
 }
@@ -274,7 +277,7 @@ async function createWindow() {
   win.setTitle(winTitle);
   try {
     await waitHealth();
-    await win.loadURL('http://' + boardOrigin.host + ':' + boardOrigin.port + '/');
+    await win.loadURL('http://' + boardOrigin.host + ':' + boardOrigin.port + ENTRY_PATH);
   } catch (e) {
     await win.loadURL('data:text/html,<body style="background:%230b0d12;color:%23e25b67;font-family:monospace;padding:40px">coxpit daemon failed to start: ' + String(e.message) + '</body>');
   }

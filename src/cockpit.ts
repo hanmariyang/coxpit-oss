@@ -172,8 +172,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
   <div class="right">
     <span class="ws" id="ws"><span class="dot"></span><span id="wstext">connecting</span></span>
-    <span class="wip">preview · Phase 4</span>
-    <a class="toggle" href="/">← Board</a>
+    <a class="toggle" href="/" title="보드(모니터) 뷰로">← Board</a>
   </div>
 </header>
 

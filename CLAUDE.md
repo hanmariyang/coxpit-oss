@@ -8,7 +8,7 @@ One task → N parallel agent runs. Each run gets an isolated **git worktree + b
 
 ## 2. Architecture
 
-- **Daemon** (this repo): Fastify + @fastify/websocket + libSQL (Drizzle). Serves the board at `GET /`, xterm assets at `/vendor/*`, REST under `/api/*`, live streams at `/ws` and `/ws/term/:id`.
+- **Daemon** (this repo): Fastify + @fastify/websocket + libSQL (Drizzle). Serves the board (monitor view) at `GET /` and the terminal-first cockpit at `GET /cockpit` (the desktop app's default entry), xterm assets at `/vendor/*`, REST under `/api/*`, live streams at `/ws` and `/ws/term/:id`.
 - **Machines**: local via `sh`, remote via `ssh` (BatchMode). External tools are spawned, never vendored: `git`, `tmux`, the agent CLIs.
 - **Providers**: `src/providers.ts` is the seam — each provider answers three questions (launch command, resume command, how a stdout line normalizes to a board event). The board knows nothing about providers; codex events are normalized into the claude-like shapes it already renders. Dry-run always parses with the claude provider (the mock stream is claude-shaped). Codex resume caveat: `--sandbox`/`--json` are `exec` flags and must precede the `resume` subcommand.
 - **Terminal**: server-side PTY (node-pty) attaches to the run's tmux session; remote attach wraps `ssh -tt` inside the PTY so resize propagates.
@@ -20,8 +20,9 @@ One task → N parallel agent runs. Each run gets an isolated **git worktree + b
 src/
 ├── index.ts          entry — schema boot, local machine seed, listen
 ├── server.ts         routes (REST + WS + vendor + board)
-├── board.ts          single-page console (no build step, self-contained)
-├── orchestrator.ts   run lifecycle: worktree → tmux → spawn → stream → merge/cleanup
+├── board.ts          single-page "monitor" console (no build step, self-contained) — served at GET /
+├── cockpit.ts        terminal-first shell — workspace tree + pane-grid terminals + request bar (fan-out/steer/broadcast) + Review (compare/merge/verify). Served at GET /cockpit; the desktop app opens this by default (web / stays board; narrow/touch self-redirects to board)
+├── orchestrator.ts   run lifecycle: worktree → tmux → spawn → stream → merge/cleanup → verify
 ├── providers.ts      provider seam: launch/resume commands + stream normalization (claude-code, codex)
 ├── term.ts           PTY attach (local tmux / remote ssh -tt)
 ├── exec.ts           run/spawn helpers (local sh / remote ssh), shell quoting

@@ -882,7 +882,7 @@ ${ICON_SPRITE}
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles"><svg class="ic"><use href="#i-bell-off"/></svg></button>
   <button class="btn-ghost sm" id="remoteBtn" title="reach this daemon from elsewhere (Tailscale · recipes)"><svg class="ic"><use href="#i-external-link"/></svg></button>
-  <a class="cockpit-link" href="/cockpit" title="터미널 우선 셸 (preview)">◨ Cockpit</a>
+  <a class="cockpit-link" href="/cockpit" title="터미널 우선 셸 — 데스크톱 앱 기본 뷰">◨ Cockpit</a>
   <div class="machines" id="machines"></div>
 </header>
 <div class="scrim" id="scrim"></div>
