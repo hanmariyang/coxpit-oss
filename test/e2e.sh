@@ -128,6 +128,7 @@ pass "Phase 4 cockpit verify badge + green-gate + verifyCmd editor (UI)"
 
 # Free session (workbench) opener + empty-state fix (panes hidden until a pane exists — no grey ghost box)
 case "$CKPT" in *'id="sessionBtn"'*'id="sessionCta"'*'function openSession'*"/api/workbench'"*) : ;; *) fail "cockpit free-session opener missing";; esac
+case "$CKPT" in *'root:true'*) : ;; *) fail "cockpit session should open at repo checkout (root:true)";; esac
 case "$CKPT" in *'.panes{flex:1;display:none'*) : ;; *) fail "cockpit empty panes should default to display:none (grey-box fix)";; esac
 pass "cockpit free session (workbench) opener + empty-state grey-box fix"
 
@@ -660,6 +661,25 @@ curl -sf -X POST "$B/api/runs/$WBRUN/merge" | grep -q '"ok":true' || fail "workb
 curl -s -X POST "$B/api/tasks/$WBTASK/close" >/dev/null
 tmux has-session -t "coxpit-r$WBRUN" 2>/dev/null && fail "workbench tmux not cleaned" || true
 pass "workbench: open -> hand edit -> merge -> close"
+
+# root session (root:true) — tmux at the repo's real checkout (not an isolated worktree); close preserves checkout
+RS=$(curl -sf -X POST "$B/api/workbench" -H 'content-type: application/json' -d '{"repoId":1,"title":"Session","root":true}')
+echo "$RS" | grep -q '"ok":true' || fail "root session open: $RS"
+RSRUN=$(echo "$RS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
+RSAGENT=$(curl -s "$B/api/runs/$RSRUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["agent"])')
+RSBRANCH=$(curl -s "$B/api/runs/$RSRUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["branch"])')
+RSWT=$(curl -s "$B/api/runs/$RSRUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["worktreePath"])')
+[ "$RSAGENT" = "session" ] || fail "root session agent should be 'session', got '$RSAGENT'"
+[ -z "$RSBRANCH" ] || fail "root session branch should be empty, got '$RSBRANCH'"
+[ "$RSWT" = "$REPO" ] || fail "root session worktreePath should be the repo checkout ($REPO), got '$RSWT'"
+tmux has-session -t "coxpit-r$RSRUN" 2>/dev/null || fail "root session tmux missing"
+# merge must refuse (no branch — already base)
+curl -s -X POST "$B/api/runs/$RSRUN/merge" | grep -q '"ok":false' || fail "root session merge should be refused"
+# close preserves the real checkout (must NOT git worktree remove the main tree)
+curl -s -X POST "$B/api/runs/$RSRUN/cleanup" | grep -q '"ok":true' || fail "root session cleanup"
+[ -f "$REPO/README.md" ] && [ -d "$REPO/.git" ] || fail "root session close destroyed the checkout"
+tmux has-session -t "coxpit-r$RSRUN" 2>/dev/null && fail "root session tmux not cleaned" || true
+pass "root session: opens at repo checkout, no worktree, merge refused, close preserves checkout"
 
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5

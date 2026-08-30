@@ -977,7 +977,7 @@ export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: st
  * 띄우지 않는다. 사람이 터미널로 들어가(원하면 claude TUI 로) 오래 작업하고,
  * coxpit 은 diff·merge·PR·export 레일만 제공한다. status='open'.
  */
-export async function openWorkbench(repoId: number, title: string): Promise<{
+export async function openWorkbench(repoId: number, title: string, root = false): Promise<{
   ok: boolean; detail: string; taskId?: number; runId?: number;
 }> {
   const rp = await db.select().from(repos).where(eq(repos.id, repoId)).limit(1);
@@ -988,34 +988,41 @@ export async function openWorkbench(repoId: number, title: string): Promise<{
   if (!m) return { ok: false, detail: 'machine not found' };
   const machine: MachineTarget = { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser };
 
-  const tIns = await db.insert(tasks).values({ repoId, title: title || 'Workbench', prompt: '(interactive workbench)' }).returning();
+  // root=true: repo 실체 체크아웃(최상위)에 그대로 tmux 를 연다 — 격리 worktree 아님(전체 확인·관리용).
+  //            branch='' 로 남겨 merge 는 자동 거부(=이미 base). cleanup 도 worktree remove 를 건너뛴다.
+  // root=false: 기존 workbench — 격리 worktree + 브랜치(수동 변경 후 Review 에서 merge).
+  const agent = root ? 'session' : 'workbench';
+  const tIns = await db.insert(tasks).values({ repoId, title: title || (root ? 'Session' : 'Workbench'), prompt: root ? '(root session)' : '(interactive workbench)' }).returning();
   const task = tIns[0]!;
-  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent: 'workbench', status: 'pending' }).returning();
+  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent, status: 'pending' }).returning();
   const run = rIns[0]!;
   const runId = run.id;
-  broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent: 'workbench', branch: '', filesChanged: 0 });
+  broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent, branch: '', filesChanged: 0 });
 
-  const branch = `coxpit/r${runId}`;
-  const wtParent = ppath.join(ppath.dirname(repo.path), '.coxpit-worktrees');
-  const wtPath = ppath.join(wtParent, `r${runId}`);
   const session = `coxpit-r${runId}`;
+  const branch = root ? '' : `coxpit/r${runId}`;
+  const wtParent = ppath.join(ppath.dirname(repo.path), '.coxpit-worktrees');
+  const wtPath = root ? repo.path : ppath.join(wtParent, `r${runId}`);
 
+  // export LANG: tmux 서버 첫 기동이 C 로케일이면 세션 셸의 CJK 입력·표시가 깨진다.
+  // 동명 세션 잔재(DB 리셋 등으로 run id 재사용) 선제 정리 — '=' 정확 일치만.
   const prep = await runShellOn(
     machine,
-    // 동명 세션 잔재(DB 리셋 등으로 run id 재사용) 선제 정리 — '=' 정확 일치만.
-    // export LANG: tmux 서버 첫 기동이 C 로케일이면 세션 셸의 CJK 입력·표시가 깨진다.
-    `export LANG=${shq(config.lang)}; mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
-    ` && { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-    ` && tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)}`,
+    root
+      ? `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
+        ` && tmux new-session -d -s ${shq(session)} -c ${shq(repo.path)}`
+      : `export LANG=${shq(config.lang)}; mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
+        ` && { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
+        ` && tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)}`,
     20000,
   );
   if (!prep.ok) {
-    await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'workbench prep failed' });
+    await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'session prep failed' });
     return { ok: false, detail: (prep.stderr || prep.stdout).trim().slice(0, 300) };
   }
   await setRun(runId, { status: 'open', branch, worktreePath: wtPath, tmuxWindow: session, startedAt: new Date() });
-  await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, workbench: true }));
-  return { ok: true, detail: 'workbench open', taskId: task.id, runId };
+  await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, workbench: !root, rootSession: root }));
+  return { ok: true, detail: root ? 'root session open' : 'workbench open', taskId: task.id, runId };
 }
 
 /**
@@ -1796,6 +1803,12 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
     await runShellOn(ctx.machine, remoteKillScript(run.worktreePath), 15000);
   }
   await runShellOn(ctx.machine, `tmux kill-session -t ${shq(`=coxpit-r${runId}`)} 2>/dev/null || true`, 8000);
+  // 루트 세션(branch='' 또는 worktreePath=repo 실체)은 격리 worktree 가 아니다 —
+  // git worktree remove 를 메인 체크아웃에 걸면 안 되므로 tmux 만 정리하고 포인터를 비운다.
+  if (!run.branch || run.worktreePath === ctx.repoPath) {
+    await setRun(runId, { worktreePath: '', tmuxWindow: '' });
+    return { ok: true, detail: 'root session closed (checkout preserved)' };
+  }
   const rm = await runShellOn(
     ctx.machine,
     `git -C ${shq(ctx.repoPath)} worktree remove --force ${shq(run.worktreePath)} 2>&1` +

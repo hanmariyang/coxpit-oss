@@ -1010,12 +1010,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     return res;
   });
 
-  // Workbench — 인터랙티브 작업방(worktree+tmux, 에이전트 없음).
+  // Workbench — 인터랙티브 작업방(에이전트 없음). root=true 면 repo 실체 체크아웃(최상위)에 tmux, 아니면 격리 worktree.
   app.post('/api/workbench', async (req, reply) => {
-    const b = (req.body ?? {}) as { repoId?: number; title?: string };
+    const b = (req.body ?? {}) as { repoId?: number; title?: string; root?: boolean };
     const repoId = Number(b.repoId);
     if (!repoId) return reply.code(400).send({ error: 'repoId required' });
-    const res = await openWorkbench(repoId, (b.title ?? '').trim());
+    const res = await openWorkbench(repoId, (b.title ?? '').trim(), b.root === true);
     if (!res.ok) return reply.code(422).send(res);
     return reply.code(201).send(res);
   });

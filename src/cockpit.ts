@@ -204,7 +204,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <h1>여기서 작업을 시작하세요</h1>
         <p>직접 몰고 갈 <b>작업 세션</b>(자유 터미널)을 열거나, 아래 요청바로 에이전트를 팬아웃하세요. 트리의 <b>run</b> 을 클릭해도 그 터미널이 페인으로 열립니다.</p>
         <button class="cta" id="sessionCta">＋ 새 작업 세션 열기</button>
-        <div class="hint">세션 = repo 워크트리 + tmux 셸. 그 안에서 <code>claude</code> 를 띄워 “이 프로젝트 구현해줘” 처럼 직접 지시할 수 있습니다.</div>
+        <div class="hint">세션 = repo <b>최상위 체크아웃</b>의 tmux 셸(격리 폴더 아님, 전체를 보고 관리). 그 안에서 <code>claude</code> 를 띄워 “이 프로젝트 구현해줘” 처럼 직접 지시할 수 있습니다.</div>
       </div>
     </div>
     <div class="reqbar">
@@ -472,12 +472,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     openingSession = true; $('sessionBtn').disabled = true;
     try{
       var res = await fetch('/api/workbench',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({repoId:repoId, title:'Session'})});
+        body:JSON.stringify({repoId:repoId, title:'Session', root:true})});
       var j = await res.json().catch(function(){return{};});
       if (res.ok && j.runId){
         await hydrate();
         openRunPane(j.runId);
-        toast('세션 열림'+(rp?(' · '+rp.name):'')+' — 이 터미널에서 직접 에이전트를 구동하세요');
+        toast('세션 열림'+(rp?(' · '+rp.name+' 최상위'):'')+' — 이 터미널에서 직접 에이전트를 구동하세요');
       } else { toast('세션 실패: '+(j.detail||j.error||res.status)); }
     }catch(e){ toast('세션 실패: '+e); }
     finally{ openingSession=false; $('sessionBtn').disabled=false; }
