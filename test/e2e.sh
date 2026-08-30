@@ -120,6 +120,11 @@ case "$CKPT" in *'function submitReq'*"'/api/tasks'"*"/run'"*) : ;; *) fail "coc
 case "$CKPT" in *"/steer'"*"{t:'i',d:payload}"*) : ;; *) fail "cockpit steer/broadcast wiring missing";; esac
 case "$CKPT" in *'function loadCompare'*'/compare'*"/merge'"*) : ;; *) fail "cockpit Review compare/merge missing";; esac
 pass "Phase 3 cockpit request bar (fan-out/steer/broadcast) + Review compare/merge"
+
+# Phase 4 — verify in-loop UI (badge/green-gate + cmd editor). backend test is late (needs a fresh repo).
+case "$CKPT" in *"'✓ verify'"*'function vbadge'*'merge anyway'*) : ;; *) fail "cockpit verify badge / green-gate missing";; esac
+case "$CKPT" in *'id="rvVcmd"'*"/verify'"*'function saveVcmd'*) : ;; *) fail "cockpit verify cmd editor missing";; esac
+pass "Phase 4 cockpit verify badge + green-gate + verifyCmd editor (UI)"
 # GET /api/settings shape + env locks (this suite boots with COXPIT_PORT/AUTH_DISABLED/WEBHOOK_URL set)
 SET=$(curl -s "$B/api/settings")
 case "$SET" in *'"effective"'*'"envLocked"'*'"auth"'*) : ;; *) fail "settings GET shape: $SET";; esac
@@ -520,6 +525,36 @@ done
 curl -s "$B/api/runs/$NPRID/diff" | grep -q 'COXPIT_DRYRUN' || fail "greenfield diff missing dry-run file (empty base commit did not host worktree)"
 curl -s -X POST "$B/api/tasks/$NPTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 pass "greenfield: new project scaffolds on an empty initial commit (dry run settles + diff)"
+
+# Phase 4 backend — verify in-loop: repo.verifyCmd → auto-verify on settle → pass, then re-verify → fail
+VREPO="$WORK/verifyrepo"
+mkdir -p "$VREPO"; git -C "$VREPO" init -q -b main
+printf 'seed\n' > "$VREPO/README.md"; git -C "$VREPO" add -A
+git -C "$VREPO" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
+VR=$(curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$VREPO\"}")
+VRID=$(echo "$VR" | python3 -c 'import sys,json;print(json.load(sys.stdin)["repo"]["id"])')
+# PATCH verifyCmd (passing) — dry run creates COXPIT_DRYRUN.txt in the worktree
+VPATCH=$(curl -s -X PATCH "$B/api/repos/$VRID" -H 'content-type: application/json' -d '{"verifyCmd":"test -f COXPIT_DRYRUN.txt"}')
+case "$VPATCH" in *'"verifyCmd":"test -f COXPIT_DRYRUN.txt"'*) : ;; *) fail "verifyCmd PATCH failed: $VPATCH";; esac
+# invalid verifyCmd (embedded control char \u0001, valid JSON) rejected 400 by the guard
+expect_code 400 -X PATCH "$B/api/repos/$VRID" -H 'content-type: application/json' -d '{"verifyCmd":"echo\u0001bad"}'
+VVT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$VRID,\"title\":\"verify\",\"prompt\":\"x\"}")
+VVTID=$(echo "$VVT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
+curl -sf -X POST "$B/api/tasks/$VVTID/run" -H 'content-type: application/json' -d '{"count":1}' >/dev/null
+VVRID=$(curl -s "$B/api/tasks/$VVTID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runs"][0]["id"])')
+VS=""
+for i in $(seq 1 80); do
+  VS=$(curl -s "$B/api/runs/$VVRID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"].get("verifyStatus",""))' 2>/dev/null || true)
+  [ "$VS" = "pass" ] || [ "$VS" = "fail" ] && break; sleep 0.5
+done
+[ "$VS" = "pass" ] || fail "auto-verify should settle pass, got '$VS'"
+# manual re-verify with a now-failing cmd → fail + output captured
+curl -s -X PATCH "$B/api/repos/$VRID" -H 'content-type: application/json' -d '{"verifyCmd":"echo boom; exit 3"}' >/dev/null
+RV=$(curl -s -X POST "$B/api/runs/$VVRID/verify")
+case "$RV" in *'"status":"fail"'*) : ;; *) fail "re-verify should fail: $RV";; esac
+curl -s "$B/api/runs/$VVRID" | grep -q '"verifyOutput":"boom"' || fail "verify output not captured"
+curl -s -X POST "$B/api/tasks/$VVTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+pass "Phase 4 backend: verifyCmd PATCH(+400 guard) → auto-verify pass → re-verify fail + output"
 
 # v4.4 B 가드 — nonempty 폴더 409 · 커밋 있는 repo 409 · 상대경로 400
 NEDIR="$WORK/notempty"; mkdir -p "$NEDIR"; printf 'x\n' > "$NEDIR/file.txt"

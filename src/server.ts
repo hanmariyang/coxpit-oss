@@ -19,7 +19,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -685,21 +685,33 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 기본 브랜치 변경 — merge·Sync base·PR 이 향할 대상. develop-flow repo 대응.
   app.patch('/api/repos/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const b = (req.body ?? {}) as { defaultBranch?: string };
-    const branch = (b.defaultBranch ?? '').trim();
-    if (!/^[\w.\-/]{1,80}$/.test(branch)) return reply.code(400).send({ error: 'invalid branch name' });
+    const b = (req.body ?? {}) as { defaultBranch?: string; verifyCmd?: string };
     const rp = await db.select().from(repos).where(eq(repos.id, id)).limit(1);
     const repo = rp[0];
     if (!repo) return reply.code(404).send({ error: 'not found' });
-    const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
-    const m = mr[0];
-    if (!m) return reply.code(404).send({ error: 'machine not found' });
-    // branch 는 charset 가드 통과(셸 메타문자 없음). 전체 ref 를 인용해 전달.
-    const check = await runShellOn(m,
-      `git -C ${shq(repo.path)} rev-parse --verify --quiet ${shq('refs/heads/' + branch)} >/dev/null && echo OK`, 10000);
-    if (!check.stdout.includes('OK')) return reply.code(400).send({ error: `branch '${branch}' not found in the repository` });
-    await db.update(repos).set({ defaultBranch: branch }).where(eq(repos.id, id));
-    return { ok: true, defaultBranch: branch };
+    const patch: { defaultBranch?: string; verifyCmd?: string } = {};
+    // defaultBranch(선택) — repo 에 존재하는 ref 로 검증
+    if (b.defaultBranch !== undefined) {
+      const branch = (b.defaultBranch ?? '').trim();
+      if (!/^[\w.\-/]{1,80}$/.test(branch)) return reply.code(400).send({ error: 'invalid branch name' });
+      const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
+      const m = mr[0];
+      if (!m) return reply.code(404).send({ error: 'machine not found' });
+      const check = await runShellOn(m,
+        `git -C ${shq(repo.path)} rev-parse --verify --quiet ${shq('refs/heads/' + branch)} >/dev/null && echo OK`, 10000);
+      if (!check.stdout.includes('OK')) return reply.code(400).send({ error: `branch '${branch}' not found in the repository` });
+      patch.defaultBranch = branch;
+    }
+    // verifyCmd(선택) — 정착 run 검증 명령. 빈문자 = 검증 끔. 제어문자만 금지, 길이 캡.
+    if (b.verifyCmd !== undefined) {
+      const vc = String(b.verifyCmd ?? '').trim();
+      if (vc.length > 500) return reply.code(400).send({ error: 'verify command too long (max 500)' });
+      if (/[\x00-\x1f]/.test(vc)) return reply.code(400).send({ error: "verify command has control characters" });
+      patch.verifyCmd = vc;
+    }
+    if (!Object.keys(patch).length) return reply.code(400).send({ error: 'nothing to update' });
+    await db.update(repos).set(patch).where(eq(repos.id, id));
+    return { ok: true, ...patch };
   });
 
   // 디렉토리 브라우저 — repo 등록용 파일 피커(로컬 머신 전용, 인증 게이트 뒤).
@@ -974,6 +986,16 @@ export async function buildServer(): Promise<FastifyInstance> {
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     const res = await steerRun(id, message, b.mode === 'ask' ? 'ask' : 'work');
+    if (!res.ok) return reply.code(409).send(res);
+    return reply.code(202).send(res);
+  });
+
+  // 수동 재검증 — repo.verifyCmd 를 이 run 의 worktree 에서 다시 실행(정착 자동검증과 동일 경로).
+  app.post('/api/runs/:id/verify', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const res = await verifyRun(id);
     if (!res.ok) return reply.code(409).send(res);
     return reply.code(202).send(res);
   });

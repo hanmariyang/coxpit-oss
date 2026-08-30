@@ -534,7 +534,36 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
   await setRun(runId, { status, endedAt: new Date(), filesChanged, exitSummary, agentPid: 0 });
   // 문서 산출물을 정착 시점에 스냅샷 — worktree 소멸(머지·Close) 후에도 렌더 뷰 유지. best-effort.
   if (filesChanged > 0) void snapshotRunDocs(runId);
+  // verify in-loop — repo.verifyCmd 가 있으면 정착한(변경 있는) run 을 자동 검증. best-effort.
+  if (status === 'done' && filesChanged > 0) void verifyRun(runId);
   void notifySettle(runId, status, filesChanged, exitSummary);
+}
+
+/**
+ * Verify in-loop — repo.verifyCmd 를 run 의 worktree 에서 실행해 pass/fail 을 기록.
+ * verifyCmd 미설정이면 상태를 비우고 no-op. 정착 훅이 자동 호출(done+변경), 수동 재검증도 지원.
+ */
+export async function verifyRun(runId: number): Promise<{ ok: boolean; status: string; detail?: string }> {
+  const ctx = await loadContext(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!ctx || !run) return { ok: false, status: '', detail: 'run not found' };
+  const rp = await db.select().from(repos).where(eq(repos.id, ctx.repoId)).limit(1);
+  const cmd = (rp[0]?.verifyCmd ?? '').trim();
+  if (!cmd) { await setRun(runId, { verifyStatus: '', verifyOutput: '' }); return { ok: true, status: '' }; }
+  if (!run.worktreePath) return { ok: false, status: 'error', detail: 'worktree gone' };
+  const exists = await runShellOn(ctx.machine, `test -d ${shq(run.worktreePath)} && echo yes`, 8000);
+  if (!/yes/.test(exists.stdout)) {
+    await setRun(runId, { verifyStatus: 'error', verifyOutput: 'worktree missing' });
+    return { ok: false, status: 'error', detail: 'worktree missing' };
+  }
+  await setRun(runId, { verifyStatus: 'running', verifyOutput: '' });
+  const r = await runShellOn(ctx.machine, `cd ${shq(run.worktreePath)} && ( ${cmd} )`, 180000);
+  const merged = [r.stdout, r.stderr].filter(Boolean).join('\n').trim();
+  const tail = merged.length > 6000 ? '…' + merged.slice(-6000) : merged;
+  const status = r.ok ? 'pass' : r.code === -1 ? 'error' : 'fail';
+  await setRun(runId, { verifyStatus: status, verifyOutput: tail });
+  return { ok: true, status };
 }
 
 /**

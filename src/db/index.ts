@@ -103,4 +103,7 @@ export async function ensureSchema(): Promise<void> {
   try { await client.execute("ALTER TABLE tasks ADD COLUMN outputs TEXT NOT NULL DEFAULT '[]'"); } catch { /* exists */ }
   try { await client.execute('ALTER TABLE agent_runs ADD COLUMN agent_pid INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
   try { await client.execute('ALTER TABLE agent_runs ADD COLUMN log_offset INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
+  try { await client.execute("ALTER TABLE repos ADD COLUMN verify_cmd TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
+  try { await client.execute("ALTER TABLE agent_runs ADD COLUMN verify_status TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
+  try { await client.execute("ALTER TABLE agent_runs ADD COLUMN verify_output TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
 }

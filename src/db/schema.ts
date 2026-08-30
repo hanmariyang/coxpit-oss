@@ -19,6 +19,7 @@ export const repos = sqliteTable('repos', {
   path: text('path').notNull(),
   name: text('name').notNull(),
   defaultBranch: text('default_branch').notNull().default('main'),
+  verifyCmd: text('verify_cmd').notNull().default(''), // 정착한 run 을 검증하는 명령(테스트·빌드). 빈값 = 검증 없음
 });
 
 /** Design Mode 캡처 — 북마클릿 인스펙터가 보낸 UI 요소 컨텍스트. */
@@ -90,6 +91,8 @@ export const agentRuns = sqliteTable('agent_runs', {
   filesChanged: integer('files_changed').notNull().default(0),
   agentPid: integer('agent_pid').notNull().default(0),   // detached sh pgid — 재시작 후 생존 판정/stop
   logOffset: integer('log_offset').notNull().default(0), // 내구 로그에서 tail 이 소비한 바이트(재-adopt 시 여기부터)
+  verifyStatus: text('verify_status').notNull().default(''), // '' none | running | pass | fail | error — 정착 후 repo.verifyCmd 결과
+  verifyOutput: text('verify_output').notNull().default(''), // 검증 출력 tail(실패 진단용)
   startedAt: integer('started_at', { mode: 'timestamp' }),
   endedAt: integer('ended_at', { mode: 'timestamp' }),
   exitSummary: text('exit_summary').notNull().default(''),

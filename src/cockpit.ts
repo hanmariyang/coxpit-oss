@@ -97,6 +97,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .pane-h .title{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--faint)}
   .pane-h .x{color:var(--faint);border:none;background:none;cursor:pointer;font-size:13px;padding:0 3px}
   .pane-h .x:hover{color:var(--failed)}
+  .vbadge{font-size:9px;font-weight:600;letter-spacing:.03em;padding:1px 6px;border-radius:999px;white-space:nowrap}
+  .vbadge.pass{color:var(--done);background:rgba(88,179,104,.16)}
+  .vbadge.fail{color:var(--failed);background:rgba(226,91,103,.16)}
+  .vbadge.running{color:var(--blocked);background:rgba(214,162,73,.16)}
+  .vbadge.error{color:var(--failed);background:rgba(226,91,103,.12)}
   .pane-term{flex:1;min-height:0;padding:4px 2px 2px 8px}
   .pane-term .xterm{height:100%}
 
@@ -138,6 +143,17 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .rv-col-h .stat{color:var(--faint);font-size:11px;margin-left:auto}
   .rv-merge{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:6px;padding:4px 9px;cursor:pointer}
   .rv-merge:disabled{opacity:.35;cursor:default;background:var(--line-hi);color:var(--faint)}
+  .rv-merge.caution{background:var(--blocked);color:#211803}
+  .rv-verify{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .rv-verify .vbadge{flex:none}
+  .rv-verify .vout{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--faint);cursor:pointer}
+  .rv-reverify{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:10px;padding:2px 7px;cursor:pointer;font-family:var(--mono)}
+  .rv-reverify:hover{color:var(--ink);border-color:var(--line-hi)}
+  .rv-vcmd{display:flex;align-items:center;gap:7px;margin-left:14px}
+  .rv-vcmd input{font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:5px 8px;width:230px}
+  .rv-vcmd input::placeholder{color:var(--faint)}
+  .rv-vcmd button{font-family:var(--mono);font-size:10.5px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:6px;padding:5px 9px;cursor:pointer}
+  .rv-vcmd button:hover{color:var(--ink);border-color:var(--line-hi)}
   .rv-diff{flex:1;overflow:auto;padding:8px 10px;font-family:var(--mono);font-size:11.5px;line-height:1.5;white-space:pre;color:var(--muted)}
   .rv-diff > span{display:block;min-height:1.2em}
   .dl-file{color:var(--brand)} .dl-hunk{color:var(--open)} .dl-ctx{color:var(--muted)}
@@ -156,7 +172,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
   <div class="right">
     <span class="ws" id="ws"><span class="dot"></span><span id="wstext">connecting</span></span>
-    <span class="wip">preview · Phase 3</span>
+    <span class="wip">preview · Phase 4</span>
     <a class="toggle" href="/">← Board</a>
   </div>
 </header>
@@ -209,7 +225,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     <span style="color:var(--brand)">⧉ Review</span>
     <span>·</span>
     <select id="rvTask" title="비교할 태스크"></select>
-    <span id="rvHint" style="margin-left:auto;color:var(--faint)">run diff 를 나란히 · 승자를 base 에 merge</span>
+    <span class="rv-vcmd">
+      <span style="color:var(--faint)">verify:</span>
+      <input id="rvVcmd" placeholder="예: npm test — 정착 시 자동 실행" autocomplete="off" />
+      <button type="button" id="rvVsave">save</button>
+    </span>
+    <span id="rvHint" style="margin-left:auto;color:var(--faint)">정착하면 자동 검증 · 승자를 base 에 merge</span>
   </div>
   <div class="rv-cols" id="rvCols"></div>
 </section>
@@ -226,6 +247,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var $ = function(id){ return document.getElementById(id); };
 
   function toast(msg){ var t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._h); toast._h=setTimeout(function(){ t.classList.remove('show'); }, 2600); }
+  var V_GLYPH = { pass:'✓ verify', fail:'✗ verify', running:'⋯ verify', error:'⚠ verify' };
+  function vbadge(status){ if (!status || !V_GLYPH[status]) return ''; return '<span class="vbadge '+status+'" data-role="vbadge">'+V_GLYPH[status]+'</span>'; }
 
   // ── fleet 상태 ──
   var fleet = { machines:[], repos:[], tasks:[], groups:[], runs:[], providers:[] };
@@ -356,6 +379,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var el = document.createElement('div'); el.className = 'pane'; p.el = el;
     el.innerHTML = '<div class="pane-h"><span class="rid">r'+runId+'</span>'
       + '<span class="chip '+esc(r?r.status:'')+'" data-role="chip">'+esc(r?r.status:'')+'</span>'
+      + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
       + '<span class="title" data-role="title">'+esc(r&&r.tmuxWindow||'terminal')+'</span>'
       + '<button class="x" title="close">×</button></div>'
       + '<div class="pane-term"></div>';
@@ -422,7 +446,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     panes.forEach(function(p){
       var r = runById[p.runId];
       var chip = p.el.querySelector('[data-role=chip]'); var title = p.el.querySelector('[data-role=title]');
-      if (r){ if(chip){ chip.className='chip '+r.status; chip.textContent=r.status; } if(title) title.textContent = r.tmuxWindow||'terminal'; }
+      var vslot = p.el.querySelector('[data-role=vslot]');
+      if (r){ if(chip){ chip.className='chip '+r.status; chip.textContent=r.status; } if(title) title.textContent = r.tmuxWindow||'terminal';
+        if(vslot) vslot.innerHTML = vbadge(r.verifyStatus); }
     });
   }
   $('closeBtn').addEventListener('click', function(){ if (focusId) closePane(focusId); });
@@ -512,9 +538,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       o.textContent = (rp?rp.name+' · ':'')+t.title; sel.appendChild(o); });
     if (!tasks.length){ $('rvCols').innerHTML='<div class="rv-empty">비교할 run 이 있는 태스크가 아직 없습니다. Terminal 에서 팬아웃해 보세요.</div>'; rvTaskId=null; return; }
     if (cur){ sel.value=cur; } rvTaskId = Number(sel.value);
+    syncVcmd();
     loadCompare(rvTaskId);
   }
-  $('rvTask').addEventListener('change', function(){ rvTaskId=Number(this.value); loadCompare(rvTaskId); });
+  $('rvTask').addEventListener('change', function(){ rvTaskId=Number(this.value); syncVcmd(); loadCompare(rvTaskId); });
   function diffHTML(text){
     if (!text || !text.trim()) return '<span style="color:var(--faint)">no changes</span>';
     return text.split('\\n').map(function(l){
@@ -528,6 +555,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   async function loadCompare(taskId){
     var host=$('rvCols'); host.innerHTML='<div class="rv-empty">불러오는 중…</div>';
+    var task = taskById[taskId]; var repo = task && repoById[task.repoId];
+    var hasVerify = !!(repo && repo.verifyCmd && repo.verifyCmd.trim());
     try{
       var d = await (await fetch('/api/tasks/'+taskId+'/compare')).json();
       var rns = (d.runs||[]).sort(function(a,b){return a.id-b.id;});
@@ -537,26 +566,67 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         var col=document.createElement('div'); col.className='rv-col';
         var st = typeof r.stat==='string' ? r.stat.split('\\n').pop().trim() : '';
         var mergeable = (r.status==='done'||r.status==='open'||r.status==='merged') && r.filesChanged>0;
+        // green-gate: verifyCmd 있는데 pass 아니면 "merge anyway"(주의색) — 막지 않고 경고
+        var gated = hasVerify && r.verifyStatus!=='pass';
+        var mlabel = r.status==='merged' ? 'merged' : (gated ? 'merge anyway' : 'merge ▸');
+        var vline = '';
+        if (hasVerify){
+          var vs = r.verifyStatus||''; var out = (r.verifyOutput||'').split('\\n').pop();
+          var txt = vs==='pass'?'통과' : vs==='fail'?'실패' : vs==='running'?'검증 중…' : vs==='error'?'검증 오류' : '미검증';
+          vline = '<div class="rv-verify">'+(vbadge(vs)||'<span class="vbadge error">· verify</span>')
+            + '<span class="vout" data-vout="'+r.id+'" title="클릭=전체 출력">'+esc(txt+(out?' — '+out:''))+'</span>'
+            + '<button class="rv-reverify" data-reverify="'+r.id+'">re-verify</button></div>';
+        }
         col.innerHTML = '<div class="rv-col-h"><span class="st '+esc(r.status)+'" style="width:7px;height:7px;border-radius:50%;display:inline-block"></span>'
           + '<span class="rid">r'+r.id+'</span><span class="chip '+esc(r.status)+'">'+esc(r.status)+'</span>'
           + '<span class="stat">'+esc(st)+'</span>'
-          + '<button class="rv-merge" data-merge="'+r.id+'"'+((r.status==='merged'||!mergeable)?' disabled':'')+'>'
-          + (r.status==='merged'?'merged':'merge ▸')+'</button></div>'
+          + '<button class="rv-merge'+(gated?' caution':'')+'" data-merge="'+r.id+'"'+((r.status==='merged'||!mergeable)?' disabled':'')
+          + (gated?' title="검증 미통과 — 그래도 머지"':'')+'>'+mlabel+'</button></div>'
+          + vline
           + '<div class="rv-diff">'+diffHTML(r.diff)+'</div>';
+        col._vout = { text: r.verifyOutput||'' };
         host.appendChild(col);
       });
+      // 전체 verify 출력 저장(툴팁·토스트용)
+      voutById = {}; rns.forEach(function(r){ voutById[r.id]=r.verifyOutput||''; });
     }catch(e){ host.innerHTML='<div class="rv-empty">compare 실패: '+esc(String(e))+'</div>'; }
   }
+  var voutById = {};
   $('rvCols').addEventListener('click', async function(e){
+    var vo = e.target.closest('[data-vout]');
+    if (vo){ var t = voutById[vo.dataset.vout]||''; toast(t? t.slice(-600) : '검증 출력 없음'); return; }
+    var rv = e.target.closest('[data-reverify]');
+    if (rv){ var id=rv.dataset.reverify; rv.disabled=true; rv.textContent='…';
+      try{ await fetch('/api/runs/'+id+'/verify',{method:'POST'}); toast('r'+id+' 재검증 시작'); }
+      catch(err){ toast('재검증 실패: '+err); rv.disabled=false; rv.textContent='re-verify'; }
+      return; }
     var b = e.target.closest('[data-merge]'); if (!b) return;
-    var rid = b.dataset.merge; b.disabled=true; b.textContent='merging…';
+    var rid = b.dataset.merge; var prev=b.textContent; b.disabled=true; b.textContent='merging…';
     try{
       var res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});
       var j = await res.json().catch(function(){return{};});
       if (res.ok){ toast('r'+rid+' merge 완료'); await hydrate(); if (rvTaskId!=null) loadCompare(rvTaskId); }
-      else { toast('merge 불가: '+(j.error||j.reason||res.status)); b.disabled=false; b.textContent='merge ▸'; }
-    }catch(err){ toast('merge 실패: '+err); b.disabled=false; b.textContent='merge ▸'; }
+      else { toast('merge 불가: '+(j.error||j.reason||res.status)); b.disabled=false; b.textContent=prev; }
+    }catch(err){ toast('merge 실패: '+err); b.disabled=false; b.textContent=prev; }
   });
+  // verify 명령 저장(선택 태스크의 repo 에)
+  function syncVcmd(){
+    var t = rvTaskId!=null?taskById[rvTaskId]:null; var rp = t&&repoById[t.repoId];
+    $('rvVcmd').value = rp ? (rp.verifyCmd||'') : '';
+    $('rvVcmd').dataset.repo = rp ? String(rp.id) : '';
+  }
+  async function saveVcmd(){
+    var rid = $('rvVcmd').dataset.repo; if (!rid){ toast('repo 를 알 수 없습니다'); return; }
+    var cmd = $('rvVcmd').value.trim();
+    try{
+      var res = await fetch('/api/repos/'+rid,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({verifyCmd:cmd})});
+      var j = await res.json().catch(function(){return{};});
+      if (res.ok){ if (repoById[rid]) repoById[rid].verifyCmd=cmd; toast(cmd?'verify 명령 저장':'verify 끔'); await hydrate(); if (rvTaskId!=null){ syncVcmd(); loadCompare(rvTaskId); } }
+      else toast('저장 실패: '+(j.error||res.status));
+    }catch(err){ toast('저장 실패: '+err); }
+  }
+  $('rvVsave').addEventListener('click', saveVcmd);
+  $('rvVcmd').addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); saveVcmd(); } });
 
   // ── /ws 라이브 구독 → 트리·페인 갱신 ──
   function wsConnect(){
