@@ -127,8 +127,9 @@ case "$CKPT" in *'id="rvVcmd"'*"/verify'"*'function saveVcmd'*) : ;; *) fail "co
 pass "Phase 4 cockpit verify badge + green-gate + verifyCmd editor (UI)"
 
 # Free session (workbench) opener + empty-state fix (panes hidden until a pane exists — no grey ghost box)
-case "$CKPT" in *'id="sessionBtn"'*'id="sessionCta"'*'function openSession'*"/api/workbench'"*) : ;; *) fail "cockpit free-session opener missing";; esac
-case "$CKPT" in *'root:true'*) : ;; *) fail "cockpit session should open at repo checkout (root:true)";; esac
+case "$CKPT" in *'id="sessionBtn"'*'id="sessionCta"'*'function openSession'*) : ;; *) fail "cockpit free-session opener missing";; esac
+case "$CKPT" in *'id="pickModal"'*'function browseTo'*'/api/browse'*"/api/session'"*) : ;; *) fail "cockpit folder picker / session wiring missing";; esac
+case "$CKPT" in *"kind!=='sessions'"*'>Sessions<'*) : ;; *) fail "cockpit sessions tree section / project split missing";; esac
 case "$CKPT" in *'.panes{flex:1;display:none'*) : ;; *) fail "cockpit empty panes should default to display:none (grey-box fix)";; esac
 pass "cockpit free session (workbench) opener + empty-state grey-box fix"
 
@@ -680,6 +681,32 @@ curl -s -X POST "$B/api/runs/$RSRUN/cleanup" | grep -q '"ok":true' || fail "root
 [ -f "$REPO/README.md" ] && [ -d "$REPO/.git" ] || fail "root session close destroyed the checkout"
 tmux has-session -t "coxpit-r$RSRUN" 2>/dev/null && fail "root session tmux not cleaned" || true
 pass "root session: opens at repo checkout, no worktree, merge refused, close preserves checkout"
+
+# free session at an arbitrary folder — NOT filed under any project (virtual 'sessions' bucket); close preserves folder
+SESSDIR="$WORK/free session dir"
+mkdir -p "$SESSDIR"; printf 'keep\n' > "$SESSDIR/keep.txt"
+FS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$SESSDIR\"}")
+echo "$FS" | grep -q '"ok":true' || fail "free session open: $FS"
+FSRUN=$(echo "$FS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
+# the session's run lives under a repo with kind='sessions' (not the real repo 1)
+FLEET=$(curl -s "$B/api/fleet?view=all")
+echo "$FLEET" | FSRUN="$FSRUN" SESSDIR="$SESSDIR" python3 -c '
+import sys,json,os
+j=json.load(sys.stdin); rid=int(os.environ["FSRUN"])
+run=[r for r in j["runs"] if r["id"]==rid][0]
+task=[t for t in j["tasks"] if t["id"]==run["taskId"]][0]
+repo=[x for x in j["repos"] if x["id"]==task["repoId"]][0]
+assert run["agent"]=="session", "agent="+run["agent"]
+assert repo.get("kind")=="sessions", "bucket kind="+str(repo.get("kind"))
+assert repo["id"]!=1, "session must not be filed under the real project repo"
+assert run["worktreePath"]==os.environ["SESSDIR"], "wt="+run["worktreePath"]
+print("free-session bucket ok")
+' || fail "free session not isolated into sessions bucket"
+tmux has-session -t "coxpit-r$FSRUN" 2>/dev/null || fail "free session tmux missing"
+curl -s -X POST "$B/api/session" -H 'content-type: application/json' -d '{"machineSlug":"local"}' -o /dev/null -w '%{http_code}' | grep -q 400 || fail "session without path should 400"
+curl -s -X POST "$B/api/runs/$FSRUN/cleanup" | grep -q '"ok":true' || fail "free session cleanup"
+[ -f "$SESSDIR/keep.txt" ] || fail "free session close destroyed the folder"
+pass "free session: arbitrary folder, isolated from projects (sessions bucket), close preserves folder"
 
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5

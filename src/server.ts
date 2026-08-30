@@ -19,7 +19,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -1016,6 +1016,17 @@ export async function buildServer(): Promise<FastifyInstance> {
     const repoId = Number(b.repoId);
     if (!repoId) return reply.code(400).send({ error: 'repoId required' });
     const res = await openWorkbench(repoId, (b.title ?? '').trim(), b.root === true);
+    if (!res.ok) return reply.code(422).send(res);
+    return reply.code(201).send(res);
+  });
+
+  // 자유 세션 — 임의 폴더에서 tmux 셸(프로젝트 비소속, 가상 Sessions 버킷).
+  app.post('/api/session', async (req, reply) => {
+    const b = (req.body ?? {}) as { machineSlug?: string; path?: string; title?: string };
+    const machineSlug = (b.machineSlug ?? '').trim();
+    const path = (b.path ?? '').trim();
+    if (!machineSlug || !path) return reply.code(400).send({ error: 'machineSlug and path required' });
+    const res = await openSessionAt(machineSlug, path, (b.title ?? '').trim());
     if (!res.ok) return reply.code(422).send(res);
     return reply.code(201).send(res);
   });

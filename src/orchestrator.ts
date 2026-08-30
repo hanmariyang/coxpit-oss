@@ -5,7 +5,7 @@ import { existsSync, statSync, openSync, readSync, closeSync, mkdirSync } from '
 import { mkdir, copyFile, readFile, writeFile, rm, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { ChildProcess } from 'node:child_process';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, and } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
 import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots, taskGroups } from './db/schema';
@@ -1023,6 +1023,58 @@ export async function openWorkbench(repoId: number, title: string, root = false)
   await setRun(runId, { status: 'open', branch, worktreePath: wtPath, tmuxWindow: session, startedAt: new Date() });
   await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, workbench: !root, rootSession: root }));
   return { ok: true, detail: root ? 'root session open' : 'workbench open', taskId: task.id, runId };
+}
+
+/**
+ * 머신별 가상 "Sessions" 버킷(kind='sessions') 찾기-또는-만들기.
+ * 자유 세션은 실제 프로젝트(repo)에 소속되지 않도록 이 버킷 밑에 담긴다 — 트리에서 별도 SESSIONS 섹션.
+ */
+async function ensureSessionsRepo(machineId: number): Promise<typeof repos.$inferSelect> {
+  const found = await db.select().from(repos).where(and(eq(repos.machineId, machineId), eq(repos.kind, 'sessions'))).limit(1);
+  if (found[0]) return found[0];
+  const ins = await db.insert(repos).values({ machineId, path: homedir(), name: 'Sessions', defaultBranch: '', kind: 'sessions' }).returning();
+  return ins[0]!;
+}
+
+/**
+ * 자유 세션 — 임의 폴더에서 tmux 셸을 연다. 특정 프로젝트에 소속되지 않음(가상 Sessions 버킷).
+ * git worktree 아님(branch=''), merge 자동 거부·cleanup 은 tmux 만 정리(폴더 보존).
+ */
+export async function openSessionAt(machineSlug: string, path: string, title: string): Promise<{
+  ok: boolean; detail: string; taskId?: number; runId?: number;
+}> {
+  const dir = (path || '').trim();
+  if (!dir.startsWith('/')) return { ok: false, detail: 'absolute path required' };
+  const mr = await db.select().from(machines).where(eq(machines.slug, machineSlug)).limit(1);
+  const m = mr[0];
+  if (!m) return { ok: false, detail: 'machine not found' };
+  const machine: MachineTarget = { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser };
+  const chk = await runShellOn(machine, `test -d ${shq(dir)} && echo yes`, 8000);
+  if (!/yes/.test(chk.stdout)) return { ok: false, detail: 'folder not found: ' + dir };
+
+  const bucket = await ensureSessionsRepo(m.id);
+  const name = title || dir.split('/').filter(Boolean).pop() || dir;
+  const tIns = await db.insert(tasks).values({ repoId: bucket.id, title: name, prompt: '(session)' }).returning();
+  const task = tIns[0]!;
+  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent: 'session', status: 'pending' }).returning();
+  const run = rIns[0]!;
+  const runId = run.id;
+  broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent: 'session', branch: '', filesChanged: 0 });
+
+  const session = `coxpit-r${runId}`;
+  const prep = await runShellOn(
+    machine,
+    `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
+    ` && tmux new-session -d -s ${shq(session)} -c ${shq(dir)}`,
+    15000,
+  );
+  if (!prep.ok) {
+    await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'session prep failed' });
+    return { ok: false, detail: (prep.stderr || prep.stdout).trim().slice(0, 300) };
+  }
+  await setRun(runId, { status: 'open', branch: '', worktreePath: dir, tmuxWindow: session, startedAt: new Date() });
+  await recordEvent(runId, 'meta', JSON.stringify({ session: true, path: dir }));
+  return { ok: true, detail: 'session open', taskId: task.id, runId };
 }
 
 /**

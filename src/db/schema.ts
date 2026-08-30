@@ -20,6 +20,7 @@ export const repos = sqliteTable('repos', {
   name: text('name').notNull(),
   defaultBranch: text('default_branch').notNull().default('main'),
   verifyCmd: text('verify_cmd').notNull().default(''), // 정착한 run 을 검증하는 명령(테스트·빌드). 빈값 = 검증 없음
+  kind: text('kind').notNull().default('git'), // 'git' = 실제 repo | 'sessions' = 자유 세션 담는 가상 버킷(프로젝트 아님)
 });
 
 /** Design Mode 캡처 — 북마클릿 인스펙터가 보낸 UI 요소 컨텍스트. */

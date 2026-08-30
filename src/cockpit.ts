@@ -133,6 +133,31 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .reqgo:disabled{opacity:.4;cursor:default}
   .reqgo.bcast{background:var(--open);color:#0b0d12}
   .reqgo.steer{background:var(--running);color:#04121e}
+  /* ── folder picker (자유 세션 폴더 지정) ── */
+  .modal{position:fixed;inset:0;background:rgba(4,6,10,.6);display:none;align-items:center;justify-content:center;z-index:60}
+  .modal.on{display:flex}
+  .pick{width:min(560px,92vw);max-height:76vh;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line-hi);border-radius:14px;overflow:hidden;font-family:var(--mono)}
+  .pick-h{display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line)}
+  .pick-h .t{font-size:13px;color:var(--ink);font-weight:600}
+  .pick-h .x{margin-left:auto;background:none;border:none;color:var(--faint);font-size:16px;cursor:pointer}
+  .pick-h .x:hover{color:var(--ink)}
+  .pick-path{padding:8px 15px;font-size:11.5px;color:var(--brand);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left}
+  .pick-list{flex:1;overflow:auto;padding:6px}
+  .pick-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--muted)}
+  .pick-row:hover{background:var(--surface2);color:var(--ink)}
+  .pick-row .ic{width:14px;text-align:center;color:var(--faint)}
+  .pick-row.up .ic{color:var(--muted)}
+  .pick-row .rp{margin-left:auto;font-size:9px;color:var(--brand);border:1px solid rgba(78,201,176,.3);border-radius:999px;padding:0 6px}
+  .pick-f{display:flex;align-items:center;gap:10px;padding:12px 15px;border-top:1px solid var(--line)}
+  .pick-f .go{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:9px 15px;cursor:pointer}
+  .pick-f .home{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer}
+  .pick-f .home:hover{color:var(--ink);border-color:var(--line-hi)}
+
+  .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none}
+  .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
+  .tnode.session.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
+  .tnode.session .p{color:var(--faint);font-size:10.5px;overflow:hidden;text-overflow:ellipsis}
+
   .toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line-hi);color:var(--ink);
     font-family:var(--mono);font-size:12px;padding:8px 14px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40;max-width:80vw}
   .toast.show{opacity:1}
@@ -204,7 +229,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <h1>여기서 작업을 시작하세요</h1>
         <p>직접 몰고 갈 <b>작업 세션</b>(자유 터미널)을 열거나, 아래 요청바로 에이전트를 팬아웃하세요. 트리의 <b>run</b> 을 클릭해도 그 터미널이 페인으로 열립니다.</p>
         <button class="cta" id="sessionCta">＋ 새 작업 세션 열기</button>
-        <div class="hint">세션 = repo <b>최상위 체크아웃</b>의 tmux 셸(격리 폴더 아님, 전체를 보고 관리). 그 안에서 <code>claude</code> 를 띄워 “이 프로젝트 구현해줘” 처럼 직접 지시할 수 있습니다.</div>
+        <div class="hint">세션 = <b>지정한 폴더</b>의 tmux 셸(특정 프로젝트에 소속되지 않음). 그 안에서 <code>claude</code> 를 띄워 “이 프로젝트 구현해줘” 처럼 직접 지시할 수 있습니다.</div>
       </div>
     </div>
     <div class="reqbar">
@@ -242,6 +267,19 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
   <div class="rv-cols" id="rvCols"></div>
 </section>
+
+<div class="modal" id="pickModal">
+  <div class="pick">
+    <div class="pick-h"><span class="t">세션 폴더 지정</span><button class="x" id="pickClose" title="닫기">×</button></div>
+    <div class="pick-path" id="pickPath">…</div>
+    <div class="pick-list" id="pickList"></div>
+    <div class="pick-f">
+      <button class="home" id="pickHome" title="홈으로">⌂ home</button>
+      <span style="font-size:11px;color:var(--faint)">이 폴더에서 세션 시작</span>
+      <button class="go" id="pickGo">여기서 열기</button>
+    </div>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -287,7 +325,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (cur){ for (var i=0;i<sel.options.length;i++){ if (sel.options[i].value===cur){ sel.value=cur; break; } } }
   }
   function populateReq(){
-    var repos = fleet.repos||[];
+    var repos = (fleet.repos||[]).filter(function(r){ return r.kind!=='sessions'; });
     fillSelect($('reqRepo'), repos, function(r){return String(r.id);}, function(r){return r.name;}, true);
     // repo 미선택 상태면 포커스 페인의 repo 로 기본
     if (focusId){ var rp = repoOfRun((panes.find(function(p){return p.id===focusId;})||{}).runId); if (rp!=null) $('reqRepo').value=String(rp); }
@@ -303,9 +341,29 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var groupById = {}; groups.forEach(function(g){ groupById[g.id]=g; });
     var tasksByRepo = {}; tasks.forEach(function(t){ (tasksByRepo[t.repoId]=tasksByRepo[t.repoId]||[]).push(t); });
     var runsByTask = {}; runs.forEach(function(r){ (runsByTask[r.taskId]=runsByTask[r.taskId]||[]).push(r); });
-    if (!repos.length){ el.innerHTML = '<div class="tnode empty">등록된 repo 가 없습니다 — 보드에서 추가하세요.</div>'; return; }
+    // 세션 버킷(kind='sessions') 분리 — 프로젝트 트리와 별개 SESSIONS 섹션
+    var sessionRepoIds = {}; repos.forEach(function(r){ if (r.kind==='sessions') sessionRepoIds[r.id]=true; });
+    var realRepos = repos.filter(function(r){ return r.kind!=='sessions'; });
+    var sessRuns = [];
+    tasks.forEach(function(t){ if (sessionRepoIds[t.repoId]) (runsByTask[t.id]||[]).forEach(function(r){ sessRuns.push({run:r, title:t.title}); }); });
+    sessRuns.sort(function(a,b){ return b.run.id-a.run.id; });
+
     var html = '';
-    repos.forEach(function(repo){
+    // ── SESSIONS (자유 세션) ──
+    html += '<div class="lbl"><span>Sessions</span><span class="lnk" data-newsession="1">＋ 새 세션</span></div>';
+    if (sessRuns.length){
+      sessRuns.forEach(function(s){
+        var r=s.run; var open = paneByRun[r.id] ? ' open' : '';
+        html += '<div class="tnode session'+open+'" data-run="'+r.id+'"><span class="st '+esc(r.status)+'"></span>'
+          + '<span class="n">'+esc(s.title||'session')+'</span><span class="p">'+esc((r.worktreePath||'').replace(/^.*\\/([^/]+\\/[^/]+)$/,'…/$1'))+'</span></div>';
+      });
+    } else {
+      html += '<div class="tnode empty" style="padding-left:14px">열린 세션 없음 — ＋ Session 으로 폴더 지정</div>';
+    }
+    html += '<div class="tree-sep"></div>';
+    html += '<div class="lbl"><span>Projects</span></div>';
+    if (!realRepos.length){ html += '<div class="tnode empty">등록된 repo 가 없습니다 — 보드에서 추가하세요.</div>'; }
+    realRepos.forEach(function(repo){
       var rk = 'repo'+repo.id;
       var rTasks = (tasksByRepo[repo.id]||[]).filter(function(t){ return t.status!=='closed'; });
       var runCount = rTasks.reduce(function(n,t){ return n+((runsByTask[t.id]||[]).length); }, 0);
@@ -338,7 +396,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     return s;
   }
   $('tree').addEventListener('click', function(e){
-    var run = e.target.closest('.tnode.run');
+    if (e.target.closest('[data-newsession]')){ openSession(); return; }
+    var run = e.target.closest('[data-run]');
     if (run){ openRunPane(+run.dataset.run); return; }
     var fn = e.target.closest('[data-fold]');
     if (fn){ var k = fn.dataset.fold; fold[k] = !isFold(k); renderTree(); }
@@ -461,27 +520,43 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   $('closeBtn').addEventListener('click', function(){ if (focusId) closePane(focusId); });
 
-  // ── 자유 작업 세션(workbench) — 에이전트에 안 묶인 터미널. repo 워크트리 + tmux 셸. ──
-  var openingSession = false;
-  async function openSession(){
-    if (openingSession) return;
-    var repos = fleet.repos||[];
-    if (!repos.length){ toast('먼저 repo 를 등록하세요 — 보드(← Board)에서 Add repository'); return; }
-    var repoId = Number($('reqRepo').value) || repos[0].id;
-    var rp = repoById[repoId];
-    openingSession = true; $('sessionBtn').disabled = true;
+  // ── 자유 세션 — 폴더를 지정해 tmux 셸(프로젝트 비소속). ──
+  var pickPathCur = '';
+  function machineSlug(){ return (fleet.machines && fleet.machines[0] && fleet.machines[0].slug) || 'local'; }
+  function openSession(){ $('pickModal').classList.add('on'); browseTo(''); }
+  function closePicker(){ $('pickModal').classList.remove('on'); }
+  async function browseTo(p){
     try{
-      var res = await fetch('/api/workbench',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({repoId:repoId, title:'Session', root:true})});
-      var j = await res.json().catch(function(){return{};});
-      if (res.ok && j.runId){
-        await hydrate();
-        openRunPane(j.runId);
-        toast('세션 열림'+(rp?(' · '+rp.name+' 최상위'):'')+' — 이 터미널에서 직접 에이전트를 구동하세요');
-      } else { toast('세션 실패: '+(j.detail||j.error||res.status)); }
-    }catch(e){ toast('세션 실패: '+e); }
-    finally{ openingSession=false; $('sessionBtn').disabled=false; }
+      var d = await (await fetch('/api/browse'+(p?('?path='+encodeURIComponent(p)):''))).json();
+      pickPathCur = d.path; $('pickPath').textContent = d.path;
+      var html = '';
+      if (d.parent && d.parent!==d.path) html += '<div class="pick-row up" data-go="'+esc(d.parent)+'"><span class="ic">↑</span><span>..</span></div>';
+      (d.dirs||[]).forEach(function(e){
+        var full = d.path==='/' ? '/'+e.name : d.path+'/'+e.name;
+        html += '<div class="pick-row" data-go="'+esc(full)+'"><span class="ic">'+(e.isRepo?'◆':'▸')+'</span>'
+          + '<span>'+esc(e.name)+'</span>'+(e.isRepo?'<span class="rp">git</span>':'')+'</div>';
+      });
+      if (!(d.dirs||[]).length) html += '<div class="pick-row" style="cursor:default;color:var(--faint)">하위 폴더 없음 — 이 폴더에서 열 수 있습니다</div>';
+      $('pickList').innerHTML = html;
+    }catch(e){ $('pickList').innerHTML = '<div class="pick-row" style="color:var(--failed)">폴더를 읽을 수 없습니다</div>'; }
   }
+  $('pickList').addEventListener('click', function(e){ var r=e.target.closest('[data-go]'); if (r) browseTo(r.dataset.go); });
+  $('pickClose').addEventListener('click', closePicker);
+  $('pickHome').addEventListener('click', function(){ browseTo(''); });
+  $('pickModal').addEventListener('click', function(e){ if (e.target===this) closePicker(); });
+  var openingSession = false;
+  $('pickGo').addEventListener('click', async function(){
+    if (openingSession || !pickPathCur) return;
+    openingSession=true; $('pickGo').disabled=true;
+    try{
+      var res = await fetch('/api/session',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({machineSlug:machineSlug(), path:pickPathCur})});
+      var j = await res.json().catch(function(){return{};});
+      if (res.ok && j.runId){ closePicker(); await hydrate(); openRunPane(j.runId); toast('세션 열림 · '+pickPathCur); }
+      else toast('세션 실패: '+(j.detail||j.error||res.status));
+    }catch(e){ toast('세션 실패: '+e); }
+    finally{ openingSession=false; $('pickGo').disabled=false; }
+  });
   $('sessionBtn').addEventListener('click', openSession);
   $('sessionCta').addEventListener('click', openSession);
 
@@ -559,8 +634,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('vtReview').addEventListener('click', showReview);
   function reviewableTasks(){
     var byTask = {}; (fleet.runs||[]).forEach(function(r){ byTask[r.taskId]=(byTask[r.taskId]||0)+1; });
-    return (fleet.tasks||[]).filter(function(t){ return (byTask[t.id]||0)>=1; })
-      .sort(function(a,b){ return b.id-a.id; });
+    return (fleet.tasks||[]).filter(function(t){
+      var rp = repoById[t.repoId]; if (rp && rp.kind==='sessions') return false;  // 세션은 리뷰 대상 아님
+      return (byTask[t.id]||0)>=1;
+    }).sort(function(a,b){ return b.id-a.id; });
   }
   function renderReviewPicker(){
     var tasks = reviewableTasks(); var sel=$('rvTask');
