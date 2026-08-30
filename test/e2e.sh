@@ -126,6 +126,11 @@ case "$CKPT" in *"'✓ verify'"*'function vbadge'*'merge anyway'*) : ;; *) fail 
 case "$CKPT" in *'id="rvVcmd"'*"/verify'"*'function saveVcmd'*) : ;; *) fail "cockpit verify cmd editor missing";; esac
 pass "Phase 4 cockpit verify badge + green-gate + verifyCmd editor (UI)"
 
+# Free session (workbench) opener + empty-state fix (panes hidden until a pane exists — no grey ghost box)
+case "$CKPT" in *'id="sessionBtn"'*'id="sessionCta"'*'function openSession'*"/api/workbench'"*) : ;; *) fail "cockpit free-session opener missing";; esac
+case "$CKPT" in *'.panes{flex:1;display:none'*) : ;; *) fail "cockpit empty panes should default to display:none (grey-box fix)";; esac
+pass "cockpit free session (workbench) opener + empty-state grey-box fix"
+
 # Phase 5 — desktop app default entry flips to /cockpit (web `/` stays board; mobile self-redirects)
 DMAIN=$(cat "$ROOT/desktop/main.cjs" 2>/dev/null || cat desktop/main.cjs)
 case "$DMAIN" in *"ENTRY_PATH = process.env.COXPIT_ENTRY || '/cockpit'"*) : ;; *) fail "desktop ENTRY_PATH default not /cockpit";; esac

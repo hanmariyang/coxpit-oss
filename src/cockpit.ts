@@ -81,7 +81,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .pb-btn{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:11px;padding:3px 9px;cursor:pointer;font-family:var(--mono)}
   .pb-btn:hover:not([disabled]){color:var(--ink);border-color:var(--line-hi)}
   .pb-btn[disabled]{opacity:.4;cursor:default}
-  .panes{flex:1;display:grid;gap:1px;background:var(--line);padding:1px;min-height:0}
+  .panes{flex:1;display:none;gap:1px;background:var(--line);padding:1px;min-height:0}  /* 초기 숨김 — layoutPanes 가 페인 있을 때만 grid 로 */
   .pane{display:flex;flex-direction:column;background:var(--bg);min-width:0;min-height:0;overflow:hidden}
   .pane.focus .pane-h{background:var(--brand-dim)}
   .pane.focus{box-shadow:inset 0 0 0 1px rgba(78,201,176,.4)}
@@ -109,7 +109,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .empty .card{max-width:440px}
   .empty .glyph{font-family:var(--mono);font-size:24px;color:#2c3444;letter-spacing:5px;margin-bottom:14px}
   .empty h1{font-family:var(--mono);font-size:16px;margin:0 0 8px;color:var(--ink)}
-  .empty p{color:var(--muted);font-size:13px;margin:0}
+  .empty p{color:var(--muted);font-size:13px;margin:0 0 18px}
+  .empty .cta{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:13px;font-weight:600;
+    color:var(--brand-ink);background:var(--brand);border:none;border-radius:9px;padding:10px 16px;cursor:pointer}
+  .empty .cta:hover{filter:brightness(1.06)}
+  .empty .hint{color:var(--faint);font-size:11.5px;margin-top:12px}
+  .pb-btn.session{color:var(--brand);border-color:rgba(78,201,176,.35)}
+  .pb-btn.session:hover:not([disabled]){background:var(--brand-dim);border-color:var(--brand)}
 
   .reqbar{display:flex;align-items:center;gap:9px;border-top:1px solid var(--line);background:var(--surface);padding:9px 12px;font-family:var(--mono)}
   .modes{display:inline-flex;gap:2px;border:1px solid var(--line);border-radius:8px;padding:2px;background:var(--panel)}
@@ -188,14 +194,17 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <span id="paneCount">0 panes</span>
       <span style="color:var(--faint)">· run 을 열수록 자동 분할(타일)</span>
       <span class="grow"></span>
+      <button class="pb-btn session" id="sessionBtn" title="에이전트에 안 묶인 자유 작업 세션(터미널) 열기">＋ Session</button>
       <button class="pb-btn" id="closeBtn" disabled title="포커스 페인 닫기">× close focused</button>
     </div>
     <div class="panes" id="panes"></div>
     <div class="empty" id="empty">
       <div class="card">
         <div class="glyph">⌗ ⌗ ⌗</div>
-        <h1>페인이 비어 있습니다</h1>
-        <p>왼쪽 트리에서 <b>run</b> 을 클릭하면 그 에이전트 터미널이 여기 페인으로 열립니다. 여러 개 열면 자동으로 분할(타일)됩니다.</p>
+        <h1>여기서 작업을 시작하세요</h1>
+        <p>직접 몰고 갈 <b>작업 세션</b>(자유 터미널)을 열거나, 아래 요청바로 에이전트를 팬아웃하세요. 트리의 <b>run</b> 을 클릭해도 그 터미널이 페인으로 열립니다.</p>
+        <button class="cta" id="sessionCta">＋ 새 작업 세션 열기</button>
+        <div class="hint">세션 = repo 워크트리 + tmux 셸. 그 안에서 <code>claude</code> 를 띄워 “이 프로젝트 구현해줘” 처럼 직접 지시할 수 있습니다.</div>
       </div>
     </div>
     <div class="reqbar">
@@ -452,6 +461,30 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   $('closeBtn').addEventListener('click', function(){ if (focusId) closePane(focusId); });
 
+  // ── 자유 작업 세션(workbench) — 에이전트에 안 묶인 터미널. repo 워크트리 + tmux 셸. ──
+  var openingSession = false;
+  async function openSession(){
+    if (openingSession) return;
+    var repos = fleet.repos||[];
+    if (!repos.length){ toast('먼저 repo 를 등록하세요 — 보드(← Board)에서 Add repository'); return; }
+    var repoId = Number($('reqRepo').value) || repos[0].id;
+    var rp = repoById[repoId];
+    openingSession = true; $('sessionBtn').disabled = true;
+    try{
+      var res = await fetch('/api/workbench',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({repoId:repoId, title:'Session'})});
+      var j = await res.json().catch(function(){return{};});
+      if (res.ok && j.runId){
+        await hydrate();
+        openRunPane(j.runId);
+        toast('세션 열림'+(rp?(' · '+rp.name):'')+' — 이 터미널에서 직접 에이전트를 구동하세요');
+      } else { toast('세션 실패: '+(j.detail||j.error||res.status)); }
+    }catch(e){ toast('세션 실패: '+e); }
+    finally{ openingSession=false; $('sessionBtn').disabled=false; }
+  }
+  $('sessionBtn').addEventListener('click', openSession);
+  $('sessionCta').addEventListener('click', openSession);
+
   // ── 요청바: New(팬아웃) / Steer / Broadcast ──
   var reqMode = 'new';
   function focusRun(){ if (!focusId) return null; var p = panes.find(function(x){return x.id===focusId;}); return p?p.runId:null; }
@@ -639,6 +672,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function scheduleHydrate(){ if (hydT) return; hydT = setTimeout(function(){ hydT=null; hydrate(); }, 400); }
 
   setMode('new');
+  layoutPanes();   // 초기 빈 상태 정합(paneCount·close 비활성·panes 숨김)
   hydrate();
   wsConnect();
   window.addEventListener('resize', function(){ panes.forEach(fitPane); });
