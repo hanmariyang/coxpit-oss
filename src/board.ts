@@ -6,7 +6,7 @@ export const BOARD_HTML = /* html */ `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>coxpit · fleet</title>
 <link rel="icon" href="/brand/favicon.ico" sizes="any" />
 <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
@@ -846,8 +846,12 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     #newBtn,.newnote{display:none}
     header{padding:0 12px;gap:9px}
     .brand .sub,.daemon-badge,.machines{display:none}
-    /* cockpit(터미널) 링크는 모바일에서도 보이게 — 터미널 워크스페이스로 가는 유일한 입구 */
-    .cockpit-link{display:inline-flex;margin-left:auto}
+    /* cockpit(터미널) 링크 = 모바일에선 유일한 터미널 진입로 → 브랜드로 강조 */
+    .cockpit-link{display:inline-flex;margin-left:auto;background:var(--brand);color:var(--brand-ink);
+      border-color:var(--brand);font-weight:700;font-size:12px;padding:6px 11px}
+    .cockpit-link:hover{color:var(--brand-ink)}
+    /* 아이콘화 — 헤더 텍스트 라벨은 줄이고 아이콘 위주 */
+    .brand .wm{font-size:15px}
     main{padding:14px}
     .grid{grid-template-columns:1fr}
     /* 모달 = 풀블리드 */
