@@ -3,7 +3,7 @@
   "version": "5.11.0",
   "description": "Self-hosted cockpit for running a fleet of AI coding agents across your own machines — parallel worktree runs, live board, compare & merge, web terminal, design capture.",
   "type": "module",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE.md",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hanmariyang/coxpit-oss.git"

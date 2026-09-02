@@ -145,7 +145,11 @@ issues privately per **[SECURITY.md](SECURITY.md)** (Coxpit exposes shells).
 
 ## License
 
-MIT
+Coxpit is free and open source under the **AGPLv3 with additional terms** (trademark and
+attribution). Use it, run it, modify it. If you run a modified version as a network service,
+publish your source. Do not ship a fork under the name "Coxpit".
+
+Releases before 2026-09-02 were MIT and stay MIT. See [LICENSE.md](LICENSE.md).
 
 Icons — [Lucide](https://lucide.dev) (ISC). Paths are inlined as an SVG `<symbol>` sprite (no runtime dependency); the ISC notice is kept in [`licenses/lucide.txt`](licenses/lucide.txt).
 
