@@ -49,7 +49,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .toggle{font-size:12px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:5px 11px;background:none;cursor:pointer;font-family:var(--mono)}
   .toggle:hover{color:var(--ink);border-color:var(--line-hi)}
 
-  .layout{display:grid;grid-template-columns:270px 1fr;height:calc(100vh - 46px)}
+  .layout{display:grid;grid-template-columns:270px 1fr;height:calc(100dvh - 46px)}
   .layout > *{min-height:0;min-width:0}
 
   /* ── workspace tree ── */
@@ -235,14 +235,21 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .menu-btn:hover{color:var(--ink);border-color:var(--line-hi)}
   .scrim{display:none;position:fixed;inset:46px 0 0 0;background:rgba(5,7,10,.5);z-index:39}
   .scrim.on{display:block}
-  /* 모바일 터미널 입력바 — 소프트키보드 IME 자모분리 방지: 조합 완료 텍스트를 통째로 PTY 로 */
-  .term-ibar{display:none;gap:6px;padding:7px 9px;border-top:1px solid var(--line);background:var(--surface2);align-items:center;padding-bottom:calc(7px + env(safe-area-inset-bottom))}
-  .term-ibar input{flex:1;min-width:0;font-family:var(--mono);font-size:14px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-  .term-ibar input:focus{outline:none;border-color:var(--brand)}
-  .tkey{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 8px;cursor:pointer;flex:0 0 auto}
-  .tkey:active{color:var(--ink);border-color:var(--brand)}
-  .tsend{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:8px 12px;cursor:pointer;flex:0 0 auto}
-  @media (max-width:860px),(pointer:coarse){
+  /* 모바일/터치 터미널 입력바 — 소프트키보드 IME 자모분리 방지: 조합 완료 텍스트를 통째로 PTY 로.
+     2행 구성(스크롤되는 키 줄 + 입력 줄)이라 방향키·조합키가 많아도 안 잘린다. */
+  .term-ibar{display:none;flex-direction:column;gap:6px;padding:7px 9px;border-top:1px solid var(--line);background:var(--surface2);padding-bottom:calc(7px + env(safe-area-inset-bottom))}
+  .tkeys{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .tinput{display:flex;gap:6px;align-items:center}
+  .tinput input{flex:1;min-width:0;font-family:var(--mono);font-size:16px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 10px}
+  .tinput input:focus{outline:none;border-color:var(--brand)}
+  .tkey{font-family:var(--mono);font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:8px 11px;cursor:pointer;flex:0 0 auto;min-width:42px}
+  .tkey:active{color:var(--ink);border-color:var(--brand);background:var(--brand-dim)}
+  .tsend{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:9px 14px;cursor:pointer;flex:0 0 auto}
+  /* 터치 기기(아이패드 포함, 화면폭 무관): 입력바 노출 + 요청바/분할 숨김(하단 클러터·잘림 방지) */
+  body.touch .term-ibar{display:flex}
+  body.touch .reqbar{display:none}
+  body.touch #splitRow, body.touch #splitCol{display:none}
+  @media (max-width:860px){
     header{gap:8px;padding:0 10px}
     .brand .wm{font-size:17px}
     .mach{display:none}
@@ -251,12 +258,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     .layout{grid-template-columns:1fr}
     .rail{position:fixed;top:46px;bottom:0;left:0;width:84%;max-width:320px;z-index:40;background:var(--panel);transform:translateX(-100%);transition:transform .18s ease;border-right:1px solid var(--line-hi);box-shadow:2px 0 16px rgba(0,0,0,.4)}
     .rail.open{transform:translateX(0)}
-    #splitRow,#splitCol{display:none}   /* 창분할은 데스크톱 전용 */
     .tab{max-width:52vw}
     .term-ibar{display:flex}
-    .reqbar{padding:7px 8px;gap:6px}
-    .reqbar select{max-width:96px}
-    .reqinput{font-size:14px}
   }
 </style>
 </head>
@@ -306,13 +309,23 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       </div>
     </div>
     <div class="term-ibar" id="termIbar">
-      <button type="button" class="tkey" data-k="esc" title="Esc">esc</button>
-      <button type="button" class="tkey" data-k="tab" title="Tab">tab</button>
-      <button type="button" class="tkey" data-k="cc" title="Ctrl-C">^C</button>
-      <button type="button" class="tkey" data-k="up" title="↑">↑</button>
-      <button type="button" class="tkey" data-k="down" title="↓">↓</button>
-      <input id="termInput" placeholder="입력 → 한글 OK · Enter 전송" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-      <button type="button" class="tsend" id="termSend">전송</button>
+      <div class="tkeys">
+        <button type="button" class="tkey" data-k="esc" title="Esc">esc</button>
+        <button type="button" class="tkey" data-k="tab" title="Tab">tab</button>
+        <button type="button" class="tkey" data-k="enter" title="Enter">⏎</button>
+        <button type="button" class="tkey" data-k="left" title="←">←</button>
+        <button type="button" class="tkey" data-k="up" title="↑">↑</button>
+        <button type="button" class="tkey" data-k="down" title="↓">↓</button>
+        <button type="button" class="tkey" data-k="right" title="→">→</button>
+        <button type="button" class="tkey" data-k="cc" title="Ctrl-C">^C</button>
+        <button type="button" class="tkey" data-k="cd" title="Ctrl-D">^D</button>
+        <button type="button" class="tkey" data-k="cr" title="Ctrl-R (검색)">^R</button>
+        <button type="button" class="tkey" data-k="cu" title="Ctrl-U (줄 지우기)">^U</button>
+      </div>
+      <div class="tinput">
+        <input id="termInput" placeholder="입력 → 한글 OK · Enter 전송" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <button type="button" class="tsend" id="termSend">전송</button>
+      </div>
     </div>
     <div class="reqbar">
       <div class="modes">
@@ -793,8 +806,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function termSendLine(){ var inp=$('termInput'); var v=inp.value; if(!v){ termSendRaw('\\r'); return; } termSendRaw(v+'\\r'); inp.value=''; inp.focus(); }
   $('termSend').addEventListener('click', termSendLine);
   $('termInput').addEventListener('keydown', function(e){ if(e.isComposing) return; if(e.key==='Enter'){ e.preventDefault(); termSendLine(); } });
-  var TKEYS={ esc:'\\x1b', tab:'\\t', cc:'\\x03', up:'\\x1b[A', down:'\\x1b[B' };
-  Array.prototype.forEach.call(document.querySelectorAll('#termIbar .tkey'), function(b){ b.addEventListener('click', function(){ var k=TKEYS[b.dataset.k]; if(k) termSendRaw(k); }); });
+  var TKEYS={ esc:'\\x1b', tab:'\\t', enter:'\\r', cc:'\\x03', cd:'\\x04', cr:'\\x12', cu:'\\x15',
+    up:'\\x1b[A', down:'\\x1b[B', right:'\\x1b[C', left:'\\x1b[D' };
+  Array.prototype.forEach.call(document.querySelectorAll('#termIbar .tkey'), function(b){ b.addEventListener('click', function(){ var k=TKEYS[b.dataset.k]; if(k){ termSendRaw(k); var inp=$('termInput'); if(inp) inp.focus(); } }); });
+  // 터치 기기(아이패드 포함) 판별 → body.touch (화면폭 무관하게 입력바 노출)
+  if (window.matchMedia('(pointer:coarse)').matches || (navigator.maxTouchPoints||0) > 0) document.body.classList.add('touch');
 
   // ── 자유 세션 — 폴더를 지정해 tmux 셸(프로젝트 비소속). ──
   var pickPathCur = '';

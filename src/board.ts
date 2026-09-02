@@ -845,7 +845,9 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     .fab{display:inline-flex}
     #newBtn,.newnote{display:none}
     header{padding:0 12px;gap:9px}
-    .brand .sub,.daemon-badge,.machines,.cockpit-link{display:none}
+    .brand .sub,.daemon-badge,.machines{display:none}
+    /* cockpit(터미널) 링크는 모바일에서도 보이게 — 터미널 워크스페이스로 가는 유일한 입구 */
+    .cockpit-link{display:inline-flex;margin-left:auto}
     main{padding:14px}
     .grid{grid-template-columns:1fr}
     /* 모달 = 풀블리드 */

@@ -749,8 +749,12 @@ pass "cockpit secrets vault UI + send-secret-to-pane"
 # mobile-responsive cockpit (drawer tree + single terminal + IME input bar; split is desktop-only)
 case "$CKPT" in *'function setDrawer'*'function termSendLine'*'isComposing'*) : ;; *) fail "cockpit mobile drawer / IME send wiring missing";; esac
 case "$CKPT" in *'창분할은 데스크톱 전용'*) : ;; *) fail "cockpit should guard split on mobile";; esac
-case "$CKPT" in *'@media (max-width:860px),(pointer:coarse)'*) : ;; *) fail "cockpit mobile media query missing";; esac
-pass "cockpit mobile-responsive (drawer + single terminal + IME bar, split desktop-only)"
+case "$CKPT" in *'body.touch .term-ibar'*'@media (max-width:860px)'*) : ;; *) fail "cockpit mobile media query / touch input bar missing";; esac
+# touch input bar has full nav keys (arrows + ctrl combos) + is 2-row so nothing is clipped
+case "$CKPT" in *'class="tkeys"'*'data-k="left"'*'data-k="right"'*'data-k="cd"'*) : ;; *) fail "cockpit terminal nav keys (← → ^D) missing";; esac
+# board keeps a visible Cockpit link on mobile (only entry to the terminal workspace)
+case "$BOARD_HTML" in *'.cockpit-link{display:inline-flex'*) : ;; *) fail "board should show Cockpit link on mobile";; esac
+pass "cockpit mobile fixes: full nav keys + touch input bar (no clip) + board→Cockpit link"
 
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
