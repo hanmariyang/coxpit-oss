@@ -733,8 +733,11 @@ tmux send-keys -t "coxpit-r$SBRUN" 'for i in $(seq 1 40); do echo "SBLINE_$i"; d
 sleep 1
 SBTEXT=$(curl -s "$B/api/runs/$SBRUN/scrollback?lines=3000")
 case "$SBTEXT" in *'"ok":true'*'SBLINE_1'*'SBLINE_40'*) : ;; *) fail "scrollback did not capture pane history: $(echo "$SBTEXT" | head -c 120)";; esac
+# chat/viewer: endpoint responds ok with a turns array (turns may be empty where there is no Claude transcript, e.g. CI)
+CHATRESP=$(curl -s "$B/api/runs/$SBRUN/chat")
+case "$CHATRESP" in *'"ok":true'*'"turns"'*) : ;; *) fail "chat endpoint should return ok + turns: $(echo "$CHATRESP" | head -c 120)";; esac
 curl -s -X POST "$B/api/runs/$SBRUN/cleanup" >/dev/null
-pass "scrollback: tmux capture-pane history returned for the history overlay"
+pass "scrollback + chat(JSONL) viewer endpoints (history overlay backend)"
 
 # secrets vault — store once, inject into session tmux as env (no interactive prompt)
 curl -s -X POST "$B/api/secrets" -H 'content-type: application/json' -d '{"name":"E2E_KEY","value":"sekret_val_9"}' | grep -q '"ok":true' || fail "secret POST failed"
@@ -777,6 +780,11 @@ pass "cockpit mobile app-lock (no zoom/bounce) + icon-only header + small fonts"
 case "$CKPT" in *'data-k="copymode"'*'data-k="pgup"'*'copymode:'*) : ;; *) fail "cockpit tmux copy-mode / PgUp keys missing";; esac
 case "$CKPT" in *'id="histBtn"'*'id="histModal"'*'function openHistory'*'/scrollback'*) : ;; *) fail "cockpit history overlay (scrollback reader) missing";; esac
 pass "cockpit mobile scroll: copy-mode key (A) + read-only history overlay (C)"
+
+# viewer: renamed to 뷰어 + conversational mode (Claude Code JSONL → chat bubbles) alongside terminal(raw)
+case "$CKPT" in *'>📜 뷰어<'*'id="hmChat"'*'function renderTurn'*"/chat'"*) : ;; *) fail "cockpit conversational viewer (대화 mode) missing";; esac
+case "$CKPT" in *'ch-turn'*'ch-bubble'*) : ;; *) fail "cockpit chat bubble styles missing";; esac
+pass "cockpit viewer: 뷰어 rename + conversational (chat) view over Claude Code transcript"
 
 # board (the landing screen) gets the mobile app-lock; Cockpit link is a ghost icon button (matches bell/remote)
 case "$BOARD_HTML" in *'user-scalable=no'*) : ;; *) fail "board mobile viewport zoom-lock missing";; esac

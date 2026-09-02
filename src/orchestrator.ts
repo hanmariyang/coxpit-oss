@@ -677,7 +677,57 @@ export async function getRunTermInfo(runId: number): Promise<{ machine: MachineT
 }
 
 /**
- * tmux 페인 스크롤백 스냅샷 — 모바일 "위 내용 읽기"(히스토리 오버레이)용.
+ * 세션의 Claude Code 대화 로그(JSONL)를 대화형으로 파싱 — 뷰어의 "대화" 모드.
+ * cwd(worktreePath)를 [^a-zA-Z0-9]→'-' 로 바꾼 게 ~/.claude/projects/<...>/ 폴더명 → 최신 .jsonl.
+ * user/assistant turn 만 추출(tool_result 노이즈 제외, tool_use 는 칩으로).
+ */
+export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
+  ok: boolean; turns: Array<{ role: string; text: string; tools?: string[] }>; note?: string;
+}> {
+  const info = await getRunTermInfo(runId);
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!info || !run || !run.worktreePath) return { ok: false, turns: [], note: 'no session' };
+  const proj = run.worktreePath.replace(/[^a-zA-Z0-9]/g, '-');
+  const cmd = `d=${shq(proj)}; f=$(ls -t "$HOME/.claude/projects/$d"/*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -n 8000 "$f" || true`;
+  const r = await runShellOn(info.machine, cmd, 15000);
+  if (!r.ok) return { ok: true, turns: [], note: 'no transcript' };
+  if (!r.stdout.trim()) return { ok: true, turns: [], note: 'no Claude Code transcript for this folder' };
+  const userText = (content: unknown): string => {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content.filter((b) => b && typeof b === 'object' && (b as { type?: string }).type === 'text')
+      .map((b) => (b as { text?: string }).text ?? '').join('\n');
+  };
+  const asstParts = (content: unknown): { text: string; tools: string[] } => {
+    if (typeof content === 'string') return { text: content, tools: [] };
+    if (!Array.isArray(content)) return { text: '', tools: [] };
+    const text: string[] = []; const tools: string[] = [];
+    for (const b of content) {
+      const bb = b as { type?: string; text?: string; name?: string };
+      if (bb?.type === 'text' && bb.text) text.push(bb.text);
+      else if (bb?.type === 'tool_use' && bb.name) tools.push(bb.name);
+    }
+    return { text: text.join('\n'), tools };
+  };
+  const turns: Array<{ role: string; text: string; tools?: string[] }> = [];
+  for (const line of r.stdout.split('\n')) {
+    if (!line.trim()) continue;
+    let j: { type?: string; message?: { content?: unknown } };
+    try { j = JSON.parse(line); } catch { continue; }
+    if (j.type === 'user' && j.message) {
+      const text = userText(j.message.content);
+      if (text.trim()) turns.push({ role: 'user', text: text.slice(0, 8000) });
+    } else if (j.type === 'assistant' && j.message) {
+      const { text, tools } = asstParts(j.message.content);
+      if (text.trim() || tools.length) turns.push({ role: 'assistant', text: text.slice(0, 12000), tools });
+    }
+  }
+  return { ok: true, turns: maxTurns && turns.length > maxTurns ? turns.slice(-maxTurns) : turns };
+}
+
+/**
+ * tmux 페인 스크롤백 스냅샷 — 모바일 "위 내용 읽기"(뷰어의 터미널 모드)용.
  * capture-pane -S -N 으로 N 줄 위부터 현재까지 텍스트를 통째로 반환(읽기 전용).
  */
 export async function getScrollback(runId: number, lines: number): Promise<{ ok: boolean; text: string }> {

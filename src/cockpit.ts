@@ -255,6 +255,17 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .hist-refresh:hover{color:var(--ink);border-color:var(--line-hi)}
   .hist-body{flex:1;margin:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
     padding:10px 12px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--ink);background:var(--bg)}
+  .hist-modes{display:inline-flex;gap:2px;margin-left:12px;border:1px solid var(--line);border-radius:7px;padding:2px}
+  .hm-tab{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;border:none;border-radius:5px;padding:4px 9px;cursor:pointer}
+  .hm-tab.on{background:var(--brand-dim);color:var(--ink)}
+  .hist-chat{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;display:flex;flex-direction:column;gap:10px;padding:12px;background:var(--bg)}
+  .ch-turn{display:flex} .ch-turn.user{justify-content:flex-end}
+  .ch-bubble{max-width:82%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.55;word-break:break-word}
+  .ch-turn.user .ch-bubble{background:var(--brand-dim);color:var(--ink);border:1px solid rgba(78,201,176,.25);border-bottom-right-radius:4px}
+  .ch-turn.asst .ch-bubble{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-bottom-left-radius:4px}
+  .ch-tools{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .ch-tool{font-family:var(--mono);font-size:10px;color:var(--muted);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:1px 7px}
+  .hist-empty{color:var(--faint);text-align:center;padding:30px 16px;font-size:12.5px;margin:auto}
   /* 터치 기기(아이패드 포함, 화면폭 무관): 입력바 노출 + 요청바/분할 숨김(하단 클러터·잘림 방지) */
   body.touch .term-ibar{display:flex}
   body.touch .reqbar{display:none}
@@ -330,7 +341,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     </div>
     <div class="term-ibar" id="termIbar">
       <div class="tkeys">
-        <button type="button" class="tkey scroll" id="histBtn" title="위 내용 읽기 — 스크롤백을 스냅샷으로(읽기 전용)">📜 위로</button>
+        <button type="button" class="tkey scroll" id="histBtn" title="뷰어 — 대화/터미널로 위 내용 보기(읽기 전용)">📜 뷰어</button>
         <button type="button" class="tkey scroll" data-k="copymode" title="터미널 안에서 스크롤 — tmux copy-mode 진입(⇞/↑ 로 위로, esc 로 나가기)">⇡ 스크롤</button>
         <button type="button" class="tkey" data-k="esc" title="Esc">esc</button>
         <button type="button" class="tkey" data-k="tab" title="Tab">tab</button>
@@ -415,10 +426,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
 <div class="modal" id="histModal">
   <div class="pick" style="width:min(680px,96vw);max-height:88vh">
-    <div class="pick-h"><span class="t">📜 <span id="histTitle">터미널 히스토리</span></span>
+    <div class="pick-h"><span class="t">📜 <span id="histTitle">뷰어</span></span>
+      <div class="hist-modes">
+        <button type="button" class="hm-tab on" id="hmChat" title="Claude Code 대화로 보기">대화</button>
+        <button type="button" class="hm-tab" id="hmRaw" title="터미널 스크롤백 원문">터미널</button>
+      </div>
       <button type="button" class="hist-refresh" id="histRefresh" title="지금 시점으로 다시 불러오기">↻</button>
       <button class="x" id="histClose" title="닫기">×</button></div>
-    <pre class="hist-body" id="histBody">불러오는 중…</pre>
+    <div class="hist-chat" id="histChat"></div>
+    <pre class="hist-body" id="histBody" style="display:none">불러오는 중…</pre>
   </div>
 </div>
 
@@ -849,22 +865,42 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     else { var inp=$('termInput'); if(inp) inp.focus(); }
   }); });
 
-  // ── (C) 히스토리 오버레이 — 스크롤백 스냅샷을 읽기 전용 스크롤 뷰로(xterm/마우스모드 우회) ──
-  async function openHistory(){
-    var rid=focusedRunId(); if(rid==null){ toast('포커스한 세션이 없습니다'); return; }
-    $('histModal').classList.add('on');
-    var t=tabs[rid]; $('histTitle').textContent=(t?t.name:('r'+rid))+' · 히스토리';
-    var body=$('histBody'); body.textContent='불러오는 중…';
-    try{
-      var d=await (await fetch('/api/runs/'+rid+'/scrollback?lines=5000')).json();
-      body.textContent = (d && d.text) ? d.text : '(스크롤백 없음)';
-      body.scrollTop = body.scrollHeight;   // 하단(최신)에서 시작 → 위로 스크롤해 과거 읽기
-    }catch(e){ body.textContent='불러오기 실패: '+e; }
-  }
+  // ── 뷰어 — 위 내용을 (대화) Claude Code 로그 / (터미널) 스크롤백 으로 읽기(읽기 전용) ──
+  var histMode='chat';
+  function openHistory(){ var rid=focusedRunId(); if(rid==null){ toast('포커스한 세션이 없습니다'); return; } $('histModal').classList.add('on'); loadHist(); }
   function closeHistory(){ $('histModal').classList.remove('on'); }
+  function setHistMode(m){
+    histMode=m; $('hmChat').classList.toggle('on',m==='chat'); $('hmRaw').classList.toggle('on',m==='raw');
+    $('histChat').style.display = m==='chat'?'flex':'none'; $('histBody').style.display = m==='raw'?'block':'none';
+    loadHist();
+  }
+  function renderTurn(t){
+    var body = esc(t.text||'').replace(/\\n/g,'<br>');
+    var tools = (t.tools && t.tools.length) ? '<div class="ch-tools">'+t.tools.map(function(x){return '<span class="ch-tool">🔧 '+esc(x)+'</span>';}).join('')+'</div>' : '';
+    return '<div class="ch-turn '+(t.role==='user'?'user':'asst')+'"><div class="ch-bubble">'+body+tools+'</div></div>';
+  }
+  async function loadHist(){
+    var rid=focusedRunId(); if(rid==null) return;
+    var t=tabs[rid]; $('histTitle').textContent=(t?t.name:('r'+rid))+' · 뷰어';
+    if (histMode==='chat'){
+      var c=$('histChat'); c.innerHTML='<div class="hist-empty">불러오는 중…</div>';
+      try{
+        var d=await (await fetch('/api/runs/'+rid+'/chat')).json();
+        if (d.turns && d.turns.length){ c.innerHTML = d.turns.map(renderTurn).join(''); c.scrollTop=c.scrollHeight; }
+        else { c.innerHTML='<div class="hist-empty">이 폴더에 Claude Code 대화 로그가 없습니다.<br>터미널 탭으로 원문을 보세요.</div>'; }
+      }catch(e){ c.innerHTML='<div class="hist-empty">불러오기 실패</div>'; }
+    } else {
+      var b=$('histBody'); b.textContent='불러오는 중…';
+      try{ var d2=await (await fetch('/api/runs/'+rid+'/scrollback?lines=5000')).json();
+        b.textContent=(d2 && d2.text)?d2.text:'(스크롤백 없음)'; b.scrollTop=b.scrollHeight;
+      }catch(e){ b.textContent='불러오기 실패'; }
+    }
+  }
   $('histBtn').addEventListener('click', openHistory);
-  $('histRefresh').addEventListener('click', openHistory);
+  $('histRefresh').addEventListener('click', loadHist);
   $('histClose').addEventListener('click', closeHistory);
+  $('hmChat').addEventListener('click', function(){ setHistMode('chat'); });
+  $('hmRaw').addEventListener('click', function(){ setHistMode('raw'); });
   $('histModal').addEventListener('click', function(e){ if(e.target===this) closeHistory(); });
   // 터치 기기(아이패드 포함) 판별 → body.touch (화면폭 무관하게 입력바 노출)
   if (window.matchMedia('(pointer:coarse)').matches || (navigator.maxTouchPoints||0) > 0) document.body.classList.add('touch');
