@@ -101,7 +101,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .gutter.row{width:5px;cursor:col-resize} .gutter.col{height:5px;cursor:row-resize}
   .gutter:hover,.gutter.drag{background:var(--brand)}
   .leaf{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;flex:1 1 0;background:var(--bg)}
-  .leaf.focus{box-shadow:inset 0 0 0 1px rgba(78,201,176,.45)}
+  /* 포커스 표시는 헤더 배경으로만 — 전체 inset 링은 터미널 안쪽 우/하단에 방해되는 선을 만든다 */
   .leaf.drop{box-shadow:inset 0 0 0 2px var(--brand)}
   .leaf-h{display:flex;align-items:center;gap:8px;height:26px;padding:0 6px 0 10px;background:var(--surface);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);flex:none;cursor:pointer}
   .leaf.focus .leaf-h{background:var(--brand-dim)}
@@ -125,6 +125,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--faint);font-family:var(--mono);font-size:11.5px;text-align:center;padding:12px}
   .term-host{flex:1;min-height:0;min-width:0;padding:4px 2px 2px 8px}
   .term-host .xterm{height:100%}
+  /* xterm 스크롤바 — 기본 밝은 트랙이 우측에 하얀 세로선처럼 보임. 어둡게/투명 처리 */
+  .term-host .xterm-viewport{scrollbar-width:thin;scrollbar-color:var(--line-hi) transparent;background-color:transparent!important}
+  .term-host .xterm-viewport::-webkit-scrollbar{width:8px}
+  .term-host .xterm-viewport::-webkit-scrollbar-track{background:transparent}
+  .term-host .xterm-viewport::-webkit-scrollbar-thumb{background:var(--line-hi);border-radius:4px}
+  .term-host .xterm-viewport::-webkit-scrollbar-thumb:hover{background:var(--faint)}
 
   .empty{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
   .empty .card{max-width:440px}
