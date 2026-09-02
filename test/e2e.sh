@@ -761,10 +761,10 @@ case "$CKPT" in *'user-scalable=no'*'overscroll-behavior:none'*) : ;; *) fail "c
 case "$CKPT" in *'.b-txt{display:none}'*'class="b-txt"'*) : ;; *) fail "cockpit mobile icon-only (b-txt hide) missing";; esac
 pass "cockpit mobile app-lock (no zoom/bounce) + icon-only header + small fonts"
 
-# board (the landing screen) also gets the mobile app-lock + a prominent Cockpit(terminal) entry
+# board (the landing screen) gets the mobile app-lock; Cockpit link is a ghost icon button (matches bell/remote)
 case "$BOARD_HTML" in *'user-scalable=no'*) : ;; *) fail "board mobile viewport zoom-lock missing";; esac
-case "$BOARD_HTML" in *'.cockpit-link{display:inline-flex;margin-left:auto;background:var(--brand)'*) : ;; *) fail "board mobile prominent Cockpit button missing";; esac
-pass "board mobile: viewport zoom-lock + prominent Cockpit(terminal) entry"
+case "$BOARD_HTML" in *'class="btn-ghost sm cockpit-link"'*'#i-terminal'*) : ;; *) fail "board Cockpit link should be a ghost icon button (design-system consistent)";; esac
+pass "board mobile: viewport zoom-lock + Cockpit entry consistent with header ghost buttons"
 
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5

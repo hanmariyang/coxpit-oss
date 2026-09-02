@@ -57,9 +57,8 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .daemon-badge{font-family:var(--mono);font-size:10.5px;color:var(--faint);padding:3px 9px;
     border:1px solid var(--line);border-radius:999px;background:var(--surface);cursor:default}
   .daemon-badge b{color:var(--muted);font-weight:500}
-  .cockpit-link{text-decoration:none;color:var(--muted);font-family:var(--mono);font-size:11.5px;
-    border:1px solid var(--line);border-radius:7px;padding:5px 10px;display:inline-flex;align-items:center;gap:4px}
-  .cockpit-link:hover{color:var(--brand);border-color:var(--line-hi)}
+  /* Cockpit(터미널) 링크 = 헤더의 다른 고스트 아이콘 버튼(bell·remote)과 동일한 디자인. 아이콘 정렬만 추가 */
+  .cockpit-link{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
   .ws{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--muted);
     padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--s-failed);transition:background .3s}
@@ -846,11 +845,8 @@ export const BOARD_HTML = /* html */ `<!doctype html>
     #newBtn,.newnote{display:none}
     header{padding:0 12px;gap:9px}
     .brand .sub,.daemon-badge,.machines{display:none}
-    /* cockpit(터미널) 링크 = 모바일에선 유일한 터미널 진입로 → 브랜드로 강조 */
-    .cockpit-link{display:inline-flex;margin-left:auto;background:var(--brand);color:var(--brand-ink);
-      border-color:var(--brand);font-weight:700;font-size:12px;padding:6px 11px}
-    .cockpit-link:hover{color:var(--brand-ink)}
-    /* 아이콘화 — 헤더 텍스트 라벨은 줄이고 아이콘 위주 */
+    /* cockpit(터미널) 링크는 모바일에서도 보이게(다른 고스트 아이콘 버튼과 동일 디자인, 강조/채움 없음) */
+    .cockpit-link{display:inline-flex;margin-left:auto}
     .brand .wm{font-size:15px}
     main{padding:14px}
     .grid{grid-template-columns:1fr}
@@ -888,7 +884,7 @@ ${ICON_SPRITE}
   <div class="ws"><span class="dot" id="wsdot"></span><span id="wstext">connecting</span></div>
   <button class="btn-ghost sm" id="bell" title="notify when a run settles"><svg class="ic"><use href="#i-bell-off"/></svg></button>
   <button class="btn-ghost sm" id="remoteBtn" title="reach this daemon from elsewhere (Tailscale · recipes)"><svg class="ic"><use href="#i-external-link"/></svg></button>
-  <a class="cockpit-link" href="/cockpit" title="터미널 우선 셸 — 데스크톱 앱 기본 뷰">◨ Cockpit</a>
+  <a class="btn-ghost sm cockpit-link" href="/cockpit" title="Cockpit — 터미널 워크스페이스"><svg class="ic"><use href="#i-terminal"/></svg></a>
   <div class="machines" id="machines"></div>
 </header>
 <div class="scrim" id="scrim"></div>
