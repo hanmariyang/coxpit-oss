@@ -846,6 +846,20 @@ export async function buildServer(): Promise<FastifyInstance> {
     return { task: tr[0], runs };
   });
 
+  // 태스크 이름 변경(=세션 이름 변경). title 만 갱신.
+  app.patch('/api/tasks/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { title?: string };
+    const title = (b.title ?? '').trim();
+    if (!title) return reply.code(400).send({ error: 'title required' });
+    if (title.length > 140) return reply.code(400).send({ error: 'title too long (max 140)' });
+    const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+    if (!tr[0]) return reply.code(404).send({ error: 'not found' });
+    await db.update(tasks).set({ title }).where(eq(tasks.id, id));
+    broadcast({ type: 'task', taskId: id, title });
+    return { ok: true, title };
+  });
+
   // N개의 에이전트 run 을 만들고 각자 오케스트레이션 시작(fire-and-forget).
   app.post('/api/tasks/:id/run', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);

@@ -74,36 +74,57 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tree-sep{height:1px;background:var(--line);margin:8px 4px}
   .railfoot{margin-top:auto;padding:8px;color:var(--faint);font-size:11px;border-top:1px solid var(--line)}
 
-  /* ── pane grid (창분할) ── */
-  .stage{display:flex;flex-direction:column;min-width:0;background:var(--bg)}
-  .panebar{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel);font-family:var(--mono);font-size:11.5px;color:var(--faint)}
-  .panebar .grow{flex:1}
-  .pb-btn{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:11px;padding:3px 9px;cursor:pointer;font-family:var(--mono)}
-  .pb-btn:hover:not([disabled]){color:var(--ink);border-color:var(--line-hi)}
-  .pb-btn[disabled]{opacity:.4;cursor:default}
-  .panes{flex:1;display:none;gap:1px;background:var(--line);padding:1px;min-height:0}  /* 초기 숨김 — layoutPanes 가 페인 있을 때만 grid 로 */
-  .pane{display:flex;flex-direction:column;background:var(--bg);min-width:0;min-height:0;overflow:hidden}
-  .pane.focus .pane-h{background:var(--brand-dim)}
-  .pane.focus{box-shadow:inset 0 0 0 1px rgba(78,201,176,.4)}
-  .pane-h{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;background:var(--surface);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;flex:none}
-  .pane-h .rid{color:var(--ink);font-weight:600}
-  .pane-h .chip{font-size:9px;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:999px}
+  /* ── 탭 바 + 분할 트리 페인 ── */
+  .stage{display:flex;flex-direction:column;min-width:0;background:var(--bg);position:relative}
+  .tabbar{display:flex;align-items:stretch;height:38px;border-bottom:1px solid var(--line);background:var(--panel);font-family:var(--mono)}
+  .tabs{flex:1;display:flex;align-items:stretch;overflow-x:auto;overflow-y:hidden}
+  .tab{display:inline-flex;align-items:center;gap:7px;padding:0 10px 0 12px;border-right:1px solid var(--line);font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;max-width:220px;user-select:none;flex:none}
+  .tab:hover{background:var(--surface)}
+  .tab.shown{color:var(--ink);background:var(--bg);box-shadow:inset 0 -2px 0 var(--brand)}
+  .tab.drag{opacity:.4}
+  .tab .st{flex:none}
+  .tab .nm{overflow:hidden;text-overflow:ellipsis}
+  .tab .ren{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:4px;padding:0 4px;width:120px;outline:none}
+  .tab .x{color:var(--faint);font-size:13px;padding:0 2px;border:none;background:none;cursor:pointer;line-height:1}
+  .tab .x:hover{color:var(--failed)}
+  .tabctl{display:flex;align-items:center;gap:6px;padding:0 10px;border-left:1px solid var(--line)}
+  .tc-btn{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:11px;padding:3px 8px;cursor:pointer;font-family:var(--mono)}
+  .tc-btn:hover:not([disabled]){color:var(--ink);border-color:var(--line-hi)}
+  .tc-btn[disabled]{opacity:.4;cursor:default}
+  .tc-btn.session{color:var(--brand);border-color:rgba(78,201,176,.35)}
+  .tc-btn.session:hover:not([disabled]){background:var(--brand-dim);border-color:var(--brand)}
+
+  .panes{flex:1;display:none;min-height:0;min-width:0}  /* 초기 숨김 — 탭 있을 때만 flex */
+  .node{display:flex;min-width:0;min-height:0;flex:1 1 0}
+  .node.row{flex-direction:row} .node.col{flex-direction:column}
+  .gutter{flex:none;background:var(--line);z-index:2}
+  .gutter.row{width:5px;cursor:col-resize} .gutter.col{height:5px;cursor:row-resize}
+  .gutter:hover,.gutter.drag{background:var(--brand)}
+  .leaf{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden;flex:1 1 0;background:var(--bg)}
+  .leaf.focus{box-shadow:inset 0 0 0 1px rgba(78,201,176,.45)}
+  .leaf.drop{box-shadow:inset 0 0 0 2px var(--brand)}
+  .leaf-h{display:flex;align-items:center;gap:8px;height:26px;padding:0 6px 0 10px;background:var(--surface);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);flex:none;cursor:pointer}
+  .leaf.focus .leaf-h{background:var(--brand-dim)}
+  .leaf-h .nm{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--ink)}
+  .leaf-h .x{color:var(--faint);border:none;background:none;cursor:pointer;font-size:13px}
+  .leaf-h .x:hover{color:var(--failed)}
+  .chip{font-size:9px;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:999px}
   .chip.running{color:var(--running);background:rgba(85,167,224,.14)}
   .chip.done,.chip.merged{color:var(--done);background:rgba(88,179,104,.14)}
   .chip.blocked,.chip.preparing,.chip.pending,.chip.starting{color:var(--blocked);background:rgba(214,162,73,.16)}
   .chip.failed,.chip.error{color:var(--failed);background:rgba(226,91,103,.14)}
   .chip.open{color:var(--open);background:rgba(127,156,245,.14)}
   .chip.stopped{color:var(--stopped);background:rgba(181,139,224,.14)}
-  .pane-h .title{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--faint)}
-  .pane-h .x{color:var(--faint);border:none;background:none;cursor:pointer;font-size:13px;padding:0 3px}
-  .pane-h .x:hover{color:var(--failed)}
   .vbadge{font-size:9px;font-weight:600;letter-spacing:.03em;padding:1px 6px;border-radius:999px;white-space:nowrap}
   .vbadge.pass{color:var(--done);background:rgba(88,179,104,.16)}
   .vbadge.fail{color:var(--failed);background:rgba(226,91,103,.16)}
   .vbadge.running{color:var(--blocked);background:rgba(214,162,73,.16)}
   .vbadge.error{color:var(--failed);background:rgba(226,91,103,.12)}
-  .pane-term{flex:1;min-height:0;padding:4px 2px 2px 8px}
-  .pane-term .xterm{height:100%}
+  .leaf-body{flex:1;min-height:0;min-width:0;display:flex}
+  .leaf-body.drop{box-shadow:inset 0 0 0 2px var(--brand);background:var(--brand-dim)}
+  .leaf-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--faint);font-family:var(--mono);font-size:11.5px;text-align:center;padding:12px}
+  .term-host{flex:1;min-height:0;min-width:0;padding:4px 2px 2px 8px}
+  .term-host .xterm{height:100%}
 
   .empty{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
   .empty .card{max-width:440px}
@@ -152,6 +173,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .pick-f .go{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:9px 15px;cursor:pointer}
   .pick-f .home{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer}
   .pick-f .home:hover{color:var(--ink);border-color:var(--line-hi)}
+  .pick-name{flex:1;font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+  .pick-name:focus{outline:none;border-color:var(--brand)}
+  .pick-name::placeholder{color:var(--faint)}
 
   .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none}
   .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
@@ -211,23 +235,25 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   <aside class="rail">
     <div class="lbl"><span>Workspace</span><span id="machName" style="color:var(--faint)">local</span></div>
     <div id="tree"></div>
-    <div class="railfoot">클릭한 run 은 오른쪽 페인에서 열립니다 · 분할(⊞)로 여러 에이전트를 나란히</div>
+    <div class="railfoot">클릭한 run·세션은 <b>탭</b>으로 열립니다 · split 으로 페인을 나란히 배치</div>
   </aside>
 
   <main class="stage">
-    <div class="panebar">
-      <span id="paneCount">0 panes</span>
-      <span style="color:var(--faint)">· run 을 열수록 자동 분할(타일)</span>
-      <span class="grow"></span>
-      <button class="pb-btn session" id="sessionBtn" title="에이전트에 안 묶인 자유 작업 세션(터미널) 열기">＋ Session</button>
-      <button class="pb-btn" id="closeBtn" disabled title="포커스 페인 닫기">× close focused</button>
+    <div class="tabbar">
+      <div class="tabs" id="tabs"></div>
+      <div class="tabctl">
+        <button class="tc-btn" id="splitRow" title="세로 분할 — 포커스 페인을 좌우로" disabled>▐ split</button>
+        <button class="tc-btn" id="splitCol" title="가로 분할 — 포커스 페인을 상하로" disabled>▬ split</button>
+        <button class="tc-btn session" id="sessionBtn" title="자유 세션(폴더 지정 터미널) 열기">＋ Session</button>
+        <button class="tc-btn" id="closeBtn" title="포커스 페인 닫기(탭은 유지)" disabled>× pane</button>
+      </div>
     </div>
     <div class="panes" id="panes"></div>
     <div class="empty" id="empty">
       <div class="card">
         <div class="glyph">⌗ ⌗ ⌗</div>
         <h1>여기서 작업을 시작하세요</h1>
-        <p>직접 몰고 갈 <b>작업 세션</b>(자유 터미널)을 열거나, 아래 요청바로 에이전트를 팬아웃하세요. 트리의 <b>run</b> 을 클릭해도 그 터미널이 페인으로 열립니다.</p>
+        <p>직접 몰고 갈 <b>작업 세션</b>(자유 터미널)을 열거나, 아래 요청바로 에이전트를 팬아웃하세요. 트리의 <b>run</b> 을 클릭해도 <b>탭</b>으로 열립니다.</p>
         <button class="cta" id="sessionCta">＋ 새 작업 세션 열기</button>
         <div class="hint">세션 = <b>지정한 폴더</b>의 tmux 셸(특정 프로젝트에 소속되지 않음). 그 안에서 <code>claude</code> 를 띄워 “이 프로젝트 구현해줘” 처럼 직접 지시할 수 있습니다.</div>
       </div>
@@ -275,7 +301,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     <div class="pick-list" id="pickList"></div>
     <div class="pick-f">
       <button class="home" id="pickHome" title="홈으로">⌂ home</button>
-      <span style="font-size:11px;color:var(--faint)">이 폴더에서 세션 시작</span>
+      <input class="pick-name" id="pickName" placeholder="세션 이름 (선택 — 비우면 폴더명)" autocomplete="off" />
       <button class="go" id="pickGo">여기서 열기</button>
     </div>
   </div>
@@ -328,7 +354,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var repos = (fleet.repos||[]).filter(function(r){ return r.kind!=='sessions'; });
     fillSelect($('reqRepo'), repos, function(r){return String(r.id);}, function(r){return r.name;}, true);
     // repo 미선택 상태면 포커스 페인의 repo 로 기본
-    if (focusId){ var rp = repoOfRun((panes.find(function(p){return p.id===focusId;})||{}).runId); if (rp!=null) $('reqRepo').value=String(rp); }
+    var fr=(typeof focusedRunId==='function')?focusedRunId():null; if (fr!=null){ var rp = repoOfRun(fr); if (rp!=null) $('reqRepo').value=String(rp); }
     var provs = fleet.providers||[];
     if (provs.length) fillSelect($('reqAgent'), provs, function(p){return p.id;}, function(p){return p.label||p.id;}, true);
     else if (!$('reqAgent').options.length){ var o=document.createElement('option'); o.value='claude-code'; o.textContent='claude-code'; $('reqAgent').appendChild(o); }
@@ -353,7 +379,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     html += '<div class="lbl"><span>Sessions</span><span class="lnk" data-newsession="1">＋ 새 세션</span></div>';
     if (sessRuns.length){
       sessRuns.forEach(function(s){
-        var r=s.run; var open = paneByRun[r.id] ? ' open' : '';
+        var r=s.run; var open = tabs[r.id] ? ' open' : '';
         html += '<div class="tnode session'+open+'" data-run="'+r.id+'"><span class="st '+esc(r.status)+'"></span>'
           + '<span class="n">'+esc(s.title||'session')+'</span><span class="p">'+esc((r.worktreePath||'').replace(/^.*\\/([^/]+\\/[^/]+)$/,'…/$1'))+'</span></div>';
       });
@@ -389,7 +415,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var s = '<div class="tnode task" data-fold="'+tk+'"><span class="car">'+(rns.length?(isFold(tk)?'▸':'▾'):' ')+'</span>'
       + '<span class="n">'+esc(t.title)+'</span></div>';
     if (!isFold(tk)) rns.sort(function(a,b){return a.id-b.id;}).forEach(function(r){
-      var open = paneByRun[r.id] ? ' open' : '';
+      var open = tabs[r.id] ? ' open' : '';
       s += '<div class="tnode run'+open+'" data-run="'+r.id+'"><span class="st '+esc(r.status)+'"></span>'
         + '<span class="n">r'+r.id+' · '+esc(r.status)+'</span></div>';
     });
@@ -402,128 +428,290 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var fn = e.target.closest('[data-fold]');
     if (fn){ var k = fn.dataset.fold; fold[k] = !isFold(k); renderTree(); }
   });
+  // 트리 세션 행 더블클릭 → 이름 변경
+  $('tree').addEventListener('dblclick', function(e){
+    var s = e.target.closest('.tnode.session[data-run]'); if(!s) return;
+    var runId=+s.dataset.run; var r=runById[runId]; if(!r) return;
+    var cur=(taskById[r.taskId]||{}).title||''; var v=prompt('세션 이름', cur);
+    if(v!=null && v.trim()) renameTask(r.taskId, v.trim());
+  });
 
-  // ── 페인 그리드(창분할, 오토타일) ──
-  var panes = [];            // { id, runId, el, term, fit, ws, retry, closing, ro }
-  var paneByRun = {};        // runId -> pane
-  var focusId = null;
-  var paneSeq = 0;
-  var MAX_PANES = 8;
+  // ── 탭 + 분할 트리 페인 ──
+  // 탭 = 열린 세션/run. 탭이 xterm·WS 를 소유(안 보여도 살아있음). 슬롯(leaf)에 배치돼 표시된다.
+  var tabs = {};             // runId -> { runId, name, term, fit, ws, retry, closing, ro, host }
+  var tabOrder = [];         // 탭 바 순서(runId)
+  var layout = { leaf:true, id:'L0', tab:null };  // 분할 트리 루트
+  var focusLeaf = 'L0';
+  var leafSeq = 1;
+  var MAX_LEAVES = 6;
+  var dragRunId = null;
 
-  function layoutPanes(){
-    var host = $('panes'); var n = panes.length;
-    $('empty').style.display = n ? 'none' : 'flex';
-    host.style.display = n ? 'grid' : 'none';
-    $('paneCount').textContent = n + ' pane' + (n===1?'':'s');
-    $('closeBtn').disabled = !focusId;
-    if (typeof reqMode!=='undefined' && reqMode==='bcast') setMode('bcast');
-    if (!n) return;
-    var cols = Math.ceil(Math.sqrt(n));
-    var rows = Math.ceil(n / cols);
-    host.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
-    host.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
-    // 레이아웃 후 각 터미널 리핏
-    requestAnimationFrame(function(){ panes.forEach(fitPane); });
+  function newLeafId(){ return 'L'+(leafSeq++); }
+  function eachLeaf(node, fn){ if(node.leaf){ fn(node); } else { eachLeaf(node.a,fn); eachLeaf(node.b,fn); } }
+  function findLeaf(id, node){ node=node||layout; if(node.leaf) return node.id===id?node:null; return findLeaf(id,node.a)||findLeaf(id,node.b); }
+  function findSplit(id, node){ node=node||layout; if(node.leaf) return null; if(node.id===id) return node; return findSplit(id,node.a)||findSplit(id,node.b); }
+  function leafOfTab(runId){ var f=null; eachLeaf(layout,function(l){ if(l.tab===runId) f=l; }); return f; }
+  function firstLeaf(){ var f=null; eachLeaf(layout,function(l){ if(!f) f=l; }); return f; }
+  function countLeaves(){ var n=0; eachLeaf(layout,function(){n++;}); return n; }
+  function focusedRunId(){ var l=findLeaf(focusLeaf); return l?l.tab:null; }
+  function focusRun(){ return focusedRunId(); }   // 기존 호출부(steer/review) 호환
+  function copyInto(dst,src){ Object.keys(dst).forEach(function(k){delete dst[k];}); Object.keys(src).forEach(function(k){dst[k]=src[k];}); }
+
+  function tabName(runId){
+    var r=runById[runId]; if(!r) return 'r'+runId;
+    var task=taskById[r.taskId]; var rp=task&&repoById[task.repoId];
+    if (rp && rp.kind==='sessions') return (task&&task.title)||('session r'+runId);
+    return 'r'+runId;
   }
-  function fitPane(p){
-    if (!p.fit || !p.term) return;
-    try{ p.fit.fit(); if (p.ws && p.ws.readyState===1) p.ws.send(JSON.stringify({t:'r',cols:p.term.cols,rows:p.term.rows})); }catch(e){}
-  }
-  function setFocus(id){
-    focusId = id;
-    panes.forEach(function(p){ p.el.classList.toggle('focus', p.id===id); });
-    $('closeBtn').disabled = !focusId;
-    var p = panes.find(function(x){return x.id===id;});
-    if (p && p.term) try{ p.term.focus(); }catch(e){}
-    if (typeof reqMode!=='undefined' && reqMode!=='new') setMode(reqMode);
-  }
-  function openRunPane(runId){
-    var existing = paneByRun[runId];
-    if (existing){ setFocus(existing.id); return; }
-    if (panes.length >= MAX_PANES){ return; }
-    var r = runById[runId];
-    var p = { id: ++paneSeq, runId: runId, retry: 0, closing: false };
-    var el = document.createElement('div'); el.className = 'pane'; p.el = el;
-    el.innerHTML = '<div class="pane-h"><span class="rid">r'+runId+'</span>'
-      + '<span class="chip '+esc(r?r.status:'')+'" data-role="chip">'+esc(r?r.status:'')+'</span>'
-      + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
-      + '<span class="title" data-role="title">'+esc(r&&r.tmuxWindow||'terminal')+'</span>'
-      + '<button class="x" title="close">×</button></div>'
-      + '<div class="pane-term"></div>';
-    $('panes').appendChild(el);
-    el.querySelector('.pane-h').addEventListener('click', function(ev){
-      if (ev.target.closest('.x')) return; setFocus(p.id);
-    });
-    el.querySelector('.x').addEventListener('click', function(){ closePane(p.id); });
-    // xterm
-    var term = new window.Terminal({
+
+  function ensureTab(runId){
+    if (tabs[runId]) return tabs[runId];
+    var host=document.createElement('div'); host.className='term-host';
+    var term=new window.Terminal({
       fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', monospace",
       fontSize: 12, cursorBlink: true, allowProposedApi: true, scrollback: 4000,
       theme: { background:'#0b0d12', foreground:'#dee4ec', cursor:'#4ec9b0', selectionBackground:'rgba(78,201,176,.25)', black:'#1c212c', brightBlack:'#5c6675' },
     });
-    p.term = term;
-    p.fit = new window.FitAddon.FitAddon(); term.loadAddon(p.fit);
+    var fit=new window.FitAddon.FitAddon(); term.loadAddon(fit);
     try{ term.loadAddon(new window.Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion='11'; }catch(e){}
-    term.open(el.querySelector('.pane-term'));
-    term.onData(function(d){ if (p.ws && p.ws.readyState===1) p.ws.send(JSON.stringify({t:'i',d:d})); });
-    p.ro = new ResizeObserver(function(){ fitPane(p); }); p.ro.observe(el.querySelector('.pane-term'));
-    panes.push(p); paneByRun[runId] = p;
-    layoutPanes();
-    connectPane(p);
-    setFocus(p.id);
-    renderTree();
+    // term.open 은 host 가 DOM 에 붙은 뒤(attachHosts) 최초 1회 — detached 에서 open 하면 렌더러가 안 뜬다.
+    var t={ runId:runId, name:tabName(runId), term:term, fit:fit, ws:null, retry:0, closing:false, host:host, ro:null, opened:false, connected:false };
+    term.onData(function(d){ if(t.ws&&t.ws.readyState===1) t.ws.send(JSON.stringify({t:'i',d:d})); });
+    tabs[runId]=t; tabOrder.push(runId);
+    return t;   // open·connect 는 attachHosts 에서(Phase 2 순서: open → connect)
   }
-  function connectPane(p){
-    if (p.closing || !p.term) return;
-    try{ p.fit.fit(); }catch(e){}
+  function connectTab(t){
+    if (t.closing || !t.term) return;
+    try{ t.fit.fit(); }catch(e){}
     var proto = location.protocol==='https:'?'wss':'ws';
-    var sock = new WebSocket(proto+'://'+location.host+'/ws/term/'+p.runId+'?cols='+p.term.cols+'&rows='+p.term.rows);
-    p.ws = sock;
-    sock.onopen = function(){ if (sock!==p.ws){ try{sock.close();}catch(e){} return; } p.retry=0; };
+    var sock = new WebSocket(proto+'://'+location.host+'/ws/term/'+t.runId+'?cols='+t.term.cols+'&rows='+t.term.rows);
+    t.ws = sock;
+    sock.onopen = function(){ if (sock!==t.ws){ try{sock.close();}catch(e){} return; } t.retry=0; };
     sock.onmessage = function(m){
-      if (sock!==p.ws || !p.term) return;
+      if (sock!==t.ws || !t.term) return;
       try{ var d = JSON.parse(m.data);
-        if (d.t==='o') p.term.write(d.d);
-        else if (d.t==='err') p.term.write('\\r\\n\\x1b[31m'+d.d+'\\x1b[0m\\r\\n');
-        else if (d.t==='exit') p.term.write('\\r\\n\\x1b[90m[session ended — 재연결 시 소생]\\x1b[0m\\r\\n');
+        if (d.t==='o') t.term.write(d.d);
+        else if (d.t==='err') t.term.write('\\r\\n\\x1b[31m'+d.d+'\\x1b[0m\\r\\n');
+        else if (d.t==='exit') t.term.write('\\r\\n\\x1b[90m[session ended — 재연결 시 소생]\\x1b[0m\\r\\n');
       }catch(e){}
     };
     sock.onclose = function(){
-      if (sock!==p.ws || p.closing) return;
-      var delay = Math.min(8000, 800 * Math.pow(2, p.retry++));
-      setTimeout(function(){ connectPane(p); }, delay);
+      if (sock!==t.ws || t.closing) return;
+      var delay = Math.min(8000, 800 * Math.pow(2, t.retry++));
+      setTimeout(function(){ connectTab(t); }, delay);
     };
   }
-  function closePane(id){
-    var i = panes.findIndex(function(p){return p.id===id;});
-    if (i<0) return;
-    var p = panes[i]; p.closing = true;
-    try{ if (p.ws) p.ws.close(); }catch(e){}
-    try{ if (p.ro) p.ro.disconnect(); }catch(e){}
-    try{ if (p.term) p.term.dispose(); }catch(e){}
-    try{ p.el.remove(); }catch(e){}
-    delete paneByRun[p.runId];
-    panes.splice(i,1);
-    if (focusId===id) focusId = panes.length ? panes[panes.length-1].id : null;
-    layoutPanes(); if (focusId) setFocus(focusId);
-    renderTree();
+
+  function fitTab(t){ if(!t||!t.fit||!t.term) return; try{ t.fit.fit(); if(t.ws&&t.ws.readyState===1) t.ws.send(JSON.stringify({t:'r',cols:t.term.cols,rows:t.term.rows})); }catch(e){} }
+  function fitAllVisible(){ eachLeaf(layout,function(l){ if(l.tab!=null && tabs[l.tab] && tabs[l.tab].host.isConnected) fitTab(tabs[l.tab]); }); }
+
+  // ── 탭 바 렌더(터미널 없음 — 언제든 안전) ──
+  function renderTabs(){
+    var shown={}; eachLeaf(layout,function(l){ if(l.tab!=null) shown[l.tab]=true; });
+    var html='';
+    tabOrder.forEach(function(runId){
+      var t=tabs[runId]; if(!t) return; var r=runById[runId];
+      html += '<div class="tab'+(shown[runId]?' shown':'')+'" draggable="true" data-tab="'+runId+'" title="더블클릭=이름변경 · 드래그=페인에 배치">'
+        + '<span class="st '+esc(r?r.status:'')+'"></span>'
+        + '<span class="nm">'+esc(t.name)+'</span>'
+        + '<button class="x" title="탭 닫기(터미널 종료)">×</button></div>';
+    });
+    $('tabs').innerHTML = html;
   }
-  // 페인 상태/타이틀을 fleet 갱신에 맞춰 갱신 + 사라진 run 페인 정리
+  function buildNode(node){
+    if (node.leaf){
+      var leaf=document.createElement('div'); leaf.className='leaf'+(node.id===focusLeaf?' focus':''); leaf.dataset.leaf=node.id;
+      var t=node.tab!=null?tabs[node.tab]:null; var r=node.tab!=null?runById[node.tab]:null;
+      var head=document.createElement('div'); head.className='leaf-h'; head.dataset.leafhead=node.id;
+      head.innerHTML = t
+        ? '<span class="st '+esc(r?r.status:'')+'"></span><span class="nm">'+esc(t.name)+'</span>'
+          + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
+          + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
+          + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>'
+        : '<span class="nm" style="color:var(--faint)">빈 페인</span><button class="x" title="이 페인 닫기">×</button>';
+      var body=document.createElement('div'); body.className='leaf-body'; body.dataset.leafbody=node.id;
+      if (!t){ var em=document.createElement('div'); em.className='leaf-empty'; em.textContent='탭을 여기로 드래그하거나 탭을 클릭하세요'; body.appendChild(em); }
+      leaf.appendChild(head); leaf.appendChild(body); return leaf;
+    }
+    var el=document.createElement('div'); el.className='node '+(node.dir==='col'?'col':'row'); el.dataset.split=node.id;
+    var a=buildNode(node.a), b=buildNode(node.b);
+    a.style.flexGrow=String(node.ratio); a.style.flexBasis='0';
+    b.style.flexGrow=String(1-node.ratio); b.style.flexBasis='0';
+    var g=document.createElement('div'); g.className='gutter '+(node.dir==='col'?'col':'row'); g.dataset.gutter=node.id;
+    el.appendChild(a); el.appendChild(g); el.appendChild(b); return el;
+  }
+  // host 를 DOM 에 붙이고, 최초 1회 open → connect(Phase 2 순서). fit 은 render 의 rAF 에서.
+  function attachHosts(){ eachLeaf(layout,function(l){ if(l.tab==null||!tabs[l.tab]) return; var t=tabs[l.tab]; var body=$('panes').querySelector('[data-leafbody="'+l.id+'"]'); if(!body) return; body.appendChild(t.host);
+    if(!t.opened){ try{ t.term.open(t.host); t.opened=true; }catch(e){} }
+    if(!t.connected){ t.connected=true; connectTab(t); }
+  }); }
+  function updateControls(){
+    var has=tabOrder.length>0; var canSplit=has && countLeaves()<MAX_LEAVES;
+    $('splitRow').disabled=!canSplit; $('splitCol').disabled=!canSplit; $('closeBtn').disabled=!has;
+  }
+  // 구조 변경 시 전체 재구성(탭 열기·닫기·분할·드롭·리사이즈완료)
+  function render(){
+    var n=tabOrder.length;
+    $('empty').style.display = n?'none':'flex';
+    $('panes').style.display = n?'flex':'none';
+    renderTabs();
+    var host=$('panes'); host.innerHTML='';
+    if (n){ host.appendChild(buildNode(layout)); attachHosts(); }
+    updateControls();
+    if (typeof reqMode!=='undefined') setMode(reqMode);
+    requestAnimationFrame(fitAllVisible);
+    setTimeout(fitAllVisible, 60);   // 레이아웃 확정 후 재핏(초기 0-size 보정)
+  }
+  function setLeafFocus(id){
+    focusLeaf=id;
+    Array.prototype.forEach.call($('panes').querySelectorAll('.leaf'),function(el){ el.classList.toggle('focus', el.dataset.leaf===id); });
+    var rid=focusedRunId(); if(rid!=null && tabs[rid]) try{ tabs[rid].term.focus(); }catch(e){}
+    updateControls();
+    if (typeof reqMode!=='undefined' && reqMode!=='new') setMode(reqMode);
+  }
+
+  // 탭 열기 = 포커스 슬롯에 표시(강제 분할 없음). 기존 호출부(openRunPane) 호환.
+  function openTab(runId){
+    ensureTab(runId);
+    var l=leafOfTab(runId);
+    if (l){ setLeafFocus(l.id); return; }
+    var f=findLeaf(focusLeaf) || firstLeaf();
+    if (!f){ layout={leaf:true,id:'L0',tab:runId}; focusLeaf='L0'; }
+    else { f.tab=runId; focusLeaf=f.id; }
+    render(); renderTree();
+  }
+  function openRunPane(runId){ return openTab(runId); }
+
+  function splitFocused(dir){
+    if (!tabOrder.length) return;
+    if (countLeaves()>=MAX_LEAVES){ toast('페인 최대 '+MAX_LEAVES+'개'); return; }
+    var l=findLeaf(focusLeaf) || firstLeaf(); if(!l) return;
+    var keep=l.tab; var aId=l.id, bId=newLeafId();
+    delete l.tab; delete l.leaf; l.id=newLeafId(); l.split=true; l.dir=dir; l.ratio=0.5;
+    l.a={leaf:true,id:aId,tab:keep}; l.b={leaf:true,id:bId,tab:null};
+    focusLeaf=bId; render(); renderTree();
+  }
+  function closeSlot(id){
+    if (countLeaves()<=1){ var only=findLeaf(id)||firstLeaf(); if(only) only.tab=null; if(only) focusLeaf=only.id; render(); renderTree(); return; }
+    (function walk(node){
+      if(node.leaf) return false;
+      if(node.a.leaf && node.a.id===id){ copyInto(node,node.b); return true; }
+      if(node.b.leaf && node.b.id===id){ copyInto(node,node.a); return true; }
+      return walk(node.a)||walk(node.b);
+    })(layout);
+    if(!findLeaf(focusLeaf)){ var f=firstLeaf(); focusLeaf=f?f.id:'L0'; }
+    render(); renderTree();
+  }
+  function closeTab(runId){
+    var t=tabs[runId]; if(!t) return; t.closing=true;
+    try{ if(t.ws) t.ws.close(); }catch(e){}
+    try{ if(t.ro) t.ro.disconnect(); }catch(e){}
+    try{ t.term.dispose(); }catch(e){}
+    eachLeaf(layout,function(l){ if(l.tab===runId) l.tab=null; });
+    delete tabs[runId]; tabOrder=tabOrder.filter(function(x){return x!==runId;});
+    render(); renderTree();
+  }
+  // 팬아웃 — N개 탭을 만들고 자동 타일 배치(비교용)
+  function buildTiled(ids,dir){
+    if(ids.length===1) return {leaf:true,id:newLeafId(),tab:ids[0]};
+    var mid=Math.ceil(ids.length/2);
+    return {split:true,id:newLeafId(),dir:dir,ratio:mid/ids.length,
+      a:buildTiled(ids.slice(0,mid),dir==='row'?'col':'row'),
+      b:buildTiled(ids.slice(mid),dir==='row'?'col':'row')};
+  }
+  function tileTabs(ids){
+    ids=(ids||[]).filter(function(x){return x!=null;}); if(!ids.length) return;
+    ids.forEach(ensureTab);
+    layout=buildTiled(ids,'row'); var f=firstLeaf(); focusLeaf=f?f.id:'L0';
+    render(); renderTree();
+  }
+
+  // fleet 갱신 시 라벨·상태만 갱신(페인 DOM 재구성 X — 터미널 유지). 사라진 run 탭 정리.
   function syncPanes(){
-    panes.forEach(function(p){
-      var r = runById[p.runId];
-      var chip = p.el.querySelector('[data-role=chip]'); var title = p.el.querySelector('[data-role=title]');
-      var vslot = p.el.querySelector('[data-role=vslot]');
-      if (r){ if(chip){ chip.className='chip '+r.status; chip.textContent=r.status; } if(title) title.textContent = r.tmuxWindow||'terminal';
-        if(vslot) vslot.innerHTML = vbadge(r.verifyStatus); }
+    tabOrder.slice().forEach(function(runId){ if(!runById[runId]) closeTab(runId); });
+    tabOrder.forEach(function(runId){ var t=tabs[runId]; if(t) t.name=tabName(runId); });
+    renderTabs();
+    eachLeaf(layout,function(l){
+      if(l.tab==null) return; var r=runById[l.tab]; if(!r) return;
+      var head=$('panes').querySelector('[data-leafhead="'+l.id+'"]'); if(!head) return;
+      var nm=head.querySelector('.nm'); if(nm && tabs[l.tab]) nm.textContent=tabs[l.tab].name;
+      var st=head.querySelector('.st'); if(st) st.className='st '+r.status;
+      var chip=head.querySelector('[data-role=chip]'); if(chip){ chip.className='chip '+r.status; chip.textContent=r.status; }
+      var vslot=head.querySelector('[data-role=vslot]'); if(vslot) vslot.innerHTML=vbadge(r.verifyStatus);
     });
   }
-  $('closeBtn').addEventListener('click', function(){ if (focusId) closePane(focusId); });
+
+  // 인라인 이름 변경(탭 더블클릭)
+  function startRename(runId, tabEl){
+    var r=runById[runId]; var t=tabs[runId]; if(!r||!t) return;
+    var nm=tabEl.querySelector('.nm'); if(!nm) return;
+    var input=document.createElement('input'); input.className='ren'; input.value=t.name;
+    nm.replaceWith(input); input.focus(); input.select();
+    var done=false;
+    function finish(commit){ if(done) return; done=true;
+      var val=input.value.trim();
+      var span=document.createElement('span'); span.className='nm'; span.textContent=(commit&&val)?val:t.name;
+      input.replaceWith(span);
+      if(commit && val && val!==t.name) renameTask(r.taskId, val);
+    }
+    input.addEventListener('keydown', function(e){ e.stopPropagation(); if(e.key==='Enter'){ e.preventDefault(); finish(true); } else if(e.key==='Escape'){ finish(false); } });
+    input.addEventListener('blur', function(){ finish(true); });
+    input.addEventListener('click', function(e){ e.stopPropagation(); });
+  }
+  async function renameTask(taskId, title){
+    try{
+      var res=await fetch('/api/tasks/'+taskId,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({title:title})});
+      if(res.ok){ if(taskById[taskId]) taskById[taskId].title=title; toast('이름 변경 · '+title); await hydrate(); }
+      else { var j=await res.json().catch(function(){return{};}); toast('이름 변경 실패: '+(j.error||res.status)); }
+    }catch(e){ toast('이름 변경 실패: '+e); }
+  }
+
+  // ── 탭 바 이벤트 ──
+  $('tabs').addEventListener('click', function(e){
+    var tabEl=e.target.closest('[data-tab]'); if(!tabEl) return; var runId=+tabEl.dataset.tab;
+    if (e.target.closest('.x')){ closeTab(runId); return; }
+    openTab(runId);
+  });
+  $('tabs').addEventListener('dblclick', function(e){ var tabEl=e.target.closest('[data-tab]'); if(tabEl) startRename(+tabEl.dataset.tab, tabEl); });
+  $('tabs').addEventListener('dragstart', function(e){ var tabEl=e.target.closest('[data-tab]'); if(!tabEl) return; dragRunId=+tabEl.dataset.tab; tabEl.classList.add('drag'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', String(dragRunId)); }catch(_){} });
+  $('tabs').addEventListener('dragend', function(e){ var tabEl=e.target.closest('[data-tab]'); if(tabEl) tabEl.classList.remove('drag'); dragRunId=null; });
+
+  // ── 페인(슬롯) 이벤트: 포커스·닫기·드롭·리사이즈 ──
+  $('panes').addEventListener('click', function(e){
+    var leaf=e.target.closest('[data-leaf]'); if(!leaf) return;
+    if (e.target.closest('.leaf-h .x')){ closeSlot(leaf.dataset.leaf); return; }
+    setLeafFocus(leaf.dataset.leaf);
+  });
+  $('panes').addEventListener('dragover', function(e){ var body=e.target.closest('[data-leafbody]'); if(body && dragRunId!=null){ e.preventDefault(); body.classList.add('drop'); } });
+  $('panes').addEventListener('dragleave', function(e){ var body=e.target.closest('[data-leafbody]'); if(body) body.classList.remove('drop'); });
+  $('panes').addEventListener('drop', function(e){
+    var body=e.target.closest('[data-leafbody]'); if(!body || dragRunId==null) return; e.preventDefault(); body.classList.remove('drop');
+    var l=findLeaf(body.dataset.leafbody); if(!l) return;
+    var rid=dragRunId; eachLeaf(layout,function(x){ if(x.tab===rid) x.tab=null; });
+    ensureTab(rid); l.tab=rid; focusLeaf=l.id; render(); renderTree();
+  });
+  $('panes').addEventListener('mousedown', function(e){
+    var g=e.target.closest('[data-gutter]'); if(!g) return; e.preventDefault();
+    var node=findSplit(g.dataset.gutter); if(!node) return;
+    var container=g.parentElement; var rect=container.getBoundingClientRect(); var horiz=node.dir==='row';
+    g.classList.add('drag');
+    function mv(ev){
+      var pos=horiz?(ev.clientX-rect.left)/rect.width:(ev.clientY-rect.top)/rect.height;
+      node.ratio=Math.max(0.1,Math.min(0.9,pos));
+      var a=container.children[0], b=container.children[2];
+      if(a&&b){ a.style.flexGrow=String(node.ratio); b.style.flexGrow=String(1-node.ratio); }
+    }
+    function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); g.classList.remove('drag'); fitAllVisible(); }
+    document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+  });
+  $('splitRow').addEventListener('click', function(){ splitFocused('row'); });
+  $('splitCol').addEventListener('click', function(){ splitFocused('col'); });
+  $('closeBtn').addEventListener('click', function(){ if(focusLeaf) closeSlot(focusLeaf); });
 
   // ── 자유 세션 — 폴더를 지정해 tmux 셸(프로젝트 비소속). ──
   var pickPathCur = '';
   function machineSlug(){ return (fleet.machines && fleet.machines[0] && fleet.machines[0].slug) || 'local'; }
-  function openSession(){ $('pickModal').classList.add('on'); browseTo(''); }
+  function openSession(){ $('pickModal').classList.add('on'); $('pickName').value=''; browseTo(''); }
   function closePicker(){ $('pickModal').classList.remove('on'); }
   async function browseTo(p){
     try{
@@ -549,20 +737,21 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (openingSession || !pickPathCur) return;
     openingSession=true; $('pickGo').disabled=true;
     try{
+      var nm = $('pickName').value.trim();
       var res = await fetch('/api/session',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({machineSlug:machineSlug(), path:pickPathCur})});
+        body:JSON.stringify({machineSlug:machineSlug(), path:pickPathCur, title:nm})});
       var j = await res.json().catch(function(){return{};});
-      if (res.ok && j.runId){ closePicker(); await hydrate(); openRunPane(j.runId); toast('세션 열림 · '+pickPathCur); }
+      if (res.ok && j.runId){ closePicker(); await hydrate(); openRunPane(j.runId); toast('세션 열림 · '+(nm||pickPathCur)); }
       else toast('세션 실패: '+(j.detail||j.error||res.status));
     }catch(e){ toast('세션 실패: '+e); }
     finally{ openingSession=false; $('pickGo').disabled=false; }
   });
+  $('pickName').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); $('pickGo').click(); } });
   $('sessionBtn').addEventListener('click', openSession);
   $('sessionCta').addEventListener('click', openSession);
 
   // ── 요청바: New(팬아웃) / Steer / Broadcast ──
   var reqMode = 'new';
-  function focusRun(){ if (!focusId) return null; var p = panes.find(function(x){return x.id===focusId;}); return p?p.runId:null; }
   function setMode(m){
     reqMode = m;
     Array.prototype.forEach.call(document.querySelectorAll('.mode'), function(b){ b.classList.toggle('on', b.dataset.mode===m); });
@@ -574,9 +763,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     else if (m==='steer'){ var rid=focusRun(); go.textContent='Steer ⏎';
       $('reqTgt').textContent = rid?('➤ r'+rid+' 에 후속 지시'):'포커스한 페인 없음';
       inp.placeholder = rid?('r'+rid+' 에이전트에게 다음 지시…'):'왼쪽 트리에서 run 을 열어 포커스하세요'; }
-    else { go.textContent='Send ⏎'; var n=panes.length;
-      $('reqTgt').textContent = '⊞ 열린 페인 '+n+'개에 브로드캐스트';
-      inp.placeholder = n?('열린 '+n+'개 터미널에 그대로 전송 (엔터 포함)'):'열린 페인이 없습니다'; }
+    else { go.textContent='Send ⏎'; var n=tabOrder.length;
+      $('reqTgt').textContent = '⊞ 열린 탭 '+n+'개에 브로드캐스트';
+      inp.placeholder = n?('열린 '+n+'개 터미널에 그대로 전송 (엔터 포함)'):'열린 탭이 없습니다'; }
   }
   Array.prototype.forEach.call(document.querySelectorAll('.mode'), function(b){ b.addEventListener('click', function(){ setMode(b.dataset.mode); $('reqInput').focus(); }); });
 
@@ -598,8 +787,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         var ids = (rr&&rr.runs||[]).map(function(x){return x.id;});
         inp.value='';
         await hydrate();
-        // 팬아웃 자동 타일: 생성된 run 을 전부 페인으로
-        ids.forEach(function(id){ openRunPane(id); });
+        // 팬아웃은 비교가 목적 — N개 탭을 만들고 자동 타일 배치
+        tileTabs(ids);
         toast(ids.length+'개 에이전트 팬아웃 · r'+ids.join(' r'));
       }catch(e){ toast('요청 실패: '+e); }
       finally{ submitting=false; $('reqGo').disabled=false; }
@@ -615,12 +804,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       }catch(e){ toast('steer 실패: '+e); }
       finally{ submitting=false; $('reqGo').disabled=false; }
     } else { // broadcast
-      if (!panes.length){ toast('열린 페인이 없습니다'); return; }
+      if (!tabOrder.length){ toast('열린 탭이 없습니다'); return; }
       var payload = text + '\\r';
       var sent=0;
-      panes.forEach(function(p){ if (p.ws && p.ws.readyState===1){ p.ws.send(JSON.stringify({t:'i',d:payload})); sent++; } });
+      tabOrder.forEach(function(rid){ var t=tabs[rid]; if (t && t.ws && t.ws.readyState===1){ t.ws.send(JSON.stringify({t:'i',d:payload})); sent++; } });
       inp.value='';
-      toast('브로드캐스트 → '+sent+'개 페인');
+      toast('브로드캐스트 → '+sent+'개 탭');
     }
   }
   $('reqGo').addEventListener('click', submitReq);
@@ -749,10 +938,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function scheduleHydrate(){ if (hydT) return; hydT = setTimeout(function(){ hydT=null; hydrate(); }, 400); }
 
   setMode('new');
-  layoutPanes();   // 초기 빈 상태 정합(paneCount·close 비활성·panes 숨김)
+  render();   // 초기 빈 상태 정합(탭 없음 → empty)
   hydrate();
   wsConnect();
-  window.addEventListener('resize', function(){ panes.forEach(fitPane); });
+  window.addEventListener('resize', fitAllVisible);
 </script>
 </body>
 </html>`;

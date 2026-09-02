@@ -21,7 +21,7 @@ src/
 ├── index.ts          entry — schema boot, local machine seed, listen
 ├── server.ts         routes (REST + WS + vendor + board)
 ├── board.ts          single-page "monitor" console (no build step, self-contained) — served at GET /
-├── cockpit.ts        terminal-first shell — workspace tree + pane-grid terminals + request bar (fan-out/steer/broadcast) + Review (compare/merge/verify). Served at GET /cockpit; the desktop app opens this by default (web / stays board; narrow/touch self-redirects to board)
+├── cockpit.ts        terminal-first shell — workspace tree + tab bar with a split-tree of panes (open=tab, manual split H/V, drag tab→slot, resizable gutters) + request bar (fan-out/steer/broadcast) + Review (compare/merge/verify) + named free sessions (folder picker). Served at GET /cockpit; the desktop app opens this by default (web / stays board; narrow/touch self-redirects to board)
 ├── orchestrator.ts   run lifecycle: worktree → tmux → spawn → stream → merge/cleanup → verify
 ├── providers.ts      provider seam: launch/resume commands + stream normalization (claude-code, codex)
 ├── term.ts           PTY attach (local tmux / remote ssh -tt)

@@ -133,6 +133,13 @@ case "$CKPT" in *"kind!=='sessions'"*'>Sessions<'*) : ;; *) fail "cockpit sessio
 case "$CKPT" in *'.panes{flex:1;display:none'*) : ;; *) fail "cockpit empty panes should default to display:none (grey-box fix)";; esac
 pass "cockpit free session (workbench) opener + empty-state grey-box fix"
 
+# Tabs + split-tree panes: open=tab, manual split, drag tab→slot, fan-out auto-tiles, rename
+case "$CKPT" in *'id="tabs"'*'id="splitRow"'*'function buildNode'*'function splitFocused'*) : ;; *) fail "cockpit tab bar / split-tree missing";; esac
+case "$CKPT" in *'function tileTabs'*'tileTabs(ids)'*) : ;; *) fail "cockpit fan-out should auto-tile into tabs (tileTabs)";; esac
+case "$CKPT" in *'function startRename'*'function renameTask'*"'/api/tasks/'"*) : ;; *) fail "cockpit tab rename wiring missing";; esac
+case "$CKPT" in *'id="pickName"'*'title:nm'*) : ;; *) fail "cockpit session-name input missing";; esac
+pass "cockpit tabs + split-tree panes + session naming/rename"
+
 # Phase 5 — desktop app default entry flips to /cockpit (web `/` stays board; mobile self-redirects)
 DMAIN=$(cat "$ROOT/desktop/main.cjs" 2>/dev/null || cat desktop/main.cjs)
 case "$DMAIN" in *"ENTRY_PATH = process.env.COXPIT_ENTRY || '/cockpit'"*) : ;; *) fail "desktop ENTRY_PATH default not /cockpit";; esac
@@ -707,6 +714,15 @@ curl -s -X POST "$B/api/session" -H 'content-type: application/json' -d '{"machi
 curl -s -X POST "$B/api/runs/$FSRUN/cleanup" | grep -q '"ok":true' || fail "free session cleanup"
 [ -f "$SESSDIR/keep.txt" ] || fail "free session close destroyed the folder"
 pass "free session: arbitrary folder, isolated from projects (sessions bucket), close preserves folder"
+
+# task/session rename — PATCH /api/tasks/:id { title }
+RNT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d '{"repoId":1,"title":"before","prompt":"x"}')
+RNTID=$(echo "$RNT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
+curl -s -X PATCH "$B/api/tasks/$RNTID" -H 'content-type: application/json' -d '{"title":"after name"}' | grep -q '"title":"after name"' || fail "task rename PATCH failed"
+curl -s "$B/api/tasks/$RNTID" | grep -q '"title":"after name"' || fail "task rename not persisted"
+expect_code 400 -X PATCH "$B/api/tasks/$RNTID" -H 'content-type: application/json' -d '{"title":""}'
+curl -s -X POST "$B/api/tasks/$RNTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+pass "task/session rename: PATCH title (empty→400, persisted)"
 
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
