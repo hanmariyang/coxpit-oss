@@ -8,7 +8,7 @@ import type { ChildProcess } from 'node:child_process';
 import { eq, inArray, and } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
-import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots, taskGroups } from './db/schema';
+import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots, taskGroups, secrets } from './db/schema';
 import { runShellOn, spawnShellOn, shq, type MachineTarget } from './exec';
 import { broadcast } from './hub';
 import { getProvider, type Provider } from './providers';
@@ -106,6 +106,20 @@ async function recordEvent(runId: number, kind: string, payload: string): Promis
 async function setRun(runId: number, patch: Partial<typeof agentRuns.$inferInsert>): Promise<void> {
   await db.update(agentRuns).set(patch).where(eq(agentRuns.id, runId));
   broadcast({ type: 'run', runId, ...patch });
+}
+
+/**
+ * 시크릿 볼트 → tmux `new-session -e KEY=VAL` 인자로 변환(env 주입).
+ * 이러면 세션 안의 claude·스크립트가 env 에서 키를 읽어 대화형 프롬프트가 안 뜬다.
+ * env 변수명 규칙에 맞는 것만, 값은 셸-인용. 결과는 선행 공백 포함(없으면 빈 문자열).
+ */
+export async function secretEnvArgs(): Promise<string> {
+  try {
+    const rows = await db.select().from(secrets);
+    const ok = rows.filter((s) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(s.name));
+    if (!ok.length) return '';
+    return ' ' + ok.map((s) => `-e ${shq(`${s.name}=${s.value}`)}`).join(' ');
+  } catch { return ''; }
 }
 
 // 실행 중 run 의 자식 프로세스(stop 용). stoppedRuns = 사용자가 멈춘 run 표식.
@@ -437,8 +451,9 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
 
     // 2) tmux 창(사람이 attach 해 개입할 수 있게) — best-effort. 동명 잔재는 선제 정리('=' 정확 일치).
     // export LANG: 이 명령이 tmux 서버를 처음 띄우는 경우(특히 원격) C 로케일로 뜨면 CJK 가 깨진다.
+    const runEnv = await secretEnvArgs();
     await runShellOn(ctx.machine,
-      `export LANG=${shq(config.lang)}; tmux kill-session -t ${shq('=' + session)} 2>/dev/null; tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)} 2>/dev/null || true`, 8000);
+      `export LANG=${shq(config.lang)}; tmux kill-session -t ${shq('=' + session)} 2>/dev/null; tmux new-session -d${runEnv} -s ${shq(session)} -c ${shq(wtPath)} 2>/dev/null || true`, 8000);
 
     await setRun(runId, { status: 'running' });
     await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, real: useReal }));
@@ -1006,14 +1021,15 @@ export async function openWorkbench(repoId: number, title: string, root = false)
 
   // export LANG: tmux 서버 첫 기동이 C 로케일이면 세션 셸의 CJK 입력·표시가 깨진다.
   // 동명 세션 잔재(DB 리셋 등으로 run id 재사용) 선제 정리 — '=' 정확 일치만.
+  const wbEnv = await secretEnvArgs();   // 시크릿 볼트 → env 주입
   const prep = await runShellOn(
     machine,
     root
       ? `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-        ` && tmux new-session -d -s ${shq(session)} -c ${shq(repo.path)}`
+        ` && tmux new-session -d${wbEnv} -s ${shq(session)} -c ${shq(repo.path)}`
       : `export LANG=${shq(config.lang)}; mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
         ` && { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-        ` && tmux new-session -d -s ${shq(session)} -c ${shq(wtPath)}`,
+        ` && tmux new-session -d${wbEnv} -s ${shq(session)} -c ${shq(wtPath)}`,
     20000,
   );
   if (!prep.ok) {
@@ -1062,10 +1078,11 @@ export async function openSessionAt(machineSlug: string, path: string, title: st
   broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent: 'session', branch: '', filesChanged: 0 });
 
   const session = `coxpit-r${runId}`;
+  const sEnv = await secretEnvArgs();   // 시크릿 볼트 → env 주입
   const prep = await runShellOn(
     machine,
     `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-    ` && tmux new-session -d -s ${shq(session)} -c ${shq(dir)}`,
+    ` && tmux new-session -d${sEnv} -s ${shq(session)} -c ${shq(dir)}`,
     15000,
   );
   if (!prep.ok) {

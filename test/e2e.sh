@@ -724,6 +724,28 @@ expect_code 400 -X PATCH "$B/api/tasks/$RNTID" -H 'content-type: application/jso
 curl -s -X POST "$B/api/tasks/$RNTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 pass "task/session rename: PATCH title (empty→400, persisted)"
 
+# secrets vault — store once, inject into session tmux as env (no interactive prompt)
+curl -s -X POST "$B/api/secrets" -H 'content-type: application/json' -d '{"name":"E2E_KEY","value":"sekret_val_9"}' | grep -q '"ok":true' || fail "secret POST failed"
+expect_code 400 -X POST "$B/api/secrets" -H 'content-type: application/json' -d '{"name":"bad name","value":"x"}'
+# GET must NOT leak the value (hint only)
+SECGET=$(curl -s "$B/api/secrets")
+case "$SECGET" in *'sekret_val_9'*) fail "secrets GET leaked the value";; *'E2E_KEY'*) : ;; *) fail "secret not listed";; esac
+# open a session → the secret is injected into its tmux env
+SECSESS="$WORK/secsess"; mkdir -p "$SECSESS"
+SSS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$SECSESS\",\"title\":\"sec\"}")
+SSSRUN=$(echo "$SSS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
+sleep 1
+tmux show-environment -t "coxpit-r$SSSRUN" E2E_KEY 2>/dev/null | grep -q 'E2E_KEY=sekret_val_9' || fail "secret not injected into session tmux env"
+curl -s -X POST "$B/api/runs/$SSSRUN/cleanup" >/dev/null
+curl -s -X DELETE "$B/api/secrets/E2E_KEY" | grep -q '"ok":true' || fail "secret DELETE failed"
+curl -s "$B/api/secrets" | grep -q 'E2E_KEY' && fail "secret not deleted" || true
+pass "secrets vault: store (value never leaked) → injected as tmux env → delete"
+
+# cockpit secrets UI (A) + send-to-pane (B)
+case "$CKPT" in *'id="secretsBtn"'*'id="secretsModal"'*'function openSecrets'*'/api/secrets'*) : ;; *) fail "cockpit secrets vault UI missing";; esac
+case "$CKPT" in *'function startSecretSend'*'data-lock'*) : ;; *) fail "cockpit send-secret-to-pane missing";; esac
+pass "cockpit secrets vault UI + send-secret-to-pane"
+
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
 cat > "$WORK/dump-agent.sh" <<'EOS'

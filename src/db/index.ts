@@ -90,6 +90,12 @@ export async function ensureSchema(): Promise<void> {
       title TEXT NOT NULL,
       created_at INTEGER DEFAULT (unixepoch())
     );
+    CREATE TABLE IF NOT EXISTS secrets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      value TEXT NOT NULL DEFAULT '',
+      created_at INTEGER DEFAULT (unixepoch())
+    );
   `);
   // 기존 DB 마이그레이션(멱등)
   try { await client.execute('ALTER TABLE tasks ADD COLUMN design_capture_id INTEGER'); } catch { /* exists */ }

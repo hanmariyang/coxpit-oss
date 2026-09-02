@@ -16,7 +16,7 @@ import {
 import { config } from './config';
 import { readSettings, writeSettings } from './settings';
 import { db } from './db';
-import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups } from './db/schema';
+import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt } from './orchestrator';
@@ -1032,6 +1032,29 @@ export async function buildServer(): Promise<FastifyInstance> {
     const res = await openWorkbench(repoId, (b.title ?? '').trim(), b.root === true);
     if (!res.ok) return reply.code(422).send(res);
     return reply.code(201).send(res);
+  });
+
+  // ── 시크릿 볼트 — 세션 tmux 에 env 로 주입(API 키 프롬프트 제거). owner 전용. ──
+  // GET 은 값 전체를 절대 반환하지 않음(이름 + 끝 4자 힌트만).
+  app.get('/api/secrets', async () => {
+    const rows = await db.select().from(secrets);
+    return { secrets: rows.map((s) => ({ name: s.name, hint: s.value ? '••••' + s.value.slice(-4) : '(empty)' })) };
+  });
+  app.post('/api/secrets', async (req, reply) => {
+    const b = (req.body ?? {}) as { name?: string; value?: string };
+    const name = (b.name ?? '').trim();
+    const value = String(b.value ?? '');
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return reply.code(400).send({ error: 'invalid env var name (A-Z, 0-9, _)' });
+    if (value.length > 8192) return reply.code(400).send({ error: 'value too long (max 8192)' });
+    const existing = await db.select().from(secrets).where(eq(secrets.name, name)).limit(1);
+    if (existing[0]) await db.update(secrets).set({ value }).where(eq(secrets.name, name));
+    else await db.insert(secrets).values({ name, value });
+    return { ok: true, name };
+  });
+  app.delete('/api/secrets/:name', async (req, reply) => {
+    const name = String((req.params as { name: string }).name);
+    await db.delete(secrets).where(eq(secrets.name, name));
+    return reply.code(200).send({ ok: true });
   });
 
   // 자유 세션 — 임의 폴더에서 tmux 셸(프로젝트 비소속, 가상 Sessions 버킷).

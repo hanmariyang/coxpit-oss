@@ -46,7 +46,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .ws .dot{width:6px;height:6px;border-radius:50%;background:var(--faint)}
   .ws.on .dot{background:var(--done)}
   .wip{font-size:10.5px;color:var(--blocked);border:1px solid rgba(214,162,73,.4);border-radius:999px;padding:2px 9px}
-  .toggle{font-size:12px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:5px 11px}
+  .toggle{font-size:12px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:5px 11px;background:none;cursor:pointer;font-family:var(--mono)}
   .toggle:hover{color:var(--ink);border-color:var(--line-hi)}
 
   .layout{display:grid;grid-template-columns:270px 1fr;height:calc(100vh - 46px)}
@@ -183,6 +183,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .pick-name:focus{outline:none;border-color:var(--brand)}
   .pick-name::placeholder{color:var(--faint)}
 
+  .sec-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;font-size:12.5px;color:var(--ink)}
+  .sec-row:hover{background:var(--surface2)}
+  .sec-row .snm{flex:1;font-family:var(--mono)}
+  .sec-row .shint{color:var(--faint);font-size:11px;font-family:var(--mono)}
+  .sec-row .sdel{color:var(--faint);border:none;background:none;cursor:pointer;font-size:14px;padding:0 4px}
+  .sec-row .sdel:hover{color:var(--failed)}
+  .leaf-h .lock{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
+  .leaf-h .lock:hover{color:var(--brand)}
+  .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
   .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none}
   .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
   .tnode.session.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
@@ -233,6 +242,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
   <div class="right">
     <span class="ws" id="ws"><span class="dot"></span><span id="wstext">connecting</span></span>
+    <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">🔑 Secrets</button>
     <a class="toggle" href="/" title="보드(모니터) 뷰로">← Board</a>
   </div>
 </header>
@@ -309,6 +319,19 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <button class="home" id="pickHome" title="홈으로">⌂ home</button>
       <input class="pick-name" id="pickName" placeholder="세션 이름 (선택 — 비우면 폴더명)" autocomplete="off" />
       <button class="go" id="pickGo">여기서 열기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="secretsModal">
+  <div class="pick" style="width:min(520px,92vw)">
+    <div class="pick-h"><span class="t">🔑 시크릿 (env 주입)</span><button class="x" id="secretsClose" title="닫기">×</button></div>
+    <div style="padding:10px 15px;font-size:11px;color:var(--faint);border-bottom:1px solid var(--line)">여기 등록한 값은 <b>새 세션</b>을 열 때 tmux env 로 주입됩니다(스크롤백에 안 남음). 그 안의 <code>claude</code>·스크립트가 env 에서 읽어 프롬프트가 안 뜹니다. 이미 열린 세션엔 새로 열어야 적용됩니다.</div>
+    <div class="pick-list" id="secretsList"></div>
+    <div class="pick-f" style="gap:7px">
+      <input class="pick-name" id="secName" placeholder="이름 (예: OPENAI_API_KEY)" autocomplete="off" style="flex:0 0 210px" />
+      <input class="pick-name" id="secVal" type="password" placeholder="값" autocomplete="off" />
+      <button class="go" id="secAdd">저장</button>
     </div>
   </div>
 </div>
@@ -533,6 +556,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         ? '<span class="st '+esc(r?r.status:'')+'"></span><span class="nm">'+esc(t.name)+'</span>'
           + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
           + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
+          + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">🔒</button>'
           + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>'
         : '<span class="nm" style="color:var(--faint)">빈 페인</span><button class="x" title="이 페인 닫기">×</button>';
       var body=document.createElement('div'); body.className='leaf-body'; body.dataset.leafbody=node.id;
@@ -684,6 +708,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   // ── 페인(슬롯) 이벤트: 포커스·닫기·드롭·리사이즈 ──
   $('panes').addEventListener('click', function(e){
+    var lockBtn=e.target.closest('[data-lock]');
+    if (lockBtn){ e.stopPropagation(); startSecretSend(lockBtn.getAttribute('data-lock'), lockBtn); return; }
     var leaf=e.target.closest('[data-leaf]'); if(!leaf) return;
     if (e.target.closest('.leaf-h .x')){ closeSlot(leaf.dataset.leaf); return; }
     setLeafFocus(leaf.dataset.leaf);
@@ -755,6 +781,52 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('pickName').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); $('pickGo').click(); } });
   $('sessionBtn').addEventListener('click', openSession);
   $('sessionCta').addEventListener('click', openSession);
+
+  // ── (A) 시크릿 볼트 — 세션 env 주입 ──
+  function openSecrets(){ $('secretsModal').classList.add('on'); $('secName').value=''; $('secVal').value=''; loadSecrets(); }
+  function closeSecrets(){ $('secretsModal').classList.remove('on'); }
+  async function loadSecrets(){
+    try{ var d=await (await fetch('/api/secrets')).json(); var rows=d.secrets||[];
+      $('secretsList').innerHTML = rows.length ? rows.map(function(s){
+        return '<div class="sec-row"><span class="snm">'+esc(s.name)+'</span><span class="shint">'+esc(s.hint)+'</span><button class="sdel" data-del="'+esc(s.name)+'" title="삭제">×</button></div>';
+      }).join('') : '<div class="sec-row" style="color:var(--faint)">등록된 시크릿 없음 — 아래에서 추가</div>';
+    }catch(e){ $('secretsList').innerHTML='<div class="sec-row" style="color:var(--failed)">불러오기 실패</div>'; }
+  }
+  async function addSecret(){
+    var name=$('secName').value.trim(), value=$('secVal').value;
+    if(!name){ toast('이름을 입력하세요'); return; }
+    try{ var res=await fetch('/api/secrets',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:name,value:value})});
+      if(res.ok){ $('secName').value=''; $('secVal').value=''; toast('저장 · '+name+' (새 세션부터 적용)'); loadSecrets(); }
+      else{ var j=await res.json().catch(function(){return{};}); toast('저장 실패: '+(j.error||res.status)); }
+    }catch(e){ toast('저장 실패: '+e); }
+  }
+  $('secretsBtn').addEventListener('click', openSecrets);
+  $('secretsClose').addEventListener('click', closeSecrets);
+  $('secretsModal').addEventListener('click', function(e){ if(e.target===this) closeSecrets(); });
+  $('secAdd').addEventListener('click', addSecret);
+  $('secName').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); $('secVal').focus(); } });
+  $('secVal').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); addSecret(); } });
+  $('secretsList').addEventListener('click', async function(e){ var b=e.target.closest('[data-del]'); if(!b) return;
+    if(!confirm('시크릿 삭제: '+b.dataset.del+' ?')) return;
+    try{ await fetch('/api/secrets/'+encodeURIComponent(b.dataset.del),{method:'DELETE'}); toast('삭제됨'); loadSecrets(); }catch(err){ toast('삭제 실패'); }
+  });
+
+  // ── (B) 페인에 시크릿/비밀번호 전송 — 마스킹 입력을 그 페인 tmux stdin 으로 ──
+  function startSecretSend(leafId, btn){
+    var l=findLeaf(leafId); if(!l||l.tab==null){ toast('페인에 탭이 없습니다'); return; }
+    var t=tabs[l.tab]; if(!t||!t.ws||t.ws.readyState!==1){ toast('터미널이 연결되지 않았습니다'); return; }
+    var input=document.createElement('input'); input.className='sendkey'; input.type='password'; input.placeholder='비밀번호/키 + Enter';
+    btn.replaceWith(input); input.focus();
+    var done=false;
+    function finish(send){ if(done) return; done=true;
+      if(send){ try{ t.ws.send(JSON.stringify({t:'i',d:input.value+'\\r'})); }catch(e){} toast('페인에 전송(엔터 포함)'); }
+      var nb=document.createElement('button'); nb.className='lock'; nb.setAttribute('data-lock',leafId); nb.title='이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)'; nb.textContent='🔒';
+      try{ input.replaceWith(nb); }catch(e){}
+    }
+    input.addEventListener('keydown', function(e){ e.stopPropagation(); if(e.key==='Enter'){ e.preventDefault(); finish(true); } else if(e.key==='Escape'){ finish(false); } });
+    input.addEventListener('blur', function(){ finish(false); });
+    input.addEventListener('click', function(e){ e.stopPropagation(); });
+  }
 
   // ── 요청바: New(팬아웃) / Steer / Broadcast ──
   var reqMode = 'new';

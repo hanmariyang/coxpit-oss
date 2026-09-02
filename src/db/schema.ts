@@ -107,3 +107,11 @@ export const agentEvents = sqliteTable('agent_events', {
   payload: text('payload').notNull().default(''),
   ts: integer('ts', { mode: 'timestamp' }),
 });
+
+/** 시크릿 볼트 — 세션/워크벤치 tmux 에 env 로 주입(API 키 프롬프트 제거). owner 전용, 평문 저장(≈.env). */
+export const secrets = sqliteTable('secrets', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull().unique(),   // env 변수명 (예: OPENAI_API_KEY)
+  value: text('value').notNull().default(''),
+  createdAt: integer('created_at', { mode: 'timestamp' }),
+});
