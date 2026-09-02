@@ -19,7 +19,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, getScrollback } from './orchestrator';
 import { openTerm } from './term';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
@@ -1002,6 +1002,17 @@ export async function buildServer(): Promise<FastifyInstance> {
     const res = await steerRun(id, message, b.mode === 'ask' ? 'ask' : 'work');
     if (!res.ok) return reply.code(409).send(res);
     return reply.code(202).send(res);
+  });
+
+  // tmux 스크롤백 스냅샷 — 모바일 히스토리 오버레이(위 내용 읽기)용. 읽기 전용.
+  app.get('/api/runs/:id/scrollback', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const q = (req.query ?? {}) as { lines?: string };
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const res = await getScrollback(id, Number(q.lines) || 3000);
+    if (!res.ok) return reply.code(422).send(res);
+    return res;
   });
 
   // 수동 재검증 — repo.verifyCmd 를 이 run 의 worktree 에서 다시 실행(정착 자동검증과 동일 경로).

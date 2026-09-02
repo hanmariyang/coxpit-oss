@@ -677,6 +677,20 @@ export async function getRunTermInfo(runId: number): Promise<{ machine: MachineT
 }
 
 /**
+ * tmux 페인 스크롤백 스냅샷 — 모바일 "위 내용 읽기"(히스토리 오버레이)용.
+ * capture-pane -S -N 으로 N 줄 위부터 현재까지 텍스트를 통째로 반환(읽기 전용).
+ */
+export async function getScrollback(runId: number, lines: number): Promise<{ ok: boolean; text: string }> {
+  const info = await getRunTermInfo(runId);
+  if (!info) return { ok: false, text: 'no terminal session' };
+  const n = Math.max(50, Math.min(20000, Math.floor(lines) || 3000));
+  // capture-pane 은 '=' 접두사(정확일치) 를 pane 타깃으로 못 받는다 → 세션명 그대로(존재 시 정확일치 우선).
+  const r = await runShellOn(info.machine, `tmux capture-pane -t ${shq(info.session)} -p -S -${n}`, 15000);
+  if (!r.ok) return { ok: false, text: (r.stderr || r.stdout).trim().slice(0, 500) };
+  return { ok: true, text: r.stdout };
+}
+
+/**
  * 실행 중 run 중지 — 자식 프로세스 SIGTERM. close 핸들러가 status='stopped' 로 봉인.
  */
 export async function stopRun(runId: number): Promise<{ ok: boolean; detail: string }> {

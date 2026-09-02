@@ -724,6 +724,18 @@ expect_code 400 -X PATCH "$B/api/tasks/$RNTID" -H 'content-type: application/jso
 curl -s -X POST "$B/api/tasks/$RNTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 pass "task/session rename: PATCH title (empty→400, persisted)"
 
+# scrollback capture — mobile "read what scrolled above" (history overlay backend)
+SBSESS="$WORK/sbsess"; mkdir -p "$SBSESS"
+SB=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$SBSESS\",\"title\":\"sb\"}")
+SBRUN=$(echo "$SB" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
+sleep 1
+tmux send-keys -t "coxpit-r$SBRUN" 'for i in $(seq 1 40); do echo "SBLINE_$i"; done' Enter 2>/dev/null
+sleep 1
+SBTEXT=$(curl -s "$B/api/runs/$SBRUN/scrollback?lines=3000")
+case "$SBTEXT" in *'"ok":true'*'SBLINE_1'*'SBLINE_40'*) : ;; *) fail "scrollback did not capture pane history: $(echo "$SBTEXT" | head -c 120)";; esac
+curl -s -X POST "$B/api/runs/$SBRUN/cleanup" >/dev/null
+pass "scrollback: tmux capture-pane history returned for the history overlay"
+
 # secrets vault — store once, inject into session tmux as env (no interactive prompt)
 curl -s -X POST "$B/api/secrets" -H 'content-type: application/json' -d '{"name":"E2E_KEY","value":"sekret_val_9"}' | grep -q '"ok":true' || fail "secret POST failed"
 expect_code 400 -X POST "$B/api/secrets" -H 'content-type: application/json' -d '{"name":"bad name","value":"x"}'
@@ -760,6 +772,11 @@ pass "cockpit mobile fixes: full nav keys + touch input bar (no clip) + board→
 case "$CKPT" in *'user-scalable=no'*'overscroll-behavior:none'*) : ;; *) fail "cockpit mobile app-lock (viewport + overscroll) missing";; esac
 case "$CKPT" in *'.b-txt{display:none}'*'class="b-txt"'*) : ;; *) fail "cockpit mobile icon-only (b-txt hide) missing";; esac
 pass "cockpit mobile app-lock (no zoom/bounce) + icon-only header + small fonts"
+
+# mobile terminal scrolling: tmux copy-mode key (A) + read-only history overlay (C)
+case "$CKPT" in *'data-k="copymode"'*'data-k="pgup"'*'copymode:'*) : ;; *) fail "cockpit tmux copy-mode / PgUp keys missing";; esac
+case "$CKPT" in *'id="histBtn"'*'id="histModal"'*'function openHistory'*'/scrollback'*) : ;; *) fail "cockpit history overlay (scrollback reader) missing";; esac
+pass "cockpit mobile scroll: copy-mode key (A) + read-only history overlay (C)"
 
 # board (the landing screen) gets the mobile app-lock; Cockpit link is a ghost icon button (matches bell/remote)
 case "$BOARD_HTML" in *'user-scalable=no'*) : ;; *) fail "board mobile viewport zoom-lock missing";; esac

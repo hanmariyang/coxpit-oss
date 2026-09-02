@@ -249,6 +249,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tkey{font-family:var(--mono);font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:8px 11px;cursor:pointer;flex:0 0 auto;min-width:42px}
   .tkey:active{color:var(--ink);border-color:var(--brand);background:var(--brand-dim)}
   .tsend{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:9px 14px;cursor:pointer;flex:0 0 auto}
+  .tkey.scroll{color:var(--brand);border-color:rgba(78,201,176,.4)}
+  /* 히스토리 오버레이(읽기 전용, 자유 스크롤) — xterm·마우스모드 우회 */
+  .hist-refresh{margin-left:auto;background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:13px;padding:2px 8px;cursor:pointer;font-family:var(--mono)}
+  .hist-refresh:hover{color:var(--ink);border-color:var(--line-hi)}
+  .hist-body{flex:1;margin:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    padding:10px 12px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--ink);background:var(--bg)}
   /* 터치 기기(아이패드 포함, 화면폭 무관): 입력바 노출 + 요청바/분할 숨김(하단 클러터·잘림 방지) */
   body.touch .term-ibar{display:flex}
   body.touch .reqbar{display:none}
@@ -324,6 +330,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     </div>
     <div class="term-ibar" id="termIbar">
       <div class="tkeys">
+        <button type="button" class="tkey scroll" id="histBtn" title="위 내용 읽기 — 스크롤백을 스냅샷으로(읽기 전용)">📜 위로</button>
+        <button type="button" class="tkey scroll" data-k="copymode" title="터미널 안에서 스크롤 — tmux copy-mode 진입(⇞/↑ 로 위로, esc 로 나가기)">⇡ 스크롤</button>
         <button type="button" class="tkey" data-k="esc" title="Esc">esc</button>
         <button type="button" class="tkey" data-k="tab" title="Tab">tab</button>
         <button type="button" class="tkey" data-k="enter" title="Enter">⏎</button>
@@ -331,6 +339,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <button type="button" class="tkey" data-k="up" title="↑">↑</button>
         <button type="button" class="tkey" data-k="down" title="↓">↓</button>
         <button type="button" class="tkey" data-k="right" title="→">→</button>
+        <button type="button" class="tkey" data-k="pgup" title="Page Up">⇞</button>
+        <button type="button" class="tkey" data-k="pgdn" title="Page Down">⇟</button>
         <button type="button" class="tkey" data-k="cc" title="Ctrl-C">^C</button>
         <button type="button" class="tkey" data-k="cd" title="Ctrl-D">^D</button>
         <button type="button" class="tkey" data-k="cr" title="Ctrl-R (검색)">^R</button>
@@ -400,6 +410,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <input class="pick-name" id="secVal" type="password" placeholder="값" autocomplete="off" />
       <button class="go" id="secAdd">저장</button>
     </div>
+  </div>
+</div>
+
+<div class="modal" id="histModal">
+  <div class="pick" style="width:min(680px,96vw);max-height:88vh">
+    <div class="pick-h"><span class="t">📜 <span id="histTitle">터미널 히스토리</span></span>
+      <button type="button" class="hist-refresh" id="histRefresh" title="지금 시점으로 다시 불러오기">↻</button>
+      <button class="x" id="histClose" title="닫기">×</button></div>
+    <pre class="hist-body" id="histBody">불러오는 중…</pre>
   </div>
 </div>
 
@@ -821,8 +840,32 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('termSend').addEventListener('click', termSendLine);
   $('termInput').addEventListener('keydown', function(e){ if(e.isComposing) return; if(e.key==='Enter'){ e.preventDefault(); termSendLine(); } });
   var TKEYS={ esc:'\\x1b', tab:'\\t', enter:'\\r', cc:'\\x03', cd:'\\x04', cr:'\\x12', cu:'\\x15',
-    up:'\\x1b[A', down:'\\x1b[B', right:'\\x1b[C', left:'\\x1b[D' };
-  Array.prototype.forEach.call(document.querySelectorAll('#termIbar .tkey'), function(b){ b.addEventListener('click', function(){ var k=TKEYS[b.dataset.k]; if(k){ termSendRaw(k); var inp=$('termInput'); if(inp) inp.focus(); } }); });
+    up:'\\x1b[A', down:'\\x1b[B', right:'\\x1b[C', left:'\\x1b[D', pgup:'\\x1b[5~', pgdn:'\\x1b[6~',
+    copymode:'\\x02[' };   // Ctrl-b [ = tmux copy-mode 진입(위 내용 스크롤; esc/q 로 나감)
+  Array.prototype.forEach.call(document.querySelectorAll('#termIbar .tkey'), function(b){ b.addEventListener('click', function(){
+    var k=TKEYS[b.dataset.k]; if(!k) return;
+    termSendRaw(k);
+    if (b.dataset.k==='copymode') toast('copy-mode — ⇞/↑ 로 위로 스크롤, esc 로 나가기');
+    else { var inp=$('termInput'); if(inp) inp.focus(); }
+  }); });
+
+  // ── (C) 히스토리 오버레이 — 스크롤백 스냅샷을 읽기 전용 스크롤 뷰로(xterm/마우스모드 우회) ──
+  async function openHistory(){
+    var rid=focusedRunId(); if(rid==null){ toast('포커스한 세션이 없습니다'); return; }
+    $('histModal').classList.add('on');
+    var t=tabs[rid]; $('histTitle').textContent=(t?t.name:('r'+rid))+' · 히스토리';
+    var body=$('histBody'); body.textContent='불러오는 중…';
+    try{
+      var d=await (await fetch('/api/runs/'+rid+'/scrollback?lines=5000')).json();
+      body.textContent = (d && d.text) ? d.text : '(스크롤백 없음)';
+      body.scrollTop = body.scrollHeight;   // 하단(최신)에서 시작 → 위로 스크롤해 과거 읽기
+    }catch(e){ body.textContent='불러오기 실패: '+e; }
+  }
+  function closeHistory(){ $('histModal').classList.remove('on'); }
+  $('histBtn').addEventListener('click', openHistory);
+  $('histRefresh').addEventListener('click', openHistory);
+  $('histClose').addEventListener('click', closeHistory);
+  $('histModal').addEventListener('click', function(e){ if(e.target===this) closeHistory(); });
   // 터치 기기(아이패드 포함) 판별 → body.touch (화면폭 무관하게 입력바 노출)
   if (window.matchMedia('(pointer:coarse)').matches || (navigator.maxTouchPoints||0) > 0) document.body.classList.add('touch');
 
