@@ -5,7 +5,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>coxpit · cockpit</title>
 <link rel="icon" href="/brand/favicon.ico" sizes="any" />
 <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
@@ -23,9 +23,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,Roboto,sans-serif;
   }
   *{box-sizing:border-box}
-  html,body{height:100%}
+  /* 모바일 앱처럼 잠금 — 러버밴드·핀치줌 차단(뷰포트 meta user-scalable=no 와 함께).
+     body overflow:hidden 이라 앱셸은 스크롤 안 하고, 안쪽 컨테이너(터미널·트리)만 스크롤.
+     position:fixed 는 iOS 소프트키보드가 입력바를 가려 회피 — overscroll-behavior:none 으로 충분. */
+  html,body{height:100%;overscroll-behavior:none}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;
-    -webkit-font-smoothing:antialiased;overflow:hidden}
+    -webkit-font-smoothing:antialiased;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
+  .term-host .xterm-viewport{overscroll-behavior:contain}   /* 터미널 스크롤이 페이지로 안 번지게 */
   button{font-family:var(--sans)}
   :focus-visible{outline:2px solid rgba(78,201,176,.5);outline-offset:1px;border-radius:4px}
 
@@ -250,16 +254,26 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   body.touch .reqbar{display:none}
   body.touch #splitRow, body.touch #splitCol{display:none}
   @media (max-width:860px){
-    header{gap:8px;padding:0 10px}
-    .brand .wm{font-size:17px}
+    /* 모바일 = 아이콘만(텍스트 라벨 숨김) + 폰트 최소화 */
+    .b-txt{display:none}
+    body{font-size:12px}
+    header{gap:6px;padding:0 8px;height:44px}
+    .layout{height:calc(100dvh - 44px)}
+    .scrim{inset:44px 0 0 0}
+    .brand img{height:19px} .brand .wm{font-size:15px;margin-left:0}
     .mach{display:none}
-    .vtab{padding:6px 8px;gap:5px}
-    .menu-btn{display:inline-flex}
+    .vtabs{gap:2px} .vtab{padding:6px 8px;gap:0;font-size:12px}
+    .toggle{padding:5px 8px;font-size:12px}
+    .menu-btn{display:inline-flex;font-size:14px;padding:4px 8px}
     .layout{grid-template-columns:1fr}
-    .rail{position:fixed;top:46px;bottom:0;left:0;width:84%;max-width:320px;z-index:40;background:var(--panel);transform:translateX(-100%);transition:transform .18s ease;border-right:1px solid var(--line-hi);box-shadow:2px 0 16px rgba(0,0,0,.4)}
+    .rail{position:fixed;top:44px;bottom:0;left:0;width:84%;max-width:300px;z-index:40;background:var(--panel);transform:translateX(-100%);transition:transform .18s ease;border-right:1px solid var(--line-hi);box-shadow:2px 0 16px rgba(0,0,0,.4);font-size:11.5px}
     .rail.open{transform:translateX(0)}
-    .tab{max-width:52vw}
+    .tabbar{height:34px} .tab{max-width:56vw;font-size:11px;padding:0 8px}
+    .tc-btn{font-size:11px;padding:3px 7px}
+    .leaf-h{height:24px;font-size:10.5px}
     .term-ibar{display:flex}
+    .tkey{font-size:12px;padding:7px 9px;min-width:38px}
+    .tinput input{font-size:15px;padding:8px 10px}
   }
 </style>
 </head>
@@ -269,14 +283,14 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   <a class="brand" href="/"><img src="/brand/mark.png" alt="" /><span class="wm">coxpit</span></a>
   <span class="mach"><span class="dot"></span><span id="mach">local</span></span>
   <div class="vtabs">
-    <button type="button" class="vtab on" id="vtTerm"><span class="g">⌗</span>Terminal</button>
-    <button type="button" class="vtab" id="vtReview"><span class="g">⧉</span>Review</button>
-    <button type="button" class="vtab" disabled title="Docs = 보드"><span class="g">▤</span>Docs</button>
+    <button type="button" class="vtab on" id="vtTerm"><span class="g">⌗</span><span class="b-txt">Terminal</span></button>
+    <button type="button" class="vtab" id="vtReview"><span class="g">⧉</span><span class="b-txt">Review</span></button>
+    <button type="button" class="vtab" disabled title="Docs = 보드"><span class="g">▤</span><span class="b-txt">Docs</span></button>
   </div>
   <div class="right">
-    <span class="ws" id="ws"><span class="dot"></span><span id="wstext">connecting</span></span>
-    <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">🔑 Secrets</button>
-    <a class="toggle" href="/" title="보드(모니터) 뷰로">← Board</a>
+    <span class="ws" id="ws"><span class="dot"></span><span id="wstext" class="b-txt">connecting</span></span>
+    <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">🔑<span class="b-txt"> Secrets</span></button>
+    <a class="toggle" href="/" title="보드(모니터) 뷰로">←<span class="b-txt"> Board</span></a>
   </div>
 </header>
 
@@ -294,8 +308,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <div class="tabctl">
         <button class="tc-btn" id="splitRow" title="세로 분할 — 포커스 페인을 좌우로" disabled>▐ split</button>
         <button class="tc-btn" id="splitCol" title="가로 분할 — 포커스 페인을 상하로" disabled>▬ split</button>
-        <button class="tc-btn session" id="sessionBtn" title="자유 세션(폴더 지정 터미널) 열기">＋ Session</button>
-        <button class="tc-btn" id="closeBtn" title="포커스 페인 닫기(탭은 유지)" disabled>× pane</button>
+        <button class="tc-btn session" id="sessionBtn" title="자유 세션(폴더 지정 터미널) 열기">＋<span class="b-txt"> Session</span></button>
+        <button class="tc-btn" id="closeBtn" title="포커스 페인 닫기(탭은 유지)" disabled>×<span class="b-txt"> pane</span></button>
       </div>
     </div>
     <div class="panes" id="panes"></div>
@@ -552,7 +566,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var host=document.createElement('div'); host.className='term-host';
     var term=new window.Terminal({
       fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', monospace",
-      fontSize: 12, cursorBlink: true, allowProposedApi: true, scrollback: 4000,
+      fontSize: isMobile() ? 11 : 12, cursorBlink: true, allowProposedApi: true, scrollback: 4000,
       theme: { background:'#0b0d12', foreground:'#dee4ec', cursor:'#4ec9b0', selectionBackground:'rgba(78,201,176,.25)', black:'#1c212c', brightBlack:'#5c6675' },
     });
     var fit=new window.FitAddon.FitAddon(); term.loadAddon(fit);

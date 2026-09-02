@@ -756,6 +756,11 @@ case "$CKPT" in *'class="tkeys"'*'data-k="left"'*'data-k="right"'*'data-k="cd"'*
 case "$BOARD_HTML" in *'.cockpit-link{display:inline-flex'*) : ;; *) fail "board should show Cockpit link on mobile";; esac
 pass "cockpit mobile fixes: full nav keys + touch input bar (no clip) + board→Cockpit link"
 
+# mobile app-lock: viewport zoom lock + overscroll-behavior; icon-only header (labels hidden); smaller fonts
+case "$CKPT" in *'user-scalable=no'*'overscroll-behavior:none'*) : ;; *) fail "cockpit mobile app-lock (viewport + overscroll) missing";; esac
+case "$CKPT" in *'.b-txt{display:none}'*'class="b-txt"'*) : ;; *) fail "cockpit mobile icon-only (b-txt hide) missing";; esac
+pass "cockpit mobile app-lock (no zoom/bounce) + icon-only header + small fonts"
+
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
 cat > "$WORK/dump-agent.sh" <<'EOS'
