@@ -1,6 +1,6 @@
 {
   "name": "coxpit",
-  "version": "5.16.0",
+  "version": "5.17.0",
   "description": "Self-hosted cockpit for running a fleet of AI coding agents across your own machines — parallel worktree runs, live board, compare & merge, web terminal, design capture.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -46,6 +46,7 @@
     "@libsql/client": "^0.14",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-unicode11": "^0.8.0",
+    "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
     "dotenv": "^16",
     "drizzle-orm": "^0.38",

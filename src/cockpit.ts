@@ -306,7 +306,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
   <div class="right">
     <span class="ws" id="ws"><span class="dot"></span><span id="wstext" class="b-txt">connecting</span></span>
-    <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">🔑<span class="b-txt"> Secrets</span></button>
+    <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">∗<span class="b-txt"> Secrets</span></button>
     <a class="toggle" href="/" title="보드(모니터) 뷰로">←<span class="b-txt"> Board</span></a>
   </div>
 </header>
@@ -341,7 +341,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     </div>
     <div class="term-ibar" id="termIbar">
       <div class="tkeys">
-        <button type="button" class="tkey scroll" id="histBtn" title="뷰어 — 대화/터미널로 위 내용 보기(읽기 전용)">📜 뷰어</button>
+        <button type="button" class="tkey scroll" id="histBtn" title="뷰어 — 대화/터미널로 위 내용 보기(읽기 전용)">뷰어</button>
         <button type="button" class="tkey scroll" data-k="copymode" title="터미널 안에서 스크롤 — tmux copy-mode 진입(⇞/↑ 로 위로, esc 로 나가기)">⇡ 스크롤</button>
         <button type="button" class="tkey" data-k="esc" title="Esc">esc</button>
         <button type="button" class="tkey" data-k="tab" title="Tab">tab</button>
@@ -413,7 +413,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
 <div class="modal" id="secretsModal">
   <div class="pick" style="width:min(520px,92vw)">
-    <div class="pick-h"><span class="t">🔑 시크릿 (env 주입)</span><button class="x" id="secretsClose" title="닫기">×</button></div>
+    <div class="pick-h"><span class="t">시크릿 (env 주입)</span><button class="x" id="secretsClose" title="닫기">×</button></div>
     <div style="padding:10px 15px;font-size:11px;color:var(--faint);border-bottom:1px solid var(--line)">여기 등록한 값은 <b>새 세션</b>을 열 때 tmux env 로 주입됩니다(스크롤백에 안 남음). 그 안의 <code>claude</code>·스크립트가 env 에서 읽어 프롬프트가 안 뜹니다. 이미 열린 세션엔 새로 열어야 적용됩니다.</div>
     <div class="pick-list" id="secretsList"></div>
     <div class="pick-f" style="gap:7px">
@@ -426,7 +426,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
 <div class="modal" id="histModal">
   <div class="pick" style="width:min(680px,96vw);max-height:88vh">
-    <div class="pick-h"><span class="t">📜 <span id="histTitle">뷰어</span></span>
+    <div class="pick-h"><span class="t"><span id="histTitle">뷰어</span></span>
       <div class="hist-modes">
         <button type="button" class="hm-tab on" id="hmChat" title="Claude Code 대화로 보기">대화</button>
         <button type="button" class="hm-tab" id="hmRaw" title="터미널 스크롤백 원문">터미널</button>
@@ -443,6 +443,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-unicode11.js"></script>
+<script src="/vendor/addon-web-links.js"></script>
 <script>
   // 모바일 = 터미널 우선을 유지하되 좁은 화면에 맞춤(드로어 트리 + 단일 터미널 + IME 입력바).
   // (이전엔 보드로 리다이렉트했지만, 이제 cockpit 을 모바일 대응)
@@ -451,7 +452,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var $ = function(id){ return document.getElementById(id); };
 
   function toast(msg){ var t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._h); toast._h=setTimeout(function(){ t.classList.remove('show'); }, 2600); }
-  var V_GLYPH = { pass:'✓ verify', fail:'✗ verify', running:'⋯ verify', error:'⚠ verify' };
+  var V_GLYPH = { pass:'✓ verify', fail:'✗ verify', running:'⋯ verify', error:'! verify' };
   function vbadge(status){ if (!status || !V_GLYPH[status]) return ''; return '<span class="vbadge '+status+'" data-role="vbadge">'+V_GLYPH[status]+'</span>'; }
 
   // ── fleet 상태 ──
@@ -606,6 +607,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     });
     var fit=new window.FitAddon.FitAddon(); term.loadAddon(fit);
     try{ term.loadAddon(new window.Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion='11'; }catch(e){}
+    // URL 링크 클릭 가능(웹=새 탭, 데스크톱 앱=시스템 브라우저 — setWindowOpenHandler 가 external 로).
+    try{ term.loadAddon(new window.WebLinksAddon.WebLinksAddon(function(ev, uri){ window.open(uri, '_blank', 'noopener'); })); }catch(e){}
     // term.open 은 host 가 DOM 에 붙은 뒤(attachHosts) 최초 1회 — detached 에서 open 하면 렌더러가 안 뜬다.
     var t={ runId:runId, name:tabName(runId), term:term, fit:fit, ws:null, retry:0, closing:false, host:host, ro:null, opened:false, connected:false };
     term.onData(function(d){ if(t.ws&&t.ws.readyState===1) t.ws.send(JSON.stringify({t:'i',d:d})); });
@@ -659,7 +662,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         ? '<span class="st '+esc(r?r.status:'')+'"></span><span class="nm">'+esc(t.name)+'</span>'
           + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
           + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
-          + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">🔒</button>'
+          + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">⊟</button>'
           + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>'
         : '<span class="nm" style="color:var(--faint)">빈 페인</span><button class="x" title="이 페인 닫기">×</button>';
       var body=document.createElement('div'); body.className='leaf-body'; body.dataset.leafbody=node.id;
@@ -876,7 +879,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   function renderTurn(t){
     var body = esc(t.text||'').replace(/\\n/g,'<br>');
-    var tools = (t.tools && t.tools.length) ? '<div class="ch-tools">'+t.tools.map(function(x){return '<span class="ch-tool">🔧 '+esc(x)+'</span>';}).join('')+'</div>' : '';
+    var tools = (t.tools && t.tools.length) ? '<div class="ch-tools">'+t.tools.map(function(x){return '<span class="ch-tool">'+esc(x)+'</span>';}).join('')+'</div>' : '';
     return '<div class="ch-turn '+(t.role==='user'?'user':'asst')+'"><div class="ch-bubble">'+body+tools+'</div></div>';
   }
   async function loadHist(){
@@ -985,7 +988,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var done=false;
     function finish(send){ if(done) return; done=true;
       if(send){ try{ t.ws.send(JSON.stringify({t:'i',d:input.value+'\\r'})); }catch(e){} toast('페인에 전송(엔터 포함)'); }
-      var nb=document.createElement('button'); nb.className='lock'; nb.setAttribute('data-lock',leafId); nb.title='이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)'; nb.textContent='🔒';
+      var nb=document.createElement('button'); nb.className='lock'; nb.setAttribute('data-lock',leafId); nb.title='이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)'; nb.textContent='⊟';
       try{ input.replaceWith(nb); }catch(e){}
     }
     input.addEventListener('keydown', function(e){ e.stopPropagation(); if(e.key==='Enter'){ e.preventDefault(); finish(true); } else if(e.key==='Escape'){ finish(false); } });

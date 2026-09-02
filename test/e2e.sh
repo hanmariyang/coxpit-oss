@@ -109,7 +109,11 @@ case "$BOARD_HTML" in *'href="/cockpit"'*) : ;; *) fail "board Cockpit-preview l
 pass "Phase 0 cockpit scaffold served + board toggle (parallel, non-breaking)"
 
 # Phase 2 — workspace tree + pane-grid terminal (xterm via /vendor + /api/fleet + /ws/term)
-case "$CKPT" in *'/vendor/xterm.js'*'/vendor/addon-fit.js'*'/vendor/addon-unicode11.js'*) : ;; *) fail "cockpit xterm vendor scripts missing";; esac
+case "$CKPT" in *'/vendor/xterm.js'*'/vendor/addon-fit.js'*'/vendor/addon-unicode11.js'*'/vendor/addon-web-links.js'*) : ;; *) fail "cockpit xterm vendor scripts missing";; esac
+expect_code 200 "$B/vendor/addon-web-links.js"
+case "$CKPT" in *'WebLinksAddon'*) : ;; *) fail "cockpit should register WebLinksAddon (clickable URLs)";; esac
+# design system: no colorful emoji in the cockpit (mono glyphs only)
+if printf '%s' "$CKPT" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "cockpit contains emoji — use monochrome glyphs (design system)"; fi
 case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "cockpit tree/pane logic missing";; esac
 case "$CKPT" in *'/api/fleet?view=all'*'/ws/term/'*) : ;; *) fail "cockpit fleet/term wiring missing";; esac
 pass "Phase 2 cockpit workspace tree + pane-grid terminal (xterm attach, auto-tile)"
@@ -782,7 +786,7 @@ case "$CKPT" in *'id="histBtn"'*'id="histModal"'*'function openHistory'*'/scroll
 pass "cockpit mobile scroll: copy-mode key (A) + read-only history overlay (C)"
 
 # viewer: renamed to 뷰어 + conversational mode (Claude Code JSONL → chat bubbles) alongside terminal(raw)
-case "$CKPT" in *'>📜 뷰어<'*'id="hmChat"'*'function renderTurn'*"/chat'"*) : ;; *) fail "cockpit conversational viewer (대화 mode) missing";; esac
+case "$CKPT" in *'id="histBtn"'*'>뷰어<'*'id="hmChat"'*'function renderTurn'*"/chat'"*) : ;; *) fail "cockpit conversational viewer (대화 mode) missing";; esac
 case "$CKPT" in *'ch-turn'*'ch-bubble'*) : ;; *) fail "cockpit chat bubble styles missing";; esac
 pass "cockpit viewer: 뷰어 rename + conversational (chat) view over Claude Code transcript"
 

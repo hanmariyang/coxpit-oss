@@ -35,6 +35,7 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
   'xterm.css': { pkg: '@xterm/xterm/package.json', rel: 'css/xterm.css', type: 'text/css' },
   'addon-fit.js': { pkg: '@xterm/addon-fit/package.json', rel: 'lib/addon-fit.js', type: 'text/javascript' },
   'addon-unicode11.js': { pkg: '@xterm/addon-unicode11/package.json', rel: 'lib/addon-unicode11.js', type: 'text/javascript' },
+  'addon-web-links.js': { pkg: '@xterm/addon-web-links/package.json', rel: 'lib/addon-web-links.js', type: 'text/javascript' },
 };
 
 // ─── 읽기 전용 공유 페이지 (서버 렌더 스냅샷 — 스크립트 0, 액션 0) ───────────
