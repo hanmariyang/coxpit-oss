@@ -229,10 +229,40 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .dl-file{color:var(--brand)} .dl-hunk{color:var(--open)} .dl-ctx{color:var(--muted)}
   .dl-add{color:#7fdca0;background:rgba(88,179,104,.08)} .dl-del{color:#e58a92;background:rgba(226,91,103,.08)}
   .rv-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--faint);font-family:var(--mono);font-size:13px;text-align:center;padding:24px}
+
+  /* ── 모바일 대응 (드로어 트리 + 단일 터미널 + IME 입력바) ── */
+  .menu-btn{display:none;font-size:15px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:7px;padding:5px 9px;cursor:pointer;font-family:var(--mono)}
+  .menu-btn:hover{color:var(--ink);border-color:var(--line-hi)}
+  .scrim{display:none;position:fixed;inset:46px 0 0 0;background:rgba(5,7,10,.5);z-index:39}
+  .scrim.on{display:block}
+  /* 모바일 터미널 입력바 — 소프트키보드 IME 자모분리 방지: 조합 완료 텍스트를 통째로 PTY 로 */
+  .term-ibar{display:none;gap:6px;padding:7px 9px;border-top:1px solid var(--line);background:var(--surface2);align-items:center;padding-bottom:calc(7px + env(safe-area-inset-bottom))}
+  .term-ibar input{flex:1;min-width:0;font-family:var(--mono);font-size:14px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .term-ibar input:focus{outline:none;border-color:var(--brand)}
+  .tkey{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 8px;cursor:pointer;flex:0 0 auto}
+  .tkey:active{color:var(--ink);border-color:var(--brand)}
+  .tsend{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:8px 12px;cursor:pointer;flex:0 0 auto}
+  @media (max-width:860px),(pointer:coarse){
+    header{gap:8px;padding:0 10px}
+    .brand .wm{font-size:17px}
+    .mach{display:none}
+    .vtab{padding:6px 8px;gap:5px}
+    .menu-btn{display:inline-flex}
+    .layout{grid-template-columns:1fr}
+    .rail{position:fixed;top:46px;bottom:0;left:0;width:84%;max-width:320px;z-index:40;background:var(--panel);transform:translateX(-100%);transition:transform .18s ease;border-right:1px solid var(--line-hi);box-shadow:2px 0 16px rgba(0,0,0,.4)}
+    .rail.open{transform:translateX(0)}
+    #splitRow,#splitCol{display:none}   /* 창분할은 데스크톱 전용 */
+    .tab{max-width:52vw}
+    .term-ibar{display:flex}
+    .reqbar{padding:7px 8px;gap:6px}
+    .reqbar select{max-width:96px}
+    .reqinput{font-size:14px}
+  }
 </style>
 </head>
 <body>
 <header>
+  <button type="button" class="menu-btn" id="menuBtn" title="워크스페이스 트리">☰</button>
   <a class="brand" href="/"><img src="/brand/mark.png" alt="" /><span class="wm">coxpit</span></a>
   <span class="mach"><span class="dot"></span><span id="mach">local</span></span>
   <div class="vtabs">
@@ -247,8 +277,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
 </header>
 
+<div class="scrim" id="scrim"></div>
 <div class="layout">
-  <aside class="rail">
+  <aside class="rail" id="rail">
     <div class="lbl"><span>Workspace</span><span id="machName" style="color:var(--faint)">local</span></div>
     <div id="tree"></div>
     <div class="railfoot">클릭한 run·세션은 <b>탭</b>으로 열립니다 · split 으로 페인을 나란히 배치</div>
@@ -273,6 +304,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <button class="cta" id="sessionCta">＋ 새 작업 세션 열기</button>
         <div class="hint">세션 = <b>지정한 폴더</b>의 tmux 셸(특정 프로젝트에 소속되지 않음). 그 안에서 <code>claude</code> 를 띄워 “이 프로젝트 구현해줘” 처럼 직접 지시할 수 있습니다.</div>
       </div>
+    </div>
+    <div class="term-ibar" id="termIbar">
+      <button type="button" class="tkey" data-k="esc" title="Esc">esc</button>
+      <button type="button" class="tkey" data-k="tab" title="Tab">tab</button>
+      <button type="button" class="tkey" data-k="cc" title="Ctrl-C">^C</button>
+      <button type="button" class="tkey" data-k="up" title="↑">↑</button>
+      <button type="button" class="tkey" data-k="down" title="↓">↓</button>
+      <input id="termInput" placeholder="입력 → 한글 OK · Enter 전송" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      <button type="button" class="tsend" id="termSend">전송</button>
     </div>
     <div class="reqbar">
       <div class="modes">
@@ -342,8 +382,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-unicode11.js"></script>
 <script>
-  // 모바일은 터미널 우선 대신 보드(모니터)로.
-  if (window.innerWidth <= 860 && matchMedia('(pointer:coarse)').matches) location.replace('/');
+  // 모바일 = 터미널 우선을 유지하되 좁은 화면에 맞춤(드로어 트리 + 단일 터미널 + IME 입력바).
+  // (이전엔 보드로 리다이렉트했지만, 이제 cockpit 을 모바일 대응)
+  function isMobile(){ return window.matchMedia('(max-width:860px),(pointer:coarse)').matches; }
   var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); };
   var $ = function(id){ return document.getElementById(id); };
 
@@ -453,7 +494,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('tree').addEventListener('click', function(e){
     if (e.target.closest('[data-newsession]')){ openSession(); return; }
     var run = e.target.closest('[data-run]');
-    if (run){ openRunPane(+run.dataset.run); return; }
+    if (run){ openRunPane(+run.dataset.run); if (isMobile()) setDrawer(false); return; }
     var fn = e.target.closest('[data-fold]');
     if (fn){ var k = fn.dataset.fold; fold[k] = !isFold(k); renderTree(); }
   });
@@ -614,6 +655,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   function splitFocused(dir){
     if (!tabOrder.length) return;
+    if (isMobile()){ toast('창분할은 데스크톱 전용 — 모바일은 탭으로 전환하세요'); return; }
     if (countLeaves()>=MAX_LEAVES){ toast('페인 최대 '+MAX_LEAVES+'개'); return; }
     var l=findLeaf(focusLeaf) || firstLeaf(); if(!l) return;
     var keep=l.tab; var aId=l.id, bId=newLeafId();
@@ -739,6 +781,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('splitRow').addEventListener('click', function(){ splitFocused('row'); });
   $('splitCol').addEventListener('click', function(){ splitFocused('col'); });
   $('closeBtn').addEventListener('click', function(){ if(focusLeaf) closeSlot(focusLeaf); });
+
+  // ── 모바일: 워크스페이스 드로어 ──
+  function setDrawer(open){ $('rail').classList.toggle('open', open); $('scrim').classList.toggle('on', open); }
+  $('menuBtn').addEventListener('click', function(){ setDrawer(!$('rail').classList.contains('open')); });
+  $('scrim').addEventListener('click', function(){ setDrawer(false); });
+
+  // ── 모바일 터미널 입력바 — 조합 완료 텍스트를 통째로 포커스 탭의 PTY 로(IME 안전) ──
+  function focusedWs(){ var rid=focusedRunId(); return (rid!=null && tabs[rid]) ? tabs[rid].ws : null; }
+  function termSendRaw(d){ var ws=focusedWs(); if(ws && ws.readyState===1) ws.send(JSON.stringify({t:'i',d:d})); }
+  function termSendLine(){ var inp=$('termInput'); var v=inp.value; if(!v){ termSendRaw('\\r'); return; } termSendRaw(v+'\\r'); inp.value=''; inp.focus(); }
+  $('termSend').addEventListener('click', termSendLine);
+  $('termInput').addEventListener('keydown', function(e){ if(e.isComposing) return; if(e.key==='Enter'){ e.preventDefault(); termSendLine(); } });
+  var TKEYS={ esc:'\\x1b', tab:'\\t', cc:'\\x03', up:'\\x1b[A', down:'\\x1b[B' };
+  Array.prototype.forEach.call(document.querySelectorAll('#termIbar .tkey'), function(b){ b.addEventListener('click', function(){ var k=TKEYS[b.dataset.k]; if(k) termSendRaw(k); }); });
 
   // ── 자유 세션 — 폴더를 지정해 tmux 셸(프로젝트 비소속). ──
   var pickPathCur = '';

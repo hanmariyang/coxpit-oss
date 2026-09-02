@@ -104,7 +104,7 @@ expect_code 200 "$B/cockpit"
 CKPT=$(curl -s "$B/cockpit")
 case "$CKPT" in *'coxpit · cockpit'*'workspace'*) : ;; *) fail "cockpit shell title missing";; esac
 case "$CKPT" in *'class="toggle" href="/"'*) : ;; *) fail "cockpit → board toggle missing";; esac
-case "$CKPT" in *"location.replace('/')"*) : ;; *) fail "cockpit mobile→board redirect missing";; esac
+case "$CKPT" in *'id="menuBtn"'*'id="termIbar"'*'function isMobile'*) : ;; *) fail "cockpit mobile support (drawer + IME input bar) missing";; esac
 case "$BOARD_HTML" in *'href="/cockpit"'*) : ;; *) fail "board Cockpit-preview link missing";; esac
 pass "Phase 0 cockpit scaffold served + board toggle (parallel, non-breaking)"
 
@@ -745,6 +745,12 @@ pass "secrets vault: store (value never leaked) → injected as tmux env → del
 case "$CKPT" in *'id="secretsBtn"'*'id="secretsModal"'*'function openSecrets'*'/api/secrets'*) : ;; *) fail "cockpit secrets vault UI missing";; esac
 case "$CKPT" in *'function startSecretSend'*'data-lock'*) : ;; *) fail "cockpit send-secret-to-pane missing";; esac
 pass "cockpit secrets vault UI + send-secret-to-pane"
+
+# mobile-responsive cockpit (drawer tree + single terminal + IME input bar; split is desktop-only)
+case "$CKPT" in *'function setDrawer'*'function termSendLine'*'isComposing'*) : ;; *) fail "cockpit mobile drawer / IME send wiring missing";; esac
+case "$CKPT" in *'창분할은 데스크톱 전용'*) : ;; *) fail "cockpit should guard split on mobile";; esac
+case "$CKPT" in *'@media (max-width:860px),(pointer:coarse)'*) : ;; *) fail "cockpit mobile media query missing";; esac
+pass "cockpit mobile-responsive (drawer + single terminal + IME bar, split desktop-only)"
 
 # prompt injection proof (dump agent argv via COXPIT_AGENT_BIN in a fresh daemon)
 kill "$DPID" 2>/dev/null || true; sleep 0.5
