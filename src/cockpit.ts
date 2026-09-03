@@ -609,6 +609,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     try{ term.loadAddon(new window.Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion='11'; }catch(e){}
     // URL 링크 클릭 가능(웹=새 탭, 데스크톱 앱=시스템 브라우저 — setWindowOpenHandler 가 external 로).
     try{ term.loadAddon(new window.WebLinksAddon.WebLinksAddon(function(ev, uri){ window.open(uri, '_blank', 'noopener'); })); }catch(e){}
+    // 복사 배선: xterm 은 user-select:none 이라 네이티브 선택이 없다 → term.getSelection() 을 직접 클립보드로.
+    // ① 드래그 놓으면 자동 복사(select-to-copy) ② Cmd/Ctrl+C 로도 복사(선택 없으면 통과 → SIGINT).
+    var copySel=function(){ var s=''; try{ s=term.getSelection(); }catch(e){} if(!s) return false;
+      try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(s); }catch(e){}
+      try{ var ta=document.createElement('textarea'); ta.value=s; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); }catch(e){}
+      return true; };
+    host.addEventListener('mouseup', function(){ copySel(); });
+    host.addEventListener('touchend', function(){ copySel(); });
+    term.attachCustomKeyEventHandler(function(ev){
+      if(ev.type==='keydown' && (ev.metaKey||ev.ctrlKey) && (ev.key==='c'||ev.key==='C')){
+        if(term.hasSelection()){ copySel(); return false; }
+      }
+      return true;
+    });
     // term.open 은 host 가 DOM 에 붙은 뒤(attachHosts) 최초 1회 — detached 에서 open 하면 렌더러가 안 뜬다.
     var t={ runId:runId, name:tabName(runId), term:term, fit:fit, ws:null, retry:0, closing:false, host:host, ro:null, opened:false, connected:false };
     term.onData(function(d){ if(t.ws&&t.ws.readyState===1) t.ws.send(JSON.stringify({t:'i',d:d})); });

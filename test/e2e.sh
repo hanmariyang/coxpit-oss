@@ -112,6 +112,8 @@ pass "Phase 0 cockpit scaffold served + board toggle (parallel, non-breaking)"
 case "$CKPT" in *'/vendor/xterm.js'*'/vendor/addon-fit.js'*'/vendor/addon-unicode11.js'*'/vendor/addon-web-links.js'*) : ;; *) fail "cockpit xterm vendor scripts missing";; esac
 expect_code 200 "$B/vendor/addon-web-links.js"
 case "$CKPT" in *'WebLinksAddon'*) : ;; *) fail "cockpit should register WebLinksAddon (clickable URLs)";; esac
+# copy wiring: xterm has user-select:none → selection must be pushed to clipboard explicitly
+case "$CKPT" in *'getSelection'*'attachCustomKeyEventHandler'*) : ;; *) fail "cockpit should wire terminal copy (select-to-copy + Cmd/Ctrl+C)";; esac
 # design system: no colorful emoji in the cockpit (mono glyphs only)
 if printf '%s' "$CKPT" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "cockpit contains emoji — use monochrome glyphs (design system)"; fi
 case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "cockpit tree/pane logic missing";; esac
