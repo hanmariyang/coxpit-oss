@@ -1373,5 +1373,15 @@ case "$LB" in *'<title>coxpit'*) : ;; *) fail "loopback bind should serve the bo
 case "$LB" in *'Unlock this coxpit'*|*'Protect this coxpit'*) fail "loopback bind must not gate with a login page";; *) : ;; esac
 pass "loopback bind = trusted local, board open (no login, zero-friction npx)"
 
+# COXPIT_FILES_ROOT widens the viewer jail (default home). "/" opens the whole fs.
+kill "$DPID" 2>/dev/null || true; sleep 0.5
+COXPIT_HOST=127.0.0.1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" COXPIT_FILES_ROOT=/ \
+  node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
+DPID=$!
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+FRR=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
+case "$FRR" in *'"kind":"text"'*) : ;; *) fail "COXPIT_FILES_ROOT=/ should allow reading /etc/hosts: $FRR";; esac
+pass "COXPIT_FILES_ROOT widens the file-viewer root (/ opens the whole filesystem)"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

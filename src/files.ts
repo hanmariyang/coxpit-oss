@@ -1,13 +1,25 @@
-// File viewer/edit backing (owner-only tool). Scoped to the daemon user's home
-// directory — reading file *contents* is higher-risk than /api/browse's dir listing,
-// so we jail here. All real work (repos, worktrees, sessions, ~/services) lives under ~.
+// File viewer/edit backing (owner-only tool). Scoped to a root — default the
+// daemon user's home. coxpit already grants a full shell to an authed user (the
+// terminal), so this jail is defense-in-depth for an *exposed* daemon, not a real
+// confinement; widen it with COXPIT_FILES_ROOT ("/" = whole filesystem) on a box
+// you trust. Everything under ~ (repos, worktrees, sessions, ~/services) is in the
+// default root.
 import { readdir, stat, readFile, writeFile, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { resolve as presolve, dirname as pdirname, join as pjoin, basename as pbasename, extname as pextname } from 'node:path';
 
 const HOME = presolve(homedir());
+// Allowed root for reads/edits. Default = home. "/" opens the whole filesystem.
+const ROOT = presolve(process.env.COXPIT_FILES_ROOT || HOME);
+const ROOT_IS_FS = ROOT === '/';
+// Where listing/search start when no path is given (familiar), still within ROOT.
+const START = (HOME === ROOT || HOME.startsWith(ROOT + '/')) ? HOME : ROOT;
 const MAX_TEXT = 2 * 1024 * 1024;      // read as text up to 2MB
 const MAX_WRITE = 512 * 1024;          // edit-save cap (.env etc. are tiny)
+
+function withinRoot(full: string): boolean {
+  return ROOT_IS_FS || full === ROOT || full.startsWith(ROOT + '/');
+}
 
 export type FileKind = 'md' | 'html' | 'pdf' | 'image' | 'text' | 'binary';
 
@@ -49,19 +61,19 @@ export function mimeFor(p: string): string {
   return MIME[ext(p)] || 'application/octet-stream';
 }
 
-// Reject anything that escapes HOME (symlink-safe via realpath on the closest existing ancestor).
+// Reject anything that escapes ROOT (symlink-safe via realpath on the closest existing ancestor).
 async function jail(input?: string): Promise<string> {
-  const p = presolve(input && input.startsWith('/') ? input : HOME);
+  const p = presolve(input && input.startsWith('/') ? input : START);
   // realpath the deepest existing ancestor so a missing leaf (new file) still validates its dir
   let probe = p;
   for (;;) {
     try { const rp = await realpath(probe); const rest = p.slice(probe.length); const full = presolve(rp + rest);
-      if (full !== HOME && !full.startsWith(HOME + '/')) throw new Error('outside home');
+      if (!withinRoot(full)) throw new Error('outside root');
       return full;
     } catch (e: any) {
-      if (e && e.message === 'outside home') throw e;
+      if (e && e.message === 'outside root') throw e;
       const parent = pdirname(probe);
-      if (parent === probe) { if (p !== HOME && !p.startsWith(HOME + '/')) throw new Error('outside home'); return p; }
+      if (parent === probe) { if (!withinRoot(p)) throw new Error('outside root'); return p; }
       probe = parent;
     }
   }
@@ -122,7 +134,11 @@ function friendly(e: any): Error {
   if (code === 'ENOENT') return new Error('파일을 찾을 수 없습니다');
   if (code === 'EISDIR') return new Error('폴더입니다');
   if (code === 'EACCES' || code === 'EPERM') return new Error('열 권한이 없습니다');
-  if (e && e.message === 'outside home') return new Error('홈 폴더 밖이라 열 수 없습니다');
+  if (e && e.message === 'outside root') {
+    return new Error(ROOT === HOME
+      ? '홈 폴더 밖이라 열 수 없습니다 (COXPIT_FILES_ROOT 로 열 수 있음)'
+      : '허용된 폴더 밖이라 열 수 없습니다 (' + ROOT + ')');
+  }
   return new Error(String((e && e.message) || e));
 }
 
