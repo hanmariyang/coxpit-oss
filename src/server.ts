@@ -26,6 +26,7 @@ import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
 import { BOARD_HTML } from './board';
 import { COCKPIT_HTML } from './cockpit';
+import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText } from './files';
 
 const require_ = createRequire(import.meta.url);
 
@@ -36,6 +37,7 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
   'addon-fit.js': { pkg: '@xterm/addon-fit/package.json', rel: 'lib/addon-fit.js', type: 'text/javascript' },
   'addon-unicode11.js': { pkg: '@xterm/addon-unicode11/package.json', rel: 'lib/addon-unicode11.js', type: 'text/javascript' },
   'addon-web-links.js': { pkg: '@xterm/addon-web-links/package.json', rel: 'lib/addon-web-links.js', type: 'text/javascript' },
+  'marked.js': { pkg: 'marked/package.json', rel: 'marked.min.js', type: 'text/javascript' },
 };
 
 // ─── 읽기 전용 공유 페이지 (서버 렌더 스냅샷 — 스크립트 0, 액션 0) ───────────
@@ -741,6 +743,38 @@ export async function buildServer(): Promise<FastifyInstance> {
       dirs = [];
     }
     return { path: p, parent: pdirname(p), home: homedir(), isRepo: existsSync(pjoin(p, '.git')), dirs, error };
+  });
+
+  // ─── File viewer (md/html/pdf/image/text 보기 + .env 등 작은 텍스트 편집) ──────
+  // 홈 디렉터리로 감옥(files.ts). owner 전용 도구지만 파일 *내용* 읽기는 browse 보다 위험 → 잼.
+  app.get('/api/fs/list', async (req) => {
+    const q = (req.query ?? {}) as { path?: string };
+    try { return await fsListDir(q.path); }
+    catch { return { path: q.path ?? '', parent: '', home: homedir(), entries: [], error: 'outside home or unreadable' }; }
+  });
+  app.get('/api/fs/read', async (req, reply) => {
+    const q = (req.query ?? {}) as { path?: string };
+    if (!q.path) return reply.code(400).send({ error: 'path required' });
+    try { return await fsReadForView(q.path); }
+    catch (e: any) { return reply.code(400).send({ error: String(e?.message || e) }); }
+  });
+  app.get('/api/fs/raw', async (req, reply) => {
+    const q = (req.query ?? {}) as { path?: string };
+    if (!q.path) return reply.code(400).send({ error: 'path required' });
+    try {
+      const { name, mime, buf } = await fsReadRaw(q.path);
+      // inline so the browser/Electron renders (PDF plugin, <img>, sandboxed <iframe>) instead of downloading
+      return reply.type(mime)
+        .header('content-disposition', 'inline; filename="' + name.replace(/[^\w.\- ]/g, '_') + '"')
+        .header('x-content-type-options', 'nosniff')
+        .send(buf);
+    } catch (e: any) { return reply.code(400).send({ error: String(e?.message || e) }); }
+  });
+  app.post('/api/fs/write', async (req, reply) => {
+    const b = (req.body ?? {}) as { path?: string; content?: string };
+    if (!b.path || typeof b.content !== 'string') return reply.code(400).send({ error: 'path and content required' });
+    try { return await fsWriteText(b.path, b.content); }
+    catch (e: any) { return reply.code(400).send({ error: String(e?.message || e) }); }
   });
 
   // ─── Design Mode ───────────────────────────────────────────────

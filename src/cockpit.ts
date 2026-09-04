@@ -136,6 +136,22 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .term-host .xterm-viewport::-webkit-scrollbar-thumb{background:var(--line-hi);border-radius:4px}
   .term-host .xterm-viewport::-webkit-scrollbar-thumb:hover{background:var(--faint)}
 
+  /* ── 파일 뷰어 페인(비터미널 탭) ── */
+  .view-host{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--bg)}
+  .view-bar{display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;background:var(--surface2);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--muted);flex:none}
+  .view-bar .vp{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;direction:rtl;text-align:left;color:var(--faint)}
+  .view-bar button{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--line-hi);border-radius:5px;padding:1px 8px;cursor:pointer}
+  .view-bar button:hover{border-color:var(--brand)}
+  .view-bar .prim{color:var(--brand-ink);background:var(--brand);border-color:var(--brand)}
+  .view-body{flex:1;min-height:0;overflow:auto;background:var(--bg);position:relative}
+  .view-body iframe{width:100%;height:100%;border:0;background:#fff}
+  .view-body img{max-width:100%;display:block;margin:0 auto;padding:12px}
+  .view-body pre.vtext{margin:0;padding:12px 14px;font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+  .view-body textarea.vedit{width:100%;height:100%;box-sizing:border-box;border:0;outline:none;resize:none;padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.55;color:var(--ink);background:var(--bg)}
+  .view-msg{padding:24px;text-align:center;color:var(--faint);font-family:var(--mono);font-size:12px}
+  .view-msg a{color:var(--brand)}
+  .st.vdoc{background:none;color:var(--faint);width:auto;font-size:11px}
+
   .empty{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
   .empty .card{max-width:440px}
   .empty .glyph{font-family:var(--mono);font-size:24px;color:#2c3444;letter-spacing:5px;margin-bottom:14px}
@@ -326,6 +342,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <button class="tc-btn" id="splitRow" title="세로 분할 — 포커스 페인을 좌우로" disabled>▐ split</button>
         <button class="tc-btn" id="splitCol" title="가로 분할 — 포커스 페인을 상하로" disabled>▬ split</button>
         <button class="tc-btn session" id="sessionBtn" title="자유 세션(폴더 지정 터미널) 열기">＋<span class="b-txt"> Session</span></button>
+        <button class="tc-btn" id="fileBtn" title="파일 보기 — md·html·pdf·이미지·텍스트 뷰어(터미널 옆 페인)">▤<span class="b-txt"> File</span></button>
         <button class="tc-btn" id="closeBtn" title="포커스 페인 닫기(탭은 유지)" disabled>×<span class="b-txt"> pane</span></button>
       </div>
     </div>
@@ -411,6 +428,18 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="modal" id="fpickModal">
+  <div class="pick">
+    <div class="pick-h"><span class="t">파일 보기</span><button class="x" id="fpClose" title="닫기">×</button></div>
+    <div class="pick-path" id="fpPath">…</div>
+    <div class="pick-list" id="fpList"></div>
+    <div class="pick-f">
+      <button class="home" id="fpHome" title="홈으로">⌂ home</button>
+      <span style="flex:1;font-size:11px;color:var(--faint)">폴더=이동 · 파일=뷰어로 열기</span>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="secretsModal">
   <div class="pick" style="width:min(520px,92vw)">
     <div class="pick-h"><span class="t">시크릿 (env 주입)</span><button class="x" id="secretsClose" title="닫기">×</button></div>
@@ -444,6 +473,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-unicode11.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
+<script src="/vendor/marked.js"></script>
 <script>
   // 모바일 = 터미널 우선을 유지하되 좁은 화면에 맞춤(드로어 트리 + 단일 터미널 + IME 입력바).
   // (이전엔 보드로 리다이렉트했지만, 이제 cockpit 을 모바일 대응)
@@ -576,8 +606,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var layout = { leaf:true, id:'L0', tab:null };  // 분할 트리 루트
   var focusLeaf = 'L0';
   var leafSeq = 1;
+  var viewerSeq = 1;         // 뷰어 탭 키(문자열 'v#')
   var MAX_LEAVES = 6;
   var dragRunId = null;
+
+  // 뷰어 탭은 문자열 키('v1'…), 터미널 탭은 숫자 runId. 이벤트 핸들러에서 강제 숫자화 금지.
+  function isViewer(id){ return typeof id==='string' && id.charAt(0)==='v'; }
+  function tabIdOf(el){ var v=el.dataset.tab; return (v && v.charAt(0)==='v') ? v : +v; }
 
   function newLeafId(){ return 'L'+(leafSeq++); }
   function eachLeaf(node, fn){ if(node.leaf){ fn(node); } else { eachLeaf(node.a,fn); eachLeaf(node.b,fn); } }
@@ -629,6 +664,89 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     tabs[runId]=t; tabOrder.push(runId);
     return t;   // open·connect 는 attachHosts 에서(Phase 2 순서: open → connect)
   }
+
+  // ── 파일 뷰어 탭(비터미널) — md/html/pdf/이미지/텍스트 보기 + .env 등 편집 ──
+  function ensureViewer(path, name){
+    var id='v'+(viewerSeq++);
+    var host=document.createElement('div'); host.className='view-host';
+    var t={ runId:id, name:name||(path.split('/').pop()||path), kind:'viewer', term:null, ws:null, host:host, path:path, closing:false, opened:false };
+    tabs[id]=t; tabOrder.push(id);
+    renderViewer(t);
+    return t;
+  }
+  function openViewer(path, name){ var t=ensureViewer(path, name); openTab(t.runId); }
+  function fmtSize(n){ return n<1024?(n+' B'):n<1048576?((n/1024).toFixed(1)+' KB'):((n/1048576).toFixed(1)+' MB'); }
+  var MD_FRAME_CSS = 'body{margin:0;padding:18px 22px;background:#0b0d12;color:#dee4ec;font:14px/1.7 -apple-system,BlinkMacSystemFont,\\'Apple SD Gothic Neo\\',\\'Noto Sans KR\\',sans-serif;max-width:800px}'
+    + 'a{color:#4ec9b0}h1,h2,h3{color:#fff;line-height:1.3}h1{border-bottom:1px solid #2c3444;padding-bottom:.3em}h2{border-bottom:1px solid #232a36;padding-bottom:.25em}'
+    + 'code{background:#1c212c;padding:.15em .4em;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:.9em}'
+    + 'pre{background:#12161d;padding:12px 14px;border-radius:8px;overflow:auto}pre code{background:none;padding:0}'
+    + 'blockquote{margin:0;padding:.2em 1em;border-left:3px solid #4ec9b0;color:#9aa4b2}'
+    + 'table{border-collapse:collapse}th,td{border:1px solid #2c3444;padding:6px 10px}img{max-width:100%}hr{border:0;border-top:1px solid #2c3444}';
+  function renderViewer(t){
+    var host=t.host;
+    host.innerHTML='<div class="view-bar"><span class="vp"></span></div><div class="view-body"><div class="view-msg">불러오는 중…</div></div>';
+    var bar=host.querySelector('.view-bar'), body=host.querySelector('.view-body');
+    bar.querySelector('.vp').textContent=t.path;
+    var rawUrl='/api/fs/raw?path='+encodeURIComponent(t.path);
+    fetch('/api/fs/read?path='+encodeURIComponent(t.path)).then(function(r){ return r.json(); }).then(function(d){
+      if(d.error){ body.innerHTML='<div class="view-msg">열 수 없습니다: '+esc(d.error)+'</div>'; return; }
+      // 공통 액션: 원본 열기(새 탭/시스템)
+      var actions='<button data-act="raw" title="원본을 새 탭/시스템 뷰어로">↗ 원본</button>';
+      if(d.kind==='md' || d.kind==='html' || d.kind==='pdf' || d.kind==='image'){
+        bar.innerHTML='<span class="vp"></span>'+actions; bar.querySelector('.vp').textContent=t.path;
+      }
+      if(d.kind==='md'){
+        var html='<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>'+MD_FRAME_CSS+'</style></head><body>'
+          + ((window.marked&&window.marked.parse)?window.marked.parse(d.text||''):esc(d.text||'')) + '</body></html>';
+        var f=document.createElement('iframe'); f.setAttribute('sandbox','allow-popups allow-popups-to-escape-sandbox'); f.srcdoc=html;
+        body.innerHTML=''; body.appendChild(f);
+      } else if(d.kind==='html'){
+        // 저장된/임의 HTML 은 신뢰 불가 → same-origin 금지 sandbox(불투명 출처라 쿠키·API 접근 차단)
+        var fh=document.createElement('iframe'); fh.setAttribute('sandbox','allow-scripts allow-popups allow-popups-to-escape-sandbox'); fh.src=rawUrl;
+        body.innerHTML=''; body.appendChild(fh);
+      } else if(d.kind==='pdf'){
+        var fp=document.createElement('iframe'); fp.src=rawUrl;   // 브라우저/Electron 내장 PDF 뷰어(수동적 — sandbox 불필요)
+        body.innerHTML=''; body.appendChild(fp);
+      } else if(d.kind==='image'){
+        body.innerHTML=''; var im=document.createElement('img'); im.src=rawUrl; im.alt=t.name; body.appendChild(im);
+      } else if(d.kind==='binary'){
+        body.innerHTML='<div class="view-msg">미리보기 불가 · '+fmtSize(d.size||0)+(d.note?(' · '+esc(d.note)):'')+'<br><br><a href="'+rawUrl+'" target="_blank">원본 열기 / 내려받기</a></div>';
+      } else { // text
+        if(d.editable){ actions='<button data-act="edit" class="prim">편집</button>'+actions; }
+        bar.innerHTML='<span class="vp"></span>'+actions; bar.querySelector('.vp').textContent=t.path;
+        var pre=document.createElement('pre'); pre.className='vtext'; pre.textContent=d.text||''; body.innerHTML=''; body.appendChild(pre);
+        t._text=d.text||''; t._editable=!!d.editable;
+      }
+    }).catch(function(){ body.innerHTML='<div class="view-msg">불러오기 실패</div>'; });
+
+    // 바 액션(위임)
+    bar.addEventListener('click', function(e){
+      var b=e.target.closest('button[data-act]'); if(!b) return;
+      var act=b.getAttribute('data-act');
+      if(act==='raw'){ window.open(rawUrl,'_blank','noopener'); return; }
+      if(act==='edit'){ startEdit(t); return; }
+      if(act==='save'){ saveEdit(t); return; }
+      if(act==='cancel'){ renderViewer(t); return; }
+    });
+  }
+  function startEdit(t){
+    var bar=t.host.querySelector('.view-bar'), body=t.host.querySelector('.view-body');
+    bar.innerHTML='<span class="vp"></span><button data-act="save" class="prim">저장</button><button data-act="cancel">취소</button>';
+    bar.querySelector('.vp').textContent=t.path;
+    var ta=document.createElement('textarea'); ta.className='vedit'; ta.value=t._text||''; ta.spellcheck=false;
+    body.innerHTML=''; body.appendChild(ta); ta.focus();
+    ta.addEventListener('keydown', function(e){ if((e.metaKey||e.ctrlKey)&&e.key==='s'){ e.preventDefault(); saveEdit(t); } });
+    t._ta=ta;
+  }
+  function saveEdit(t){
+    var ta=t._ta; if(!ta) return; var content=ta.value;
+    fetch('/api/fs/write',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:t.path,content:content})})
+      .then(function(r){ return r.json(); }).then(function(d){
+        if(d.error){ toast('저장 실패: '+d.error); return; }
+        t._text=content; toast('저장됨 · '+t.name+' ('+fmtSize(d.size||0)+')'); renderViewer(t);
+      }).catch(function(){ toast('저장 실패'); });
+  }
+
   function connectTab(t){
     if (t.closing || !t.term) return;
     try{ t.fit.fit(); }catch(e){}
@@ -652,14 +770,22 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
 
   function fitTab(t){ if(!t||!t.fit||!t.term) return; try{ t.fit.fit(); if(t.ws&&t.ws.readyState===1) t.ws.send(JSON.stringify({t:'r',cols:t.term.cols,rows:t.term.rows})); }catch(e){} }
-  function fitAllVisible(){ eachLeaf(layout,function(l){ if(l.tab!=null && tabs[l.tab] && tabs[l.tab].host.isConnected) fitTab(tabs[l.tab]); }); }
+  function fitAllVisible(){ eachLeaf(layout,function(l){ if(l.tab!=null && tabs[l.tab] && tabs[l.tab].kind!=='viewer' && tabs[l.tab].host.isConnected) fitTab(tabs[l.tab]); }); }
 
   // ── 탭 바 렌더(터미널 없음 — 언제든 안전) ──
   function renderTabs(){
     var shown={}; eachLeaf(layout,function(l){ if(l.tab!=null) shown[l.tab]=true; });
     var html='';
     tabOrder.forEach(function(runId){
-      var t=tabs[runId]; if(!t) return; var r=runById[runId];
+      var t=tabs[runId]; if(!t) return;
+      if(t.kind==='viewer'){
+        html += '<div class="tab'+(shown[runId]?' shown':'')+'" draggable="true" data-tab="'+runId+'" title="파일 뷰어 · 드래그=페인에 배치">'
+          + '<span class="st vdoc">▤</span>'
+          + '<span class="nm">'+esc(t.name)+'</span>'
+          + '<button class="x" title="뷰어 닫기">×</button></div>';
+        return;
+      }
+      var r=runById[runId];
       html += '<div class="tab'+(shown[runId]?' shown':'')+'" draggable="true" data-tab="'+runId+'" title="더블클릭=이름변경 · 드래그=페인에 배치">'
         + '<span class="st '+esc(r?r.status:'')+'"></span>'
         + '<span class="nm">'+esc(t.name)+'</span>'
@@ -673,11 +799,14 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var t=node.tab!=null?tabs[node.tab]:null; var r=node.tab!=null?runById[node.tab]:null;
       var head=document.createElement('div'); head.className='leaf-h'; head.dataset.leafhead=node.id;
       head.innerHTML = t
-        ? '<span class="st '+esc(r?r.status:'')+'"></span><span class="nm">'+esc(t.name)+'</span>'
-          + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
-          + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
-          + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">⊟</button>'
-          + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>'
+        ? (t.kind==='viewer'
+          ? '<span class="st vdoc">▤</span><span class="nm">'+esc(t.name)+'</span>'
+            + '<button class="x" title="이 페인 닫기(뷰어 유지)">×</button>'
+          : '<span class="st '+esc(r?r.status:'')+'"></span><span class="nm">'+esc(t.name)+'</span>'
+            + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
+            + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
+            + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">⊟</button>'
+            + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>')
         : '<span class="nm" style="color:var(--faint)">빈 페인</span><button class="x" title="이 페인 닫기">×</button>';
       var body=document.createElement('div'); body.className='leaf-body'; body.dataset.leafbody=node.id;
       if (!t){ var em=document.createElement('div'); em.className='leaf-empty'; em.textContent='탭을 여기로 드래그하거나 탭을 클릭하세요'; body.appendChild(em); }
@@ -692,6 +821,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   // host 를 DOM 에 붙이고, 최초 1회 open → connect(Phase 2 순서). fit 은 render 의 rAF 에서.
   function attachHosts(){ eachLeaf(layout,function(l){ if(l.tab==null||!tabs[l.tab]) return; var t=tabs[l.tab]; var body=$('panes').querySelector('[data-leafbody="'+l.id+'"]'); if(!body) return; body.appendChild(t.host);
+    if(t.kind==='viewer') return;   // 뷰어는 DOM 만 붙이면 끝(터미널 open/connect 없음)
     if(!t.opened){ try{ t.term.open(t.host); t.opened=true; }catch(e){} }
     if(!t.connected){ t.connected=true; connectTab(t); }
   }); }
@@ -715,14 +845,14 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function setLeafFocus(id){
     focusLeaf=id;
     Array.prototype.forEach.call($('panes').querySelectorAll('.leaf'),function(el){ el.classList.toggle('focus', el.dataset.leaf===id); });
-    var rid=focusedRunId(); if(rid!=null && tabs[rid]) try{ tabs[rid].term.focus(); }catch(e){}
+    var rid=focusedRunId(); if(rid!=null && tabs[rid] && tabs[rid].term) try{ tabs[rid].term.focus(); }catch(e){}
     updateControls();
     if (typeof reqMode!=='undefined' && reqMode!=='new') setMode(reqMode);
   }
 
   // 탭 열기 = 포커스 슬롯에 표시(강제 분할 없음). 기존 호출부(openRunPane) 호환.
   function openTab(runId){
-    ensureTab(runId);
+    if(!tabs[runId]) ensureTab(runId);   // 뷰어 탭은 ensureViewer 로 이미 생성됨 → 터미널로 오생성 방지
     var l=leafOfTab(runId);
     if (l){ setLeafFocus(l.id); return; }
     var f=findLeaf(focusLeaf) || firstLeaf();
@@ -757,7 +887,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var t=tabs[runId]; if(!t) return; t.closing=true;
     try{ if(t.ws) t.ws.close(); }catch(e){}
     try{ if(t.ro) t.ro.disconnect(); }catch(e){}
-    try{ t.term.dispose(); }catch(e){}
+    try{ if(t.term) t.term.dispose(); }catch(e){}
     eachLeaf(layout,function(l){ if(l.tab===runId) l.tab=null; });
     delete tabs[runId]; tabOrder=tabOrder.filter(function(x){return x!==runId;});
     render(); renderTree();
@@ -779,8 +909,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   // fleet 갱신 시 라벨·상태만 갱신(페인 DOM 재구성 X — 터미널 유지). 사라진 run 탭 정리.
   function syncPanes(){
-    tabOrder.slice().forEach(function(runId){ if(!runById[runId]) closeTab(runId); });
-    tabOrder.forEach(function(runId){ var t=tabs[runId]; if(t) t.name=tabName(runId); });
+    tabOrder.slice().forEach(function(runId){ if(!isViewer(runId) && !runById[runId]) closeTab(runId); });   // 뷰어는 run 이 없어도 유지
+    tabOrder.forEach(function(runId){ var t=tabs[runId]; if(t && t.kind!=='viewer') t.name=tabName(runId); });
     renderTabs();
     eachLeaf(layout,function(l){
       if(l.tab==null) return; var r=runById[l.tab]; if(!r) return;
@@ -819,12 +949,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   // ── 탭 바 이벤트 ──
   $('tabs').addEventListener('click', function(e){
-    var tabEl=e.target.closest('[data-tab]'); if(!tabEl) return; var runId=+tabEl.dataset.tab;
+    var tabEl=e.target.closest('[data-tab]'); if(!tabEl) return; var runId=tabIdOf(tabEl);
     if (e.target.closest('.x')){ closeTab(runId); return; }
     openTab(runId);
   });
-  $('tabs').addEventListener('dblclick', function(e){ var tabEl=e.target.closest('[data-tab]'); if(tabEl) startRename(+tabEl.dataset.tab, tabEl); });
-  $('tabs').addEventListener('dragstart', function(e){ var tabEl=e.target.closest('[data-tab]'); if(!tabEl) return; dragRunId=+tabEl.dataset.tab; tabEl.classList.add('drag'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', String(dragRunId)); }catch(_){} });
+  $('tabs').addEventListener('dblclick', function(e){ var tabEl=e.target.closest('[data-tab]'); if(tabEl) startRename(tabIdOf(tabEl), tabEl); });
+  $('tabs').addEventListener('dragstart', function(e){ var tabEl=e.target.closest('[data-tab]'); if(!tabEl) return; dragRunId=tabIdOf(tabEl); tabEl.classList.add('drag'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', String(dragRunId)); }catch(_){} });
   $('tabs').addEventListener('dragend', function(e){ var tabEl=e.target.closest('[data-tab]'); if(tabEl) tabEl.classList.remove('drag'); dragRunId=null; });
 
   // ── 페인(슬롯) 이벤트: 포커스·닫기·드롭·리사이즈 ──
@@ -884,7 +1014,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   // ── 뷰어 — 위 내용을 (대화) Claude Code 로그 / (터미널) 스크롤백 으로 읽기(읽기 전용) ──
   var histMode='chat';
-  function openHistory(){ var rid=focusedRunId(); if(rid==null){ toast('포커스한 세션이 없습니다'); return; } $('histModal').classList.add('on'); loadHist(); }
+  function openHistory(){ var rid=focusedRunId(); if(rid==null||isViewer(rid)){ toast('포커스한 세션이 없습니다'); return; } $('histModal').classList.add('on'); loadHist(); }
   function closeHistory(){ $('histModal').classList.remove('on'); }
   function setHistMode(m){
     histMode=m; $('hmChat').classList.toggle('on',m==='chat'); $('hmRaw').classList.toggle('on',m==='raw');
@@ -962,6 +1092,35 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   });
   $('pickName').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); $('pickGo').click(); } });
   $('sessionBtn').addEventListener('click', openSession);
+
+  // ── 파일 피커(뷰어로 열기) — 폴더=이동, 파일=뷰어 ──
+  var fpDirCur = '';
+  function openFilePicker(){ $('fpickModal').classList.add('on'); fpTo(fpDirCur||''); }
+  function closeFilePicker(){ $('fpickModal').classList.remove('on'); }
+  function fpIcon(kind){ return kind==='md'?'M':kind==='html'?'H':kind==='pdf'?'P':kind==='image'?'I':kind==='binary'?'·':'T'; }
+  async function fpTo(p){
+    try{
+      var d = await (await fetch('/api/fs/list'+(p?('?path='+encodeURIComponent(p)):''))).json();
+      fpDirCur = d.path; $('fpPath').textContent = d.path;
+      var html='';
+      if (d.parent && d.parent!==d.path) html += '<div class="pick-row up" data-dir="'+esc(d.parent)+'"><span class="ic">↑</span><span>..</span></div>';
+      (d.entries||[]).forEach(function(e){
+        var full = d.path==='/' ? '/'+e.name : d.path+'/'+e.name;
+        if (e.dir) html += '<div class="pick-row" data-dir="'+esc(full)+'"><span class="ic">▸</span><span>'+esc(e.name)+'</span></div>';
+        else html += '<div class="pick-row" data-file="'+esc(full)+'"><span class="ic">'+fpIcon(e.kind)+'</span><span>'+esc(e.name)+'</span></div>';
+      });
+      if (!(d.entries||[]).length) html += '<div class="pick-row" style="cursor:default;color:var(--faint)">'+(d.error?'읽을 수 없습니다':'항목 없음')+'</div>';
+      $('fpList').innerHTML = html;
+    }catch(e){ $('fpList').innerHTML = '<div class="pick-row" style="color:var(--failed)">읽을 수 없습니다</div>'; }
+  }
+  $('fpList').addEventListener('click', function(e){
+    var dir=e.target.closest('[data-dir]'); if(dir){ fpTo(dir.dataset.dir); return; }
+    var file=e.target.closest('[data-file]'); if(file){ closeFilePicker(); openViewer(file.dataset.file); if(isMobile()) setDrawer(false); }
+  });
+  $('fpClose').addEventListener('click', closeFilePicker);
+  $('fpHome').addEventListener('click', function(){ fpTo(''); });
+  $('fpickModal').addEventListener('click', function(e){ if(e.target===this) closeFilePicker(); });
+  $('fileBtn').addEventListener('click', openFilePicker);
   $('sessionCta').addEventListener('click', openSession);
 
   // ── (A) 시크릿 볼트 — 세션 env 주입 ──

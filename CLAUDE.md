@@ -21,7 +21,8 @@ src/
 ├── index.ts          entry — schema boot, local machine seed, listen
 ├── server.ts         routes (REST + WS + vendor + board)
 ├── board.ts          single-page "monitor" console (no build step, self-contained) — served at GET /
-├── cockpit.ts        terminal-first shell — workspace tree + tab bar with a split-tree of panes (open=tab, manual split H/V, drag tab→slot, resizable gutters) + request bar (fan-out/steer/broadcast) + Review (compare/merge/verify) + named free sessions (folder picker). Served at GET /cockpit; the desktop app opens this by default. Mobile-responsive (narrow/touch → drawer tree + single full-screen terminal + IME-safe input bar; split panes stay desktop-only), so it works from a phone over the tunnel too
+├── cockpit.ts        terminal-first shell — workspace tree + tab bar with a split-tree of panes (open=tab, manual split H/V, drag tab→slot, resizable gutters) + request bar (fan-out/steer/broadcast) + Review (compare/merge/verify) + named free sessions (folder picker) + file viewer panes (non-terminal tabs: md/html/pdf/image/text + small .env edit — open beside a terminal). Served at GET /cockpit; the desktop app opens this by default. Mobile-responsive (narrow/touch → drawer tree + single full-screen terminal + IME-safe input bar; split panes stay desktop-only), so it works from a phone over the tunnel too
+├── files.ts          file-viewer backing — list/read/raw/write, jailed to the daemon user's home (reading file *contents* is higher-risk than /api/browse's dir listing). classify by ext; PDFs/images/html served raw with correct content-type so the browser/Electron renders them (the code-server pain point)
 ├── orchestrator.ts   run lifecycle: worktree → tmux → spawn → stream → merge/cleanup → verify
 ├── providers.ts      provider seam: launch/resume commands + stream normalization (claude-code, codex)
 ├── term.ts           PTY attach (local tmux / remote ssh -tt)

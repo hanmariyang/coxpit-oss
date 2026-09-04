@@ -120,6 +120,27 @@ case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "co
 case "$CKPT" in *'/api/fleet?view=all'*'/ws/term/'*) : ;; *) fail "cockpit fleet/term wiring missing";; esac
 pass "Phase 2 cockpit workspace tree + pane-grid terminal (xterm attach, auto-tile)"
 
+# File viewer (md/html/pdf/image/text) as a non-terminal pane + .env text edit
+case "$CKPT" in *'/vendor/marked.js'*) : ;; *) fail "cockpit should load marked (md render)";; esac
+expect_code 200 "$B/vendor/marked.js"
+case "$CKPT" in *'view-host'*'function openViewer'*) : ;; *) fail "cockpit viewer pane (view-host/openViewer) missing";; esac
+case "$CKPT" in *'id="fileBtn"'*) : ;; *) fail "cockpit file-open affordance (#fileBtn) missing";; esac
+FSD=$(mktemp -d "$HOME/.coxpit-e2e-XXXXXX")
+printf '# Hi\n\nbody\n' > "$FSD/doc.md"; printf 'K=v\n' > "$FSD/.env"
+FSL=$(curl -s -G "$B/api/fs/list" --data-urlencode "path=$FSD")
+case "$FSL" in *'"doc.md"'*'"kind":"md"'*) : ;; *) fail "fs/list should list files with kind: $FSL";; esac
+FSR=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=$FSD/doc.md")
+case "$FSR" in *'"kind":"md"'*'"editable":true'*) : ;; *) fail "fs/read md shape wrong: $FSR";; esac
+FSJ=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
+case "$FSJ" in *'outside home'*) : ;; *) fail "fs jail should reject outside-home read: $FSJ";; esac
+FSRAW=$(curl -s -o /dev/null -D - -G "$B/api/fs/raw" --data-urlencode "path=$FSD/doc.md" | tr -d '\r')
+case "$FSRAW" in *'content-disposition: inline'*) : ;; *) fail "fs/raw should serve inline (renders in-browser)";; esac
+FSW=$(curl -s -X POST "$B/api/fs/write" -H 'content-type: application/json' --data "{\"path\":\"$FSD/.env\",\"content\":\"K=v2\\n\"}")
+case "$FSW" in *'"size"'*) : ;; *) fail "fs/write (.env edit) failed: $FSW";; esac
+case "$(cat "$FSD/.env")" in "K=v2") : ;; *) fail "fs/write did not persist";; esac
+rm -rf "$FSD"
+pass "file viewer: marked vendor + viewer pane + fs list/read/jail/raw-inline/write(.env edit)"
+
 # Phase 3 — request bar (New fan-out / Steer / Broadcast) + Review tab (compare/merge)
 case "$CKPT" in *'data-mode="new"'*'data-mode="steer"'*'data-mode="bcast"'*) : ;; *) fail "cockpit request-bar modes missing";; esac
 case "$CKPT" in *'function submitReq'*"'/api/tasks'"*"/run'"*) : ;; *) fail "cockpit fan-out wiring missing";; esac
