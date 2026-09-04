@@ -9,6 +9,11 @@ set -euo pipefail
 # 실데몬 세션을 건드리지 않도록 — 항상 기본 서버를 쓴다.
 unset TMUX
 
+# 상주 데몬의 COXPIT_* env 가 셸에 새어들어와 있으면(launchd/프로필) 테스트 데몬이 상속해
+# host/port 를 env-lock 하거나 실데몬 DB 를 가리킨다 → 헤르메틱하게: 이 스위트가 쓰는 값만 인라인 지정하고 나머지는 제거.
+unset COXPIT_HOST COXPIT_PORT COXPIT_DB COXPIT_DATA_DIR COXPIT_AUTH_PASS COXPIT_AUTH_DISABLED \
+      COXPIT_PORT_STRICT COXPIT_PUBLIC_URL COXPIT_WEBHOOK_URL COXPIT_AGENT_REAL COXPIT_AGENT_BIN 2>/dev/null || true
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${COXPIT_TEST_PORT:-8261}"
 B="http://127.0.0.1:$PORT"
@@ -148,6 +153,15 @@ case "$FSW" in *'"size"'*) : ;; *) fail "fs/write (.env edit) failed: $FSW";; es
 case "$(cat "$FSD/.env")" in "K=v2") : ;; *) fail "fs/write did not persist";; esac
 rm -rf "$FSD"
 pass "file viewer: marked + viewer pane + fs list/read/find/jail/raw-inline/write(.env edit) + terminal path links"
+
+# issue #7 — Funnel must be discriminated by AllowFunnel, not by port (serve/funnel share one ServeConfig)
+grep -q 'funnelActiveForPort' src/remote.ts || fail "remote.ts: funnel AllowFunnel discrimination missing (issue #7)"
+grep -q 'AllowFunnel' src/remote.ts || fail "remote.ts: AllowFunnel check missing (issue #7)"
+grep -q 'tailnet only' src/remote.ts || fail "remote.ts: funnel text-fallback guard missing (issue #7)"
+# session tree row: name-first (path capped + full path on hover via title)
+case "$CKPT" in *'.tnode.session .p{flex:0 1 auto;max-width:'*) : ;; *) fail "session row: path should be capped so the name stays visible";; esac
+case "$CKPT" in *'<span class="p" title="'*) : ;; *) fail "session row: full path should be on hover (title attr)";; esac
+pass "issue #7 funnel discrimination + session row name-first layout (path capped, full path on hover)"
 
 # Phase 3 — request bar (New fan-out / Steer / Broadcast) + Review tab (compare/merge)
 case "$CKPT" in *'data-mode="new"'*'data-mode="steer"'*'data-mode="bcast"'*) : ;; *) fail "cockpit request-bar modes missing";; esac

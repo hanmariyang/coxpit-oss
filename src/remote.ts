@@ -48,6 +48,21 @@ function jsonTargetsPort(raw: string, port: number): boolean {
   return textTargetsPort(raw, port);
 }
 
+/**
+ * Funnel is active only if `AllowFunnel` has a truthy entry AND our port is targeted.
+ * serve and funnel read the SAME ServeConfig, so `funnel status` prints the Serve
+ * config verbatim when Funnel is off — port-matching alone false-positives Funnel
+ * (issue #7). `AllowFunnel` is the only field that differs; it is absent when off.
+ */
+function funnelActiveForPort(raw: string, port: number): boolean {
+  let cfg: { AllowFunnel?: Record<string, unknown> };
+  try { cfg = JSON.parse(raw) as { AllowFunnel?: Record<string, unknown> }; } catch { throw new Error('not json'); }
+  const allow = cfg?.AllowFunnel;
+  if (!allow || typeof allow !== 'object') return false;
+  if (!Object.values(allow).some(Boolean)) return false;
+  return textTargetsPort(raw, port);   // still confirm it is *our* port
+}
+
 /** Plain-text fallback: any `:<port>` upstream mention (defensive across versions). */
 function textTargetsPort(raw: string, port: number): boolean {
   const p = String(port);
@@ -63,10 +78,12 @@ async function subStateForPort(bin: string, sub: 'serve' | 'funnel', port: numbe
   const jout = j.stdout.trim();
   if (jout) {
     try {
-      return jsonTargetsPort(jout, port);
+      return sub === 'funnel' ? funnelActiveForPort(jout, port) : jsonTargetsPort(jout, port);
     } catch { /* not json — fall through to text grep */ }
   }
   const t = await runShellOn(LOCAL, `${shq(bin)} ${sub} status 2>/dev/null || true`, 8000);
+  // `funnel status` prints "(tailnet only)" when Funnel is off — a cheap, version-tolerant guard.
+  if (sub === 'funnel' && /\(tailnet only\)/i.test(t.stdout)) return false;
   return textTargetsPort(t.stdout, port);
 }
 

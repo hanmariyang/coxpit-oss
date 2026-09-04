@@ -61,7 +61,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:6px 8px 10px;display:flex;justify-content:space-between}
   .tnode{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;color:var(--muted);white-space:nowrap;cursor:default}
   .tnode .car{color:var(--faint);width:9px;display:inline-block;text-align:center;cursor:pointer}
-  .tnode .n{overflow:hidden;text-overflow:ellipsis;flex:1}
+  .tnode .n{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
   .tnode .meta{color:var(--faint);font-size:11px}
   .tnode.repo{color:var(--ink)}
   .tnode.goal{padding-left:20px} .tnode.goal .gi{color:var(--brand)}
@@ -220,7 +220,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none}
   .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
   .tnode.session.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
-  .tnode.session .p{color:var(--faint);font-size:10.5px;overflow:hidden;text-overflow:ellipsis}
+  /* 이름 우선: .n(flex:1) 이 공간을 갖고, 경로는 끝만 짧게(고정 폭) — hover 시 title 로 전체 표시 */
+  .tnode.session .p{flex:0 1 auto;max-width:64px;color:var(--faint);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+  .tnode.session:hover .p{color:var(--muted)}
   .tnode.session .del{margin-left:auto;color:var(--faint);border:none;background:none;cursor:pointer;font-size:13px;line-height:1;padding:0 3px;opacity:0;flex:none}
   .tnode.session:hover .del{opacity:1} .tnode.session .del:hover{color:var(--failed)}
   body.touch .tnode.session .del{opacity:.65}
@@ -552,8 +554,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (sessRuns.length){
       sessRuns.forEach(function(s){
         var r=s.run; var open = tabs[r.id] ? ' open' : '';
-        html += '<div class="tnode session'+open+'" data-run="'+r.id+'"><span class="st '+esc(r.status)+'"></span>'
-          + '<span class="n">'+esc(s.title||'session')+'</span><span class="p">'+esc((r.worktreePath||'').replace(/^.*\\/([^/]+\\/[^/]+)$/,'…/$1'))+'</span>'
+        var sPath=(r.worktreePath||'');
+        var sTail=sPath.replace(/^.*\\/([^/]+)$/,'$1');   // 마지막 폴더명만(끝 조금)
+        html += '<div class="tnode session'+open+'" data-run="'+r.id+'" title="'+esc(sPath)+'"><span class="st '+esc(r.status)+'"></span>'
+          + '<span class="n" title="'+esc(s.title||'session')+'">'+esc(s.title||'session')+'</span>'
+          + '<span class="p" title="'+esc(sPath)+'">'+esc(sTail)+'</span>'
           + '<button class="del" data-delsession="'+r.id+'" title="세션 삭제 — 터미널만 종료, 폴더·파일은 보존">×</button></div>';
       });
     } else {
