@@ -145,7 +145,10 @@ case "$FSF2" in *'too short'*) : ;; *) fail "fs/find should reject <2 char query
 FSR=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=$FSD/doc.md")
 case "$FSR" in *'"kind":"md"'*'"editable":true'*) : ;; *) fail "fs/read md shape wrong: $FSR";; esac
 FSJ=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
-case "$FSJ" in *'outside home'*) : ;; *) fail "fs jail should reject outside-home read: $FSJ";; esac
+case "$FSJ" in *'홈 폴더 밖'*) : ;; *) fail "fs jail should reject outside-home read: $FSJ";; esac
+# missing file → friendly message, not a raw node ENOENT dump
+FSM=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=$HOME/__coxpit_nope__/turtle.png")
+case "$FSM" in *'찾을 수 없습니다'*) : ;; *) fail "fs/read should give a friendly not-found message: $FSM";; esac
 FSRAW=$(curl -s -o /dev/null -D - -G "$B/api/fs/raw" --data-urlencode "path=$FSD/doc.md" | tr -d '\r')
 case "$FSRAW" in *'content-disposition: inline'*) : ;; *) fail "fs/raw should serve inline (renders in-browser)";; esac
 FSW=$(curl -s -X POST "$B/api/fs/write" -H 'content-type: application/json' --data "{\"path\":\"$FSD/.env\",\"content\":\"K=v2\\n\"}")
@@ -900,6 +903,16 @@ runInFleet "$SRID" && fail "session run $SRID still in fleet after delete" || :
 expect_code 404 -X DELETE "$B/api/runs/999999"
 rm -rf "$SDIR"
 pass "session delete: endpoint kills tmux + removes record, folder preserved, missing→404"
+
+# coxpit CLI — dispatch orchestration from the terminal to a named project (reads the daemon lock)
+CLI="$ROOT/bin/coxpit.js"
+COXPIT_DB="$DB" node "$CLI" ls | grep -q 'repo' || fail "coxpit ls should list the registered project"
+FANOUT=$(COXPIT_DB="$DB" node "$CLI" fan repo "e2e cli dispatch" -n 1)
+case "$FANOUT" in *'repo'*'run'*'dry'*) : ;; *) fail "coxpit fan should dispatch a dry run: $FANOUT";; esac
+COXPIT_DB="$DB" node "$CLI" ps >/dev/null || fail "coxpit ps should exit 0"
+UNK=$(COXPIT_DB="$DB" node "$CLI" fan __nope__ "x" 2>&1 || true)   # die exits 1 → capture (pipefail-safe)
+case "$UNK" in *'no project matches'*) : ;; *) fail "coxpit fan should reject an unknown project: $UNK";; esac
+pass "coxpit CLI: ls / fan(dry) / ps + unknown-project guard (terminal→orchestration dispatch)"
 
 # v4.2 A — plan 형제들이 한 goal 그룹을 공유, fleet.groups 에 goal 행, 수동 태스크는 ungrouped
 GTIDS=$(echo "$PLAN" | python3 -c 'import sys,json;print(" ".join(str(t["id"]) for t in json.load(sys.stdin)["tasks"]))')

@@ -115,9 +115,22 @@ export async function findFiles(input: string | undefined, q: string, limit = 30
   return { root, q: needle, results: out, truncated };
 }
 
+// Node fs errors are ugly ("ENOENT: no such file or directory, stat '/…'"). Map to a
+// short, human message (the viewer shows this verbatim). The path is echoed in the bar.
+function friendly(e: any): Error {
+  const code = e && e.code;
+  if (code === 'ENOENT') return new Error('파일을 찾을 수 없습니다');
+  if (code === 'EISDIR') return new Error('폴더입니다');
+  if (code === 'EACCES' || code === 'EPERM') return new Error('열 권한이 없습니다');
+  if (e && e.message === 'outside home') return new Error('홈 폴더 밖이라 열 수 없습니다');
+  return new Error(String((e && e.message) || e));
+}
+
 export async function readForView(input?: string) {
-  const path = await jail(input);
-  const st = await stat(path);
+  let path: string;
+  try { path = await jail(input); } catch (e) { throw friendly(e); }
+  let st;
+  try { st = await stat(path); } catch (e) { throw friendly(e); }
   if (st.isDirectory()) throw new Error('is a directory');
   const name = pbasename(path);
   let kind = classify(path);
@@ -140,14 +153,17 @@ export async function readForView(input?: string) {
 
 // Raw bytes with correct content-type — this is what makes PDFs/images/html render.
 export async function readRaw(input?: string) {
-  const path = await jail(input);
-  const st = await stat(path);
-  if (st.isDirectory()) throw new Error('is a directory');
+  let path: string;
+  try { path = await jail(input); } catch (e) { throw friendly(e); }
+  let st;
+  try { st = await stat(path); } catch (e) { throw friendly(e); }
+  if (st.isDirectory()) throw new Error('폴더입니다');
   return { path, name: pbasename(path), mime: mimeFor(path), buf: await readFile(path) };
 }
 
 export async function writeText(input: string, content: string) {
-  const path = await jail(input);
+  let path: string;
+  try { path = await jail(input); } catch (e) { throw friendly(e); }
   const st = await stat(path).catch(() => null);
   if (st && st.isDirectory()) throw new Error('is a directory');
   if (st && st.size > MAX_WRITE) throw new Error('file too large to edit here');

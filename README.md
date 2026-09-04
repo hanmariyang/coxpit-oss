@@ -72,6 +72,23 @@ Your keys and login never touch coxpit's config or database.
 
 > **New here?** The **[full guide](docs/GUIDE.md)** ([한국어](docs/GUIDE.ko.md)) walks through starting a new project, your first fleet, comparing and merging, doc mode, the terminal, remote access, and every feature — task by task, with GIFs.
 
+## Dispatch from the terminal
+
+The daemon isn't only a web board — you can throw work at a project straight from a shell. Handy when your main workspace session is a terminal and you just want to fan agents at a repo without leaving it. You name the target project each time (no sticky default — the target stays visible in the command you typed):
+
+```console
+$ coxpit ls                              # projects + active runs
+  triforge   2 running
+  keeping    idle
+$ coxpit fan triforge "add retry to the uploader" -n 2
+  ▶ triforge · 2 runs (dry) · r58 r59
+$ coxpit ps                              # what's running
+$ coxpit steer r58 "log the retries too"
+$ coxpit add /path/to/repo               # register a repo as a project
+```
+
+Runs land in the project like any board-launched run (isolated worktree + branch, reviewable in the board/cockpit Review). Default is a **dry rehearsal** — add `--real` to spend credits (`-n` sets parallelism 1–8, `--agent`/`--model` override). The CLI finds the daemon via its lock file; if auth is on, set `COXPIT_KEY` (or `COXPIT_AUTH_PASS`) to your access key.
+
 ## Configuration
 
 | env | default | what |
