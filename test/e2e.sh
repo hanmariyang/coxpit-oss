@@ -125,10 +125,18 @@ case "$CKPT" in *'/vendor/marked.js'*) : ;; *) fail "cockpit should load marked 
 expect_code 200 "$B/vendor/marked.js"
 case "$CKPT" in *'view-host'*'function openViewer'*) : ;; *) fail "cockpit viewer pane (view-host/openViewer) missing";; esac
 case "$CKPT" in *'id="fileBtn"'*) : ;; *) fail "cockpit file-open affordance (#fileBtn) missing";; esac
+# file picker recursive search + terminal path→viewer link provider
+case "$CKPT" in *'id="fpSearch"'*'function fpFind'*) : ;; *) fail "cockpit file picker search (fpSearch/fpFind) missing";; esac
+case "$CKPT" in *'registerLinkProvider'*'function openPathFromTerm'*) : ;; *) fail "cockpit terminal path→viewer link provider missing";; esac
 FSD=$(mktemp -d "$HOME/.coxpit-e2e-XXXXXX")
 printf '# Hi\n\nbody\n' > "$FSD/doc.md"; printf 'K=v\n' > "$FSD/.env"
+mkdir -p "$FSD/sub/deep"; printf 'x\n' > "$FSD/sub/deep/report-final.md"
 FSL=$(curl -s -G "$B/api/fs/list" --data-urlencode "path=$FSD")
 case "$FSL" in *'"doc.md"'*'"kind":"md"'*) : ;; *) fail "fs/list should list files with kind: $FSL";; esac
+FSF=$(curl -s -G "$B/api/fs/find" --data-urlencode "path=$FSD" --data-urlencode "q=report")
+case "$FSF" in *'sub/deep/report-final.md'*) : ;; *) fail "fs/find should recurse and match by name: $FSF";; esac
+FSF2=$(curl -s -G "$B/api/fs/find" --data-urlencode "path=$FSD" --data-urlencode "q=x")
+case "$FSF2" in *'too short'*) : ;; *) fail "fs/find should reject <2 char query: $FSF2";; esac
 FSR=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=$FSD/doc.md")
 case "$FSR" in *'"kind":"md"'*'"editable":true'*) : ;; *) fail "fs/read md shape wrong: $FSR";; esac
 FSJ=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
@@ -139,7 +147,7 @@ FSW=$(curl -s -X POST "$B/api/fs/write" -H 'content-type: application/json' --da
 case "$FSW" in *'"size"'*) : ;; *) fail "fs/write (.env edit) failed: $FSW";; esac
 case "$(cat "$FSD/.env")" in "K=v2") : ;; *) fail "fs/write did not persist";; esac
 rm -rf "$FSD"
-pass "file viewer: marked vendor + viewer pane + fs list/read/jail/raw-inline/write(.env edit)"
+pass "file viewer: marked + viewer pane + fs list/read/find/jail/raw-inline/write(.env edit) + terminal path links"
 
 # Phase 3 — request bar (New fan-out / Steer / Broadcast) + Review tab (compare/merge)
 case "$CKPT" in *'data-mode="new"'*'data-mode="steer"'*'data-mode="bcast"'*) : ;; *) fail "cockpit request-bar modes missing";; esac

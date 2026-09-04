@@ -26,7 +26,7 @@ import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
 import { BOARD_HTML } from './board';
 import { COCKPIT_HTML } from './cockpit';
-import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText } from './files';
+import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText, findFiles as fsFindFiles } from './files';
 
 const require_ = createRequire(import.meta.url);
 
@@ -751,6 +751,11 @@ export async function buildServer(): Promise<FastifyInstance> {
     const q = (req.query ?? {}) as { path?: string };
     try { return await fsListDir(q.path); }
     catch { return { path: q.path ?? '', parent: '', home: homedir(), entries: [], error: 'outside home or unreadable' }; }
+  });
+  app.get('/api/fs/find', async (req) => {
+    const q = (req.query ?? {}) as { path?: string; q?: string };
+    try { return await fsFindFiles(q.path, q.q ?? ''); }
+    catch { return { root: q.path ?? '', q: q.q ?? '', results: [], error: 'outside home or unreadable' }; }
   });
   app.get('/api/fs/read', async (req, reply) => {
     const q = (req.query ?? {}) as { path?: string };

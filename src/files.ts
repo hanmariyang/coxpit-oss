@@ -87,6 +87,34 @@ export async function listDir(input?: string) {
   return { path, parent: pdirname(path), home: HOME, entries, error };
 }
 
+// Recursive filename search under a folder (bounded). For the picker's search box.
+const FIND_SKIP = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.cache', 'venv', '.venv', '__pycache__', '.turbo', 'coverage', '.gradle', 'target']);
+export async function findFiles(input: string | undefined, q: string, limit = 300) {
+  const root = await jail(input);
+  const needle = (q || '').trim().toLowerCase();
+  if (needle.length < 2) return { root, q: needle, results: [] as any[], error: 'query too short (min 2 chars)' };
+  const out: Array<{ path: string; rel: string; name: string; size: number; kind: FileKind }> = [];
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (out.length >= limit || depth > 6) return;
+    let items;
+    try { items = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      if (out.length >= limit) return;
+      if (it.name.startsWith('.') && !it.name.startsWith('.env')) continue;
+      const full = pjoin(dir, it.name);
+      if (it.isDirectory()) { if (!FIND_SKIP.has(it.name)) await walk(full, depth + 1); continue; }
+      if (it.name.toLowerCase().includes(needle)) {
+        let size = 0; try { size = (await stat(full)).size; } catch { /* skip */ }
+        out.push({ path: full, rel: full.slice(root.length + 1), name: it.name, size, kind: classify(it.name) });
+      }
+    }
+  }
+  await walk(root, 0);
+  const truncated = out.length >= limit;
+  out.sort((a, b) => a.rel.length - b.rel.length || a.rel.localeCompare(b.rel));
+  return { root, q: needle, results: out, truncated };
+}
+
 export async function readForView(input?: string) {
   const path = await jail(input);
   const st = await stat(path);

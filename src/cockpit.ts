@@ -190,7 +190,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .pick-h .x{margin-left:auto;background:none;border:none;color:var(--faint);font-size:16px;cursor:pointer}
   .pick-h .x:hover{color:var(--ink)}
   .pick-path{padding:8px 15px;font-size:11.5px;color:var(--brand);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left}
+  .fp-search{padding:8px 12px;border-bottom:1px solid var(--line)}
+  .fp-search input{width:100%;box-sizing:border-box;font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--panel);border:1px solid var(--line-hi);border-radius:7px;padding:7px 10px;outline:none}
+  .fp-search input:focus{border-color:var(--brand)}
   .pick-list{flex:1;overflow:auto;padding:6px}
+  .pick-row .rel{margin-left:auto;font-size:10px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;max-width:60%}
   .pick-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:7px;cursor:pointer;font-size:12.5px;color:var(--muted)}
   .pick-row:hover{background:var(--surface2);color:var(--ink)}
   .pick-row .ic{width:14px;text-align:center;color:var(--faint)}
@@ -436,10 +440,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   <div class="pick">
     <div class="pick-h"><span class="t">파일 보기</span><button class="x" id="fpClose" title="닫기">×</button></div>
     <div class="pick-path" id="fpPath">…</div>
+    <div class="fp-search"><input id="fpSearch" placeholder="이 폴더 아래에서 이름으로 검색 (2자 이상)" autocomplete="off" spellcheck="false" /></div>
     <div class="pick-list" id="fpList"></div>
     <div class="pick-f">
       <button class="home" id="fpHome" title="홈으로">⌂ home</button>
-      <span style="flex:1;font-size:11px;color:var(--faint)">폴더=이동 · 파일=뷰어로 열기</span>
+      <span id="fpHint" style="flex:1;font-size:11px;color:var(--faint)">폴더=이동 · 파일=뷰어로 열기</span>
     </div>
   </div>
 </div>
@@ -651,6 +656,26 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     try{ term.loadAddon(new window.Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion='11'; }catch(e){}
     // URL 링크 클릭 가능(웹=새 탭, 데스크톱 앱=시스템 브라우저 — setWindowOpenHandler 가 external 로).
     try{ term.loadAddon(new window.WebLinksAddon.WebLinksAddon(function(ev, uri){ window.open(uri, '_blank', 'noopener'); })); }catch(e){}
+    // 파일 경로 링크: 에이전트가 찍는 경로(src/x.ts:12 · /Users/…/README.md 등)를 클릭하면 뷰어 페인으로.
+    try{ term.registerLinkProvider({ provideLinks: function(y, cb){
+      var ln; try{ ln=term.buffer.active.getLine(y-1); }catch(e){ cb(undefined); return; }
+      if(!ln){ cb(undefined); return; }
+      var s=ln.translateToString(true);
+      var re=/(?:~\\/|\\.{0,2}\\/)?[\\w.\\-\\/]*\\.[A-Za-z0-9]{1,8}(?::\\d+(?::\\d+)?)?/g;
+      var links=[], m;
+      while((m=re.exec(s))){
+        var raw=m[0]; if(!raw || raw.indexOf('://')>=0 || raw.slice(0,2)==='//') continue;   // URL 은 WebLinksAddon 담당
+        var before = m.index>0 ? s.charAt(m.index-1) : ' ';
+        if(before===':' || before==='/' || /[A-Za-z0-9]/.test(before)) continue;   // URL 조각·토큰 중간 배제
+        var pathPart=raw.replace(/:\\d+(?::\\d+)?$/,'');
+        var ext=(pathPart.split('.').pop()||'').toLowerCase();
+        if(!(VIEW_EXT[ext] || pathPart.indexOf('/')>=0)) continue;  // 오탐 축소: 알려진 확장자거나 경로형
+        var sx=m.index+1, ex=m.index+raw.length;
+        links.push({ text:raw, range:{ start:{x:sx,y:y}, end:{x:ex,y:y} },
+          activate:function(ev, txt){ openPathFromTerm(runId, txt); } });
+      }
+      cb(links.length?links:undefined);
+    }}); }catch(e){}
     // 복사 배선: xterm 은 user-select:none 이라 네이티브 선택이 없다 → term.getSelection() 을 직접 클립보드로.
     // ① 드래그 놓으면 자동 복사(select-to-copy) ② Cmd/Ctrl+C 로도 복사(선택 없으면 통과 → SIGINT).
     var copySel=function(){ var s=''; try{ s=term.getSelection(); }catch(e){} if(!s) return false;
@@ -682,6 +707,19 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     return t;
   }
   function openViewer(path, name){ var t=ensureViewer(path, name); openTab(t.runId); }
+  // 뷰어 대상 확장자(터미널 경로 링크 오탐 축소용)
+  var VIEW_EXT = (function(){ var o={}; ('md markdown mdx html htm pdf png jpg jpeg gif webp svg bmp ico avif txt env json jsonc yaml yml toml ini conf cfg log csv tsv xml sql sh bash zsh js cjs mjs ts tsx jsx css scss less py rb php go rs java c h cpp hpp swift kt lua pl r dart vue svelte').split(' ').forEach(function(e){o[e]=1;}); return o; })();
+  var fsHome = '';
+  try{ fetch('/api/fs/list').then(function(r){return r.json();}).then(function(d){ fsHome=d.home||''; }).catch(function(){}); }catch(e){}
+  // 터미널에서 클릭한 경로 → 절대경로로 해석 후 뷰어 페인. 상대경로는 그 run 의 작업폴더(cwd) 기준.
+  function openPathFromTerm(runId, raw){
+    var p=(raw||'').replace(/:\\d+(?::\\d+)?$/,'');   // :line:col 제거
+    var abs;
+    if(p.charAt(0)==='/') abs=p;
+    else if(p.slice(0,2)==='~/') abs=(fsHome||'').replace(/\\/$/,'')+p.slice(1);
+    else { var r=runById[runId]; var cwd=r&&r.worktreePath; if(!cwd){ toast('작업 폴더를 몰라 경로를 열 수 없습니다'); return; } abs=cwd.replace(/\\/$/,'')+'/'+p; }
+    openViewer(abs);
+  }
   function fmtSize(n){ return n<1024?(n+' B'):n<1048576?((n/1024).toFixed(1)+' KB'):((n/1048576).toFixed(1)+' MB'); }
   var MD_FRAME_CSS = 'body{margin:0 auto;padding:40px 28px 80px;background:#0b0d12;color:#dee4ec;font:14px/1.7 -apple-system,BlinkMacSystemFont,\\'Apple SD Gothic Neo\\',\\'Noto Sans KR\\',sans-serif;max-width:740px}'
     + 'a{color:#4ec9b0}h1,h2,h3{color:#fff;line-height:1.3}h1{border-bottom:1px solid #2c3444;padding-bottom:.3em}h2{border-bottom:1px solid #232a36;padding-bottom:.25em}'
@@ -1111,13 +1149,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   // ── 파일 피커(뷰어로 열기) — 폴더=이동, 파일=뷰어 ──
   var fpDirCur = '';
-  function openFilePicker(){ $('fpickModal').classList.add('on'); fpTo(fpDirCur||''); }
+  function openFilePicker(){ $('fpickModal').classList.add('on'); $('fpSearch').value=''; fpTo(fpDirCur||''); setTimeout(function(){ try{ $('fpSearch').focus(); }catch(e){} },30); }
   function closeFilePicker(){ $('fpickModal').classList.remove('on'); }
   function fpIcon(kind){ return kind==='md'?'M':kind==='html'?'H':kind==='pdf'?'P':kind==='image'?'I':kind==='binary'?'·':'T'; }
   async function fpTo(p){
     try{
       var d = await (await fetch('/api/fs/list'+(p?('?path='+encodeURIComponent(p)):''))).json();
-      fpDirCur = d.path; $('fpPath').textContent = d.path;
+      fpDirCur = d.path; $('fpPath').textContent = d.path; if($('fpHint')) $('fpHint').textContent='폴더=이동 · 파일=뷰어로 열기';
       var html='';
       if (d.parent && d.parent!==d.path) html += '<div class="pick-row up" data-dir="'+esc(d.parent)+'"><span class="ic">↑</span><span>..</span></div>';
       (d.entries||[]).forEach(function(e){
@@ -1129,12 +1167,32 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       $('fpList').innerHTML = html;
     }catch(e){ $('fpList').innerHTML = '<div class="pick-row" style="color:var(--failed)">읽을 수 없습니다</div>'; }
   }
+  var fpFindT=null, fpFindSeq=0;
+  async function fpFind(q){
+    var seq=++fpFindSeq;
+    try{
+      var d = await (await fetch('/api/fs/find?path='+encodeURIComponent(fpDirCur||'')+'&q='+encodeURIComponent(q))).json();
+      if(seq!==fpFindSeq) return;   // 뒤늦게 도착한 오래된 응답 무시
+      if($('fpHint')) $('fpHint').textContent = d.error ? d.error : (d.results.length+'개'+(d.truncated?'+':'')+' · '+ (fpDirCur||'') +' 아래');
+      if(d.error){ $('fpList').innerHTML='<div class="pick-row" style="cursor:default;color:var(--faint)">'+esc(d.error)+'</div>'; return; }
+      if(!d.results.length){ $('fpList').innerHTML='<div class="pick-row" style="cursor:default;color:var(--faint)">일치하는 파일 없음</div>'; return; }
+      $('fpList').innerHTML = d.results.map(function(e){
+        return '<div class="pick-row" data-file="'+esc(e.path)+'"><span class="ic">'+fpIcon(e.kind)+'</span><span>'+esc(e.name)+'</span><span class="rel">'+esc(e.rel)+'</span></div>';
+      }).join('');
+    }catch(e){ if(seq===fpFindSeq) $('fpList').innerHTML='<div class="pick-row" style="color:var(--failed)">검색 실패</div>'; }
+  }
+  $('fpSearch').addEventListener('input', function(){
+    var q=this.value.trim();
+    if(fpFindT){ clearTimeout(fpFindT); fpFindT=null; }
+    if(q.length<2){ fpTo(fpDirCur); return; }   // 비우면 현재 폴더 목록으로 복귀
+    fpFindT=setTimeout(function(){ fpFindT=null; fpFind(q); }, 220);
+  });
   $('fpList').addEventListener('click', function(e){
-    var dir=e.target.closest('[data-dir]'); if(dir){ fpTo(dir.dataset.dir); return; }
+    var dir=e.target.closest('[data-dir]'); if(dir){ $('fpSearch').value=''; fpTo(dir.dataset.dir); return; }
     var file=e.target.closest('[data-file]'); if(file){ closeFilePicker(); openViewer(file.dataset.file); if(isMobile()) setDrawer(false); }
   });
   $('fpClose').addEventListener('click', closeFilePicker);
-  $('fpHome').addEventListener('click', function(){ fpTo(''); });
+  $('fpHome').addEventListener('click', function(){ $('fpSearch').value=''; fpTo(''); });
   $('fpickModal').addEventListener('click', function(e){ if(e.target===this) closeFilePicker(); });
   $('fileBtn').addEventListener('click', openFilePicker);
   $('sessionCta').addEventListener('click', openSession);
