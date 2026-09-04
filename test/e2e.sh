@@ -167,6 +167,9 @@ case "$CKPT" in *'function startRename'*'function renameTask'*"'/api/tasks/'"*) 
 case "$CKPT" in *'id="pickName"'*'title:nm'*) : ;; *) fail "cockpit session-name input missing";; esac
 pass "cockpit tabs + split-tree panes + session naming/rename"
 
+# Session delete affordance present in the cockpit (endpoint flow is tested at the end — it consumes ids)
+case "$CKPT" in *'data-delsession'*'function deleteSession'*) : ;; *) fail "cockpit session delete affordance/handler missing";; esac
+
 # Phase 5 — desktop app default entry flips to /cockpit (web `/` stays board; mobile self-redirects)
 DMAIN=$(cat "$ROOT/desktop/main.cjs" 2>/dev/null || cat desktop/main.cjs)
 case "$DMAIN" in *"ENTRY_PATH = process.env.COXPIT_ENTRY || '/cockpit'"*) : ;; *) fail "desktop ENTRY_PATH default not /cockpit";; esac
@@ -860,6 +863,21 @@ done
 [ "$S" = '"status":"done"' ] || fail "planned run did not settle: $S"
 expect_code 400 -X POST "$B/api/plan" -H 'content-type: application/json' -d '{"repoId":1}'
 pass "plan fan-out launches planned tasks (mock planner) — dry Goal via the New sheet endpoint settles"
+
+# Session delete flow (placed late — it creates+deletes ids, so it can't shift the hardcoded task-1 tests)
+runInFleet(){ curl -s "$B/api/fleet?view=all" | node -e "let b='';process.stdin.on('data',d=>b+=d);process.stdin.on('end',()=>{const j=JSON.parse(b);process.exit((j.runs||[]).some(r=>r.id==$1)?0:1)})"; }
+SDIR=$(mktemp -d "$HOME/.coxpit-e2e-sess-XXXXXX"); echo keep > "$SDIR/keep.txt"
+SCR=$(curl -s -X POST "$B/api/session" -H 'content-type: application/json' --data "{\"machineSlug\":\"local\",\"path\":\"$SDIR\",\"title\":\"e2esess\"}")
+SRID=$(printf '%s' "$SCR" | sed -n 's/.*"runId":\([0-9]*\).*/\1/p')
+[ -n "$SRID" ] || fail "session create failed: $SCR"
+runInFleet "$SRID" || fail "session run $SRID not in fleet after create"
+SDEL=$(curl -s -X DELETE "$B/api/runs/$SRID")
+case "$SDEL" in *'"ok":true'*) : ;; *) fail "session delete failed: $SDEL";; esac
+runInFleet "$SRID" && fail "session run $SRID still in fleet after delete" || :
+[ -f "$SDIR/keep.txt" ] || fail "session delete must preserve the folder (keep.txt gone)"
+expect_code 404 -X DELETE "$B/api/runs/999999"
+rm -rf "$SDIR"
+pass "session delete: endpoint kills tmux + removes record, folder preserved, missing→404"
 
 # v4.2 A — plan 형제들이 한 goal 그룹을 공유, fleet.groups 에 goal 행, 수동 태스크는 ungrouped
 GTIDS=$(echo "$PLAN" | python3 -c 'import sys,json;print(" ".join(str(t["id"]) for t in json.load(sys.stdin)["tasks"]))')

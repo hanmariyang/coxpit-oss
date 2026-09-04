@@ -144,7 +144,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .view-bar button:hover{border-color:var(--brand)}
   .view-bar .prim{color:var(--brand-ink);background:var(--brand);border-color:var(--brand)}
   .view-body{flex:1;min-height:0;overflow:auto;background:var(--bg);position:relative}
-  .view-body iframe{width:100%;height:100%;border:0;background:#fff}
+  .view-body:has(iframe){overflow:hidden}   /* iframe 이 자체 스크롤 — 바깥 view-body 는 스크롤 금지(이중 스크롤바 방지) */
+  .view-body iframe{display:block;width:100%;height:100%;border:0;background:#fff}
   .view-body img{max-width:100%;display:block;margin:0 auto;padding:12px}
   .view-body pre.vtext{margin:0;padding:12px 14px;font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--ink);white-space:pre-wrap;word-break:break-word}
   .view-body textarea.vedit{width:100%;height:100%;box-sizing:border-box;border:0;outline:none;resize:none;padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.55;color:var(--ink);background:var(--bg)}
@@ -216,6 +217,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
   .tnode.session.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
   .tnode.session .p{color:var(--faint);font-size:10.5px;overflow:hidden;text-overflow:ellipsis}
+  .tnode.session .del{margin-left:auto;color:var(--faint);border:none;background:none;cursor:pointer;font-size:13px;line-height:1;padding:0 3px;opacity:0;flex:none}
+  .tnode.session:hover .del{opacity:1} .tnode.session .del:hover{color:var(--failed)}
+  body.touch .tnode.session .del{opacity:.65}
 
   .toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line-hi);color:var(--ink);
     font-family:var(--mono);font-size:12px;padding:8px 14px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40;max-width:80vw}
@@ -544,7 +548,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       sessRuns.forEach(function(s){
         var r=s.run; var open = tabs[r.id] ? ' open' : '';
         html += '<div class="tnode session'+open+'" data-run="'+r.id+'"><span class="st '+esc(r.status)+'"></span>'
-          + '<span class="n">'+esc(s.title||'session')+'</span><span class="p">'+esc((r.worktreePath||'').replace(/^.*\\/([^/]+\\/[^/]+)$/,'…/$1'))+'</span></div>';
+          + '<span class="n">'+esc(s.title||'session')+'</span><span class="p">'+esc((r.worktreePath||'').replace(/^.*\\/([^/]+\\/[^/]+)$/,'…/$1'))+'</span>'
+          + '<button class="del" data-delsession="'+r.id+'" title="세션 삭제 — 터미널만 종료, 폴더·파일은 보존">×</button></div>';
       });
     } else {
       html += '<div class="tnode empty" style="padding-left:14px">열린 세션 없음 — ＋ Session 으로 폴더 지정</div>';
@@ -586,6 +591,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   $('tree').addEventListener('click', function(e){
     if (e.target.closest('[data-newsession]')){ openSession(); return; }
+    var del = e.target.closest('[data-delsession]');
+    if (del){ e.stopPropagation(); deleteSession(+del.dataset.delsession); return; }
     var run = e.target.closest('[data-run]');
     if (run){ openRunPane(+run.dataset.run); if (isMobile()) setDrawer(false); return; }
     var fn = e.target.closest('[data-fold]');
@@ -676,7 +683,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   function openViewer(path, name){ var t=ensureViewer(path, name); openTab(t.runId); }
   function fmtSize(n){ return n<1024?(n+' B'):n<1048576?((n/1024).toFixed(1)+' KB'):((n/1048576).toFixed(1)+' MB'); }
-  var MD_FRAME_CSS = 'body{margin:0;padding:18px 22px;background:#0b0d12;color:#dee4ec;font:14px/1.7 -apple-system,BlinkMacSystemFont,\\'Apple SD Gothic Neo\\',\\'Noto Sans KR\\',sans-serif;max-width:800px}'
+  var MD_FRAME_CSS = 'body{margin:0 auto;padding:40px 28px 80px;background:#0b0d12;color:#dee4ec;font:14px/1.7 -apple-system,BlinkMacSystemFont,\\'Apple SD Gothic Neo\\',\\'Noto Sans KR\\',sans-serif;max-width:740px}'
     + 'a{color:#4ec9b0}h1,h2,h3{color:#fff;line-height:1.3}h1{border-bottom:1px solid #2c3444;padding-bottom:.3em}h2{border-bottom:1px solid #232a36;padding-bottom:.25em}'
     + 'code{background:#1c212c;padding:.15em .4em;border-radius:4px;font-family:ui-monospace,Menlo,monospace;font-size:.9em}'
     + 'pre{background:#12161d;padding:12px 14px;border-radius:8px;overflow:auto}pre code{background:none;padding:0}'
@@ -1055,6 +1062,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   // ── 자유 세션 — 폴더를 지정해 tmux 셸(프로젝트 비소속). ──
   var pickPathCur = '';
   function machineSlug(){ return (fleet.machines && fleet.machines[0] && fleet.machines[0].slug) || 'local'; }
+  async function deleteSession(runId){
+    if(!confirm('이 세션을 삭제할까요?\\n터미널만 종료됩니다 · 폴더와 파일은 그대로 보존됩니다.')) return;
+    try{
+      var res=await fetch('/api/runs/'+runId,{method:'DELETE'});
+      var j=await res.json().catch(function(){return{};});
+      if(res.ok){ if(tabs[runId]) closeTab(runId); toast('세션 삭제됨 (폴더 보존)'); await hydrate(); }
+      else toast('삭제 실패: '+(j.error||res.status));
+    }catch(e){ toast('삭제 실패: '+e); }
+  }
   function openSession(){ $('pickModal').classList.add('on'); $('pickName').value=''; browseTo(''); }
   function closePicker(){ $('pickModal').classList.remove('on'); }
   async function browseTo(p){

@@ -1159,6 +1159,28 @@ export async function openSessionAt(machineSlug: string, path: string, title: st
 }
 
 /**
+ * 세션 삭제 — tmux 종료 + run/task 레코드 제거(폴더는 보존). sessions 버킷 run 에만 허용.
+ * (일반 task run 은 cleanup/reclaim 을 쓴다 — 삭제로 이력이 사라지면 안 되므로.)
+ */
+export async function deleteSession(runId: number): Promise<{ ok: boolean; detail: string }> {
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const run = rr[0];
+  if (!run) return { ok: false, detail: 'not found' };
+  const tr = await db.select().from(tasks).where(eq(tasks.id, run.taskId)).limit(1);
+  const task = tr[0];
+  const rp = task ? (await db.select().from(repos).where(eq(repos.id, task.repoId)).limit(1))[0] : undefined;
+  if (!rp || rp.kind !== 'sessions') return { ok: false, detail: 'not a session (use cleanup/reclaim for task runs)' };
+  await cleanupRun(runId).catch(() => { /* tmux kill + 포인터 비움; 실패해도 레코드는 지운다 */ });
+  await db.delete(agentEvents).where(eq(agentEvents.runId, runId));
+  await db.delete(agentRuns).where(eq(agentRuns.id, runId));
+  // 세션 task 는 run 과 1:1 — 남은 run 이 없으면 task 도 제거해 트리에서 사라지게.
+  const siblings = await db.select().from(agentRuns).where(eq(agentRuns.taskId, run.taskId));
+  if (task && siblings.length === 0) await db.delete(tasks).where(eq(tasks.id, task.id));
+  broadcast({ type: 'run', runId, deleted: true });   // 모든 콘솔이 재하이드레이트 → 행 제거
+  return { ok: true, detail: 'session deleted (folder preserved)' };
+}
+
+/**
  * 그룹에 속한 태스크 1개를 만들고 run 1개를 발사한다(공용 helper).
  * planFanout(plan 형제) 과 /api/groups/:id/spawn(＋New attempt) 이 공유하는
  * "태스크 생성(groupId 각인) → run 생성 → 브로드캐스트 → launchRun" 몸통.
