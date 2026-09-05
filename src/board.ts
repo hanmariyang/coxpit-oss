@@ -1781,6 +1781,11 @@ async function renderSettings(){
         + '<input id="setHost" value="'+escA(ef.host)+'" placeholder="127.0.0.1"'+dis(L.host)+'></label>'
       + '<div class="set-note">Port and host apply on the next daemon restart.</div>'
     + '</div>'
+    + '<div class="set-sec"><div class="set-h">File viewer</div>'
+      + '<label class="set-row"><span class="set-lbl">Viewer root '+lockNote(L.filesRoot,'COXPIT_FILES_ROOT')+'</span>'
+        + '<input id="setFilesRoot" value="'+escA(ef.filesRoot||'')+'" placeholder="home (default) — set / for the whole filesystem"'+dis(L.filesRoot)+'></label>'
+      + '<div class="set-note">Folders the file viewer may open. Empty = your home folder; <code>/</code> = the whole filesystem; or an absolute path. Applies immediately. An authed user already has a full shell (the terminal), so this bounds an exposed daemon, not real confinement.</div>'
+    + '</div>'
     + '<div class="set-sec"><div class="set-h">Access key</div>'
       + '<div class="set-state">'+esc(keyState)+'</div>'
       + (au.canManage
@@ -1827,6 +1832,7 @@ function wireSettings(){
     const body = { agent:{} };
     if (!L.port){ body.port = Number($('setPort').value); body.portStrict = $('setStrict').checked; }
     if (!L.host) body.host = $('setHost').value.trim();
+    if (!L.filesRoot) body.filesRoot = $('setFilesRoot').value.trim();
     if (!L.webhookUrl) body.webhookUrl = $('setWebhook').value.trim();
     if (!L.publicUrl) body.publicUrl = $('setPublic').value.trim();
     body.agent.provider = $('setProv').value;

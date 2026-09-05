@@ -9,6 +9,7 @@ export interface Settings {
   port?: number;
   portStrict?: boolean;
   host?: string;
+  filesRoot?: string;   // 파일 뷰어 루트(빈값=홈, "/"=전체). 즉시 반영(재시작 불요).
   webhookUrl?: string;
   publicUrl?: string;
   agent?: {

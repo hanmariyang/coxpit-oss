@@ -46,7 +46,7 @@ const settingsPath = path.join(path.dirname(path.resolve(dbPath)), 'settings.jso
 // 영속 설정(settings.json)을 인라인으로 읽는다(순환 import 회피 — settings.ts 는 config 를 import).
 // 병합 우선순위: 명시 env > settings.json > 기본값.
 interface StoredSettings {
-  port?: number; portStrict?: boolean; host?: string; webhookUrl?: string; publicUrl?: string;
+  port?: number; portStrict?: boolean; host?: string; filesRoot?: string; webhookUrl?: string; publicUrl?: string;
   agent?: { provider?: string; model?: string; count?: number; real?: boolean };
 }
 const stored: StoredSettings = (() => {
@@ -75,6 +75,7 @@ export const config = {
   // UTF-8 보장된 로케일 — PTY/원격 셸에 명시 전달용
   lang: process.env.LANG!,
   host: env.COXPIT_HOST ?? stored.host ?? '127.0.0.1',
+  filesRoot: env.COXPIT_FILES_ROOT ?? stored.filesRoot ?? '',   // '' = home; '/' = whole fs (file viewer)
   // 선호 포트(env > settings > 8210). 점유 시 index.ts 가 자동 이동(portStrict 면 실패).
   port: num(env.COXPIT_PORT) ?? stored.port ?? 8210,
   // 포트 점유 시 자동 이동 대신 실패(리버스 프록시 등 고정 포트가 필수인 경우).
@@ -105,6 +106,7 @@ export const config = {
   envLocked: {
     port: env.COXPIT_PORT != null,
     host: env.COXPIT_HOST != null,
+    filesRoot: env.COXPIT_FILES_ROOT != null,
     webhookUrl: env.COXPIT_WEBHOOK_URL != null,
     publicUrl: env.COXPIT_PUBLIC_URL != null,
     real: env.COXPIT_AGENT_REAL != null,

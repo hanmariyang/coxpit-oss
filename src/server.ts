@@ -365,7 +365,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     const m = authMode();
     return {
       effective: {
-        port: config.port, portStrict: config.portStrict, host: config.host,
+        port: config.port, portStrict: config.portStrict, host: config.host, filesRoot: config.filesRoot,
         webhookUrl: config.webhookUrl, publicUrl: config.publicUrl,
         agent: { provider: config.agent.provider, model: config.agent.model, count: config.agent.count, real: config.agent.real },
       },
@@ -380,11 +380,16 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 부분 저장. env 로 고정된 필드는 무시(파일이 env 를 못 이김). 포트·호스트는 재시작 반영.
   app.patch('/api/settings', async (req, reply) => {
     const b = (req.body ?? {}) as {
-      port?: unknown; portStrict?: unknown; host?: unknown; webhookUrl?: unknown; publicUrl?: unknown;
+      port?: unknown; portStrict?: unknown; host?: unknown; filesRoot?: unknown; webhookUrl?: unknown; publicUrl?: unknown;
       agent?: { provider?: unknown; model?: unknown; count?: unknown; real?: unknown };
     };
     const patch: Record<string, unknown> = {};
     const L = config.envLocked;
+    if (!L.filesRoot && b.filesRoot !== undefined) {
+      const fr = String(b.filesRoot).trim();
+      if (fr !== '' && !fr.startsWith('/')) return reply.code(400).send({ error: 'file viewer root must be an absolute path, "/" for the whole filesystem, or empty for home' });
+      patch.filesRoot = fr;   // applies immediately (files.ts resolves per request)
+    }
     if (!L.port && b.port !== undefined) {
       const p = Number(b.port);
       if (!Number.isInteger(p) || p < 1 || p > 65535) return reply.code(400).send({ error: 'port must be 1–65535' });

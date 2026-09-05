@@ -96,7 +96,7 @@ Runs land in the project like any board-launched run (isolated worktree + branch
 | `COXPIT_HOST` / `COXPIT_PORT` | `127.0.0.1` / `8210` | daemon bind. If the port is busy the daemon **auto-moves to the next free port** (see the startup log / lock file for the actual one) |
 | `COXPIT_PORT_STRICT` | — | `1` = fail instead of auto-moving when the port is busy (pin a fixed port behind a reverse proxy) |
 | `COXPIT_DB` | `~/.coxpit/coxpit.db` | SQLite (libSQL) file (a legacy `./coxpit.db` in the cwd is still honored) |
-| `COXPIT_FILES_ROOT` | `~` (home) | root the built-in file viewer may read/edit within. `/` opens the whole filesystem. An authed user already has a full shell (the terminal), so this is defense-in-depth for an exposed daemon, not real confinement — widen it on a box you trust |
+| `COXPIT_FILES_ROOT` | `~` (home) | root the built-in file viewer may read/edit within. `/` opens the whole filesystem. Also settable in **Settings → File viewer** (applies immediately, no restart); env wins and locks the field. An authed user already has a full shell (the terminal), so this is defense-in-depth for an exposed daemon, not real confinement — widen it on a box you trust |
 | `COXPIT_AUTH_PASS` | — | access key (back-compat, key-only). If set on an **exposed** bind, the branded unlock page asks for this key — no username. Empty = use the stored key, or first-run setup |
 | `COXPIT_AUTH_DISABLED` | — | `1` forces auth **off** (delegate to a front gateway like Cloudflare Access / Tailscale) |
 | `COXPIT_SSH_KEY` | — | private key for remote machines (else ssh defaults/agent) |

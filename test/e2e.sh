@@ -914,6 +914,17 @@ UNK=$(COXPIT_DB="$DB" node "$CLI" fan __nope__ "x" 2>&1 || true)   # die exits 1
 case "$UNK" in *'no project matches'*) : ;; *) fail "coxpit fan should reject an unknown project: $UNK";; esac
 pass "coxpit CLI: ls / fan(dry) / ps + unknown-project guard (terminal→orchestration dispatch)"
 
+# file viewer root is settings-driven (in-app Settings, no env edit, applies immediately)
+curl -sf -X PATCH "$B/api/settings" -H 'content-type: application/json' -d '{"filesRoot":"/"}' | grep -q '"ok":true' || fail "settings should accept filesRoot"
+FRS=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
+case "$FRS" in *'"kind":"text"'*) : ;; *) fail "filesRoot=/ (via settings) should open /etc/hosts: $FRS";; esac
+curl -sf -X PATCH "$B/api/settings" -H 'content-type: application/json' -d '{"filesRoot":""}' >/dev/null
+FRS2=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
+case "$FRS2" in *'홈 폴더 밖'*) : ;; *) fail "filesRoot='' should re-jail to home: $FRS2";; esac
+expect_code 400 -X PATCH "$B/api/settings" -H 'content-type: application/json' -d '{"filesRoot":"relative/nope"}'
+GS=$(curl -s "$B/api/settings"); case "$GS" in *'"filesRoot"'*) : ;; *) fail "GET /api/settings should expose filesRoot";; esac
+pass "file viewer root is settings-driven (home↔/ applies immediately, relative rejected, exposed in GET)"
+
 # v4.2 A — plan 형제들이 한 goal 그룹을 공유, fleet.groups 에 goal 행, 수동 태스크는 ungrouped
 GTIDS=$(echo "$PLAN" | python3 -c 'import sys,json;print(" ".join(str(t["id"]) for t in json.load(sys.stdin)["tasks"]))')
 GOUT=$(python3 - "$B" $GTIDS <<'PYEOF'

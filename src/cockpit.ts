@@ -57,7 +57,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .layout > *{min-height:0;min-width:0}
 
   /* ── workspace tree ── */
-  .rail{border-right:1px solid var(--line);overflow:auto;padding:10px 8px;font-family:var(--mono);font-size:12.5px;display:flex;flex-direction:column}
+  .rail{border-right:1px solid var(--line);overflow:auto;padding:10px 8px;font-family:var(--mono);font-size:12.5px;display:flex;flex-direction:column;scrollbar-width:none;-ms-overflow-style:none}
+  .rail::-webkit-scrollbar{width:0;height:0;display:none}   /* 스크롤 UI 제거(흰 바), 스크롤 기능은 유지 */
   .lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:6px 8px 10px;display:flex;justify-content:space-between}
   .tnode{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;color:var(--muted);white-space:nowrap;cursor:default}
   .tnode .car{color:var(--faint);width:9px;display:inline-block;text-align:center;cursor:pointer}
