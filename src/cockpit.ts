@@ -996,6 +996,28 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   // 페인 순서(트리 순회) → ⌘1..9 로 N번째 포커스
   function leafOrder(){ var out=[]; eachLeaf(layout,function(l){ out.push(l); }); return out; }
 
+  // ── 레이아웃 저장/복원 (localStorage, 기기별) ──
+  // 트리 + 각 페인의 탭을 복원 키(run=runId · viewer=경로)로 직렬화한다.
+  function serializeNode(node){
+    if(node.leaf){ var d=null; if(node.tab!=null){ var t=tabs[node.tab]; if(t){ d = (t.kind==='viewer') ? {type:'viewer',path:t.path,name:t.name} : {type:'run',runId:node.tab}; } }
+      return {leaf:true, tab:d}; }
+    return {split:true, dir:node.dir, ratio:node.ratio, a:serializeNode(node.a), b:serializeNode(node.b)};
+  }
+  function rebuildNode(sn){
+    if(sn.leaf){ var tabId=null;
+      if(sn.tab){ if(sn.tab.type==='viewer'){ var vt=ensureViewer(sn.tab.path, sn.tab.name); tabId=vt.runId; }
+        else if(sn.tab.type==='run' && runById[sn.tab.runId]){ ensureTab(sn.tab.runId); tabId=sn.tab.runId; } }
+      return {leaf:true, id:newLeafId(), tab:tabId}; }
+    return {split:true, id:newLeafId(), dir:sn.dir, ratio:sn.ratio, a:rebuildNode(sn.a), b:rebuildNode(sn.b)};
+  }
+  function loadLayouts(){ try{ return JSON.parse(localStorage.getItem('coxpit.layouts')||'{}')||{}; }catch(e){ return {}; } }
+  function saveLayouts(o){ try{ localStorage.setItem('coxpit.layouts', JSON.stringify(o)); }catch(e){} }
+  function saveLayout(){ if(!tabOrder.length){ toast('저장할 페인이 없습니다'); return; } var nm=prompt('레이아웃 이름'); if(!nm||!nm.trim()) return; nm=nm.trim();
+    var o=loadLayouts(); o[nm]={tree:serializeNode(layout), ts:Date.now()}; saveLayouts(o); toast('레이아웃 저장 · '+nm); }
+  function restoreLayout(nm){ var o=loadLayouts(); var s=o[nm]; if(!s){ toast('없는 레이아웃'); return; }
+    layout=rebuildNode(s.tree); zoomLeaf=null; var f=firstLeaf(); focusLeaf=f?f.id:'L0'; render(); renderTree(); toast('레이아웃 복원 · '+nm); }
+  function deleteLayout(nm){ var o=loadLayouts(); delete o[nm]; saveLayouts(o); toast('레이아웃 삭제 · '+nm); }
+
   // 탭 열기 = 포커스 슬롯에 표시(강제 분할 없음). 기존 호출부(openRunPane) 호환.
   function openTab(runId){
     zoomLeaf=null;   // 새 탭은 보여야 하므로 줌 해제
@@ -1180,6 +1202,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       {k:'cmd', label:'포커스 페인 닫기', run:function(){ if(focusLeaf) closeSlot(focusLeaf); }},
       {k:'cmd', label:'포커스 모드 (트리 숨김, ⌘.)', run:toggleFocus},
       {k:'cmd', label:'페인 최대화 토글 (⌘⏎)', run:function(){ toggleZoom(focusLeaf); }},
+      {k:'cmd', label:'레이아웃 저장 (현재 페인 배치)', run:saveLayout},
       {k:'cmd', label:'뷰어 / 히스토리', run:openHistory},
       {k:'cmd', label:'Review 열기 (비교·머지)', run:showReview},
       {k:'cmd', label:'시크릿 (env 주입)', run:openSecrets},
@@ -1201,6 +1224,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     // 프로젝트 → 요청바 대상 지정(팬아웃 준비)
     Object.keys(repoById).forEach(function(id){ var repo=repoById[id]; if(repo.kind==='sessions') return;
       items.push({k:'project', label:repo.name, hint:'팬아웃 대상 지정', run:function(){ try{ $('reqRepo').value=String(repo.id); }catch(e){} var i=$('reqInput'); if(i){ i.focus(); } }}); });
+    // 저장된 레이아웃 → 복원 / 삭제
+    var lays=loadLayouts(); var names=Object.keys(lays);
+    names.forEach(function(nm){ items.push({k:'layout', label:'레이아웃 · '+nm, hint:'복원', run:function(){ restoreLayout(nm); }}); });
+    names.forEach(function(nm){ items.push({k:'layout', label:'레이아웃 삭제 · '+nm, hint:'삭제', run:function(){ deleteLayout(nm); }}); });
     return items;
   }
   function renderPalette(q){

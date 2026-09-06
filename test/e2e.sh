@@ -145,6 +145,11 @@ case "$CKPT" in *'.layout.focusmode'*'id="focusBtn"'*'function toggleFocus'*) : 
 case "$CKPT" in *'.term-find[hidden]{display:none}'*) : ;; *) fail "term-find must honor [hidden] (find bar was always visible)";; esac
 pass "focus mode (⌘. hides tree+reqbar) + terminal find bar hidden by default"
 
+# Layout save/restore (localStorage, via palette) — serialize split tree + per-pane tab (run id / viewer path)
+case "$CKPT" in *'function serializeNode'*'function rebuildNode'*'coxpit.layouts'*) : ;; *) fail "cockpit layout save/restore missing";; esac
+case "$CKPT" in *'function saveLayout'*'function restoreLayout'*'function deleteLayout'*) : ;; *) fail "cockpit layout save/restore/delete fns missing";; esac
+pass "layout save/restore (palette; split tree + pane tabs serialized to localStorage)"
+
 # File viewer (md/html/pdf/image/text) as a non-terminal pane + .env text edit
 case "$CKPT" in *'/vendor/marked.js'*) : ;; *) fail "cockpit should load marked (md render)";; esac
 expect_code 200 "$B/vendor/marked.js"
