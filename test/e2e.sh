@@ -150,6 +150,11 @@ case "$CKPT" in *'function serializeNode'*'function rebuildNode'*'coxpit.layouts
 case "$CKPT" in *'function saveLayout'*'function restoreLayout'*'function deleteLayout'*) : ;; *) fail "cockpit layout save/restore/delete fns missing";; esac
 pass "layout save/restore (palette; split tree + pane tabs serialized to localStorage)"
 
+# Pane header actions: open this run's diff (Review) + history (viewer); diff hidden for sessions
+case "$CKPT" in *'function runIsSession'*'function openReviewForRun'*) : ;; *) fail "cockpit pane-header run actions (openReviewForRun) missing";; esac
+case "$CKPT" in *'data-diff='*'data-hist='*) : ;; *) fail "cockpit pane-header diff/history buttons missing";; esac
+pass "pane header actions: open this run's diff (Review) + history (viewer)"
+
 # File viewer (md/html/pdf/image/text) as a non-terminal pane + .env text edit
 case "$CKPT" in *'/vendor/marked.js'*) : ;; *) fail "cockpit should load marked (md render)";; esac
 expect_code 200 "$B/vendor/marked.js"

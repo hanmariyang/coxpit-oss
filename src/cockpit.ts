@@ -247,6 +247,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tnode.run .ract{margin-left:6px;font-size:10px;color:var(--brand);opacity:.85}
   .leaf-h .zoom{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .zoom:hover{color:var(--brand)}
+  .leaf-h .pact{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
+  .leaf-h .pact:hover{color:var(--brand)}
   .leaf-h .lock{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .lock:hover{color:var(--brand)}
   .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
@@ -572,6 +574,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var fold = {};   // 접힘 상태(repo/goal/task 노드)
   function isFold(k){ return fold[k]===true; }
   function repoOfRun(runId){ var r=runById[runId]; var t=r&&taskById[r.taskId]; return t?t.repoId:null; }
+  function runIsSession(runId){ var r=runById[runId]; var t=r&&taskById[r.taskId]; var rp=t&&repoById[t.repoId]; return !!(rp&&rp.kind==='sessions'); }
 
   async function hydrate(){
     try{
@@ -938,6 +941,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
             + '<span data-role="act" class="pane-act">'+esc(latestActivity(node.tab))+'</span>'
             + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
             + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
+            + (runIsSession(node.tab)?'':'<button class="pact" data-diff="'+node.id+'" title="이 run 의 diff (Review)">⧉</button>')
+            + '<button class="pact" data-hist="'+node.id+'" title="이 run 히스토리 (대화·터미널)">↺</button>'
             + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">⊟</button>'
             + zoomBtn + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>')
         : '<span class="nm" style="color:var(--faint)">빈 페인</span><button class="x" title="이 페인 닫기">×</button>';
@@ -1135,6 +1140,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('panes').addEventListener('click', function(e){
     var zoomBtn=e.target.closest('[data-zoom]');
     if (zoomBtn){ e.stopPropagation(); toggleZoom(zoomBtn.getAttribute('data-zoom')); return; }
+    var diffBtn=e.target.closest('[data-diff]');
+    if (diffBtn){ e.stopPropagation(); var dl=findLeaf(diffBtn.getAttribute('data-diff')); if(dl&&dl.tab!=null) openReviewForRun(dl.tab); return; }
+    var histBtn=e.target.closest('[data-hist]');
+    if (histBtn){ e.stopPropagation(); var hl=findLeaf(histBtn.getAttribute('data-hist')); if(hl&&hl.tab!=null){ setLeafFocus(hl.id); openHistory(); } return; }
     var lockBtn=e.target.closest('[data-lock]');
     if (lockBtn){ e.stopPropagation(); startSecretSend(lockBtn.getAttribute('data-lock'), lockBtn); return; }
     var leaf=e.target.closest('[data-leaf]'); if(!leaf) return;
@@ -1543,6 +1552,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var reviewOn = false, rvTaskId = null;
   function showTerminal(){ reviewOn=false; $('review').classList.remove('on'); $('vtReview').classList.remove('on'); $('vtTerm').classList.add('on'); }
   function showReview(){ reviewOn=true; $('review').classList.add('on'); $('vtReview').classList.add('on'); $('vtTerm').classList.remove('on'); renderReviewPicker(); }
+  // 페인 헤더 → 이 run 의 diff 를 Review 로 (그 run 의 태스크 선택 후 compare)
+  function openReviewForRun(runId){ var r=runById[runId]; if(!r){ toast('run 정보 없음'); return; } showReview(); rvTaskId=r.taskId; try{ $('rvTask').value=String(r.taskId); }catch(e){} syncVcmd(); loadCompare(r.taskId); }
   $('vtTerm').addEventListener('click', showTerminal);
   $('vtReview').addEventListener('click', showReview);
   function reviewableTasks(){
