@@ -249,6 +249,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .zoom:hover{color:var(--brand)}
   .leaf-h .pact{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .pact:hover{color:var(--brand)}
+  .leaf-h .bsel{display:none;color:var(--faint);border:none;background:none;cursor:pointer;font-size:11px;padding:0 2px}
+  body.bcastmode .leaf-h .bsel{display:inline-block}   /* 브로드캐스트 모드에서만 대상 선택 토글 노출 */
+  .leaf-h .bsel.on{color:var(--open)}
   .leaf-h .lock{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .lock:hover{color:var(--brand)}
   .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
@@ -697,6 +700,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var layout = { leaf:true, id:'L0', tab:null };  // 분할 트리 루트
   var focusLeaf = 'L0';
   var zoomLeaf = null;   // 페인 최대화(줌) — 설정되면 그 리프만 전체 렌더
+  var bcastSel = {};     // 브로드캐스트 선택 대상(tab id → true). 비어있으면 전체.
   var leafSeq = 1;
   var viewerSeq = 1;         // 뷰어 탭 키(문자열 'v#')
   var MAX_LEAVES = 6;
@@ -941,6 +945,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
             + '<span data-role="act" class="pane-act">'+esc(latestActivity(node.tab))+'</span>'
             + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
             + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
+            + '<button class="bsel'+(bcastSel[node.tab]?' on':'')+'" data-bcast="'+node.tab+'" title="브로드캐스트 대상 토글">'+(bcastSel[node.tab]?'◉':'◯')+'</button>'
             + (runIsSession(node.tab)?'':'<button class="pact" data-diff="'+node.id+'" title="이 run 의 diff (Review)">⧉</button>')
             + '<button class="pact" data-hist="'+node.id+'" title="이 run 히스토리 (대화·터미널)">↺</button>'
             + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">⊟</button>'
@@ -1140,6 +1145,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('panes').addEventListener('click', function(e){
     var zoomBtn=e.target.closest('[data-zoom]');
     if (zoomBtn){ e.stopPropagation(); toggleZoom(zoomBtn.getAttribute('data-zoom')); return; }
+    var bcBtn=e.target.closest('[data-bcast]');
+    if (bcBtn){ e.stopPropagation(); var bid=bcBtn.getAttribute('data-bcast'); bcastSel[bid]=!bcastSel[bid];
+      bcBtn.classList.toggle('on', !!bcastSel[bid]); bcBtn.textContent = bcastSel[bid]?'◉':'◯';
+      if(reqMode==='bcast') setMode('bcast'); return; }
     var diffBtn=e.target.closest('[data-diff]');
     if (diffBtn){ e.stopPropagation(); var dl=findLeaf(diffBtn.getAttribute('data-diff')); if(dl&&dl.tab!=null) openReviewForRun(dl.tab); return; }
     var histBtn=e.target.closest('[data-hist]');
@@ -1496,10 +1505,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     else if (m==='steer'){ var rid=focusRun(); go.textContent='Steer ⏎';
       $('reqTgt').textContent = rid?('➤ r'+rid+' 에 후속 지시'):'포커스한 페인 없음';
       inp.placeholder = rid?('r'+rid+' 에이전트에게 다음 지시…'):'왼쪽 트리에서 run 을 열어 포커스하세요'; }
-    else { go.textContent='Send ⏎'; var n=tabOrder.length;
-      $('reqTgt').textContent = '⊞ 열린 탭 '+n+'개에 브로드캐스트';
-      inp.placeholder = n?('열린 '+n+'개 터미널에 그대로 전송 (엔터 포함)'):'열린 탭이 없습니다'; }
+    else { go.textContent='Send ⏎'; var n=tabOrder.length; var sel=bcastCount();
+      $('reqTgt').textContent = sel ? ('⊞ 선택 '+sel+'개 페인에 전송') : ('⊞ 열린 탭 '+n+'개 전체에 전송');
+      inp.placeholder = n?(sel?('선택한 '+sel+'개에만 그대로 전송'):'전체 '+n+'개 터미널에 전송 — 페인 ◯ 로 대상 선택'):'열린 탭이 없습니다'; }
+    document.body.classList.toggle('bcastmode', m==='bcast');
   }
+  function bcastCount(){ var c=0; Object.keys(bcastSel).forEach(function(k){ if(bcastSel[k] && tabs[k] && tabs[k].ws) c++; }); return c; }
   Array.prototype.forEach.call(document.querySelectorAll('.mode'), function(b){ b.addEventListener('click', function(){ setMode(b.dataset.mode); $('reqInput').focus(); }); });
 
   var submitting = false;
@@ -1536,13 +1547,14 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         else { var j = await res.json().catch(function(){return{};}); toast('steer 불가: '+(j.error||res.status)); }
       }catch(e){ toast('steer 실패: '+e); }
       finally{ submitting=false; $('reqGo').disabled=false; }
-    } else { // broadcast
+    } else { // broadcast — 선택 페인이 있으면 거기로만, 없으면 열린 탭 전체
       if (!tabOrder.length){ toast('열린 탭이 없습니다'); return; }
       var payload = text + '\\r';
+      var onlySel = bcastCount()>0;
       var sent=0;
-      tabOrder.forEach(function(rid){ var t=tabs[rid]; if (t && t.ws && t.ws.readyState===1){ t.ws.send(JSON.stringify({t:'i',d:payload})); sent++; } });
+      tabOrder.forEach(function(rid){ if(onlySel && !bcastSel[rid]) return; var t=tabs[rid]; if (t && t.ws && t.ws.readyState===1){ t.ws.send(JSON.stringify({t:'i',d:payload})); sent++; } });
       inp.value='';
-      toast('브로드캐스트 → '+sent+'개 탭');
+      toast('브로드캐스트 → '+sent+'개'+(onlySel?' (선택)':' (전체)'));
     }
   }
   $('reqGo').addEventListener('click', submitReq);

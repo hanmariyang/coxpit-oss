@@ -155,6 +155,11 @@ case "$CKPT" in *'function runIsSession'*'function openReviewForRun'*) : ;; *) f
 case "$CKPT" in *'data-diff='*'data-hist='*) : ;; *) fail "cockpit pane-header diff/history buttons missing";; esac
 pass "pane header actions: open this run's diff (Review) + history (viewer)"
 
+# Selective broadcast: pick target panes (◯/◉), send only to them; none selected = all (back-compat)
+case "$CKPT" in *'bcastSel'*'data-bcast='*'function bcastCount'*) : ;; *) fail "cockpit selective broadcast (bcastSel) missing";; esac
+case "$CKPT" in *'body.bcastmode .leaf-h .bsel'*) : ;; *) fail "cockpit broadcast-target toggle should show only in broadcast mode";; esac
+pass "selective broadcast: choose target panes, else all (back-compatible)"
+
 # File viewer (md/html/pdf/image/text) as a non-terminal pane + .env text edit
 case "$CKPT" in *'/vendor/marked.js'*) : ;; *) fail "cockpit should load marked (md render)";; esac
 expect_code 200 "$B/vendor/marked.js"
