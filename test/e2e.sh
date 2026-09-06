@@ -218,7 +218,9 @@ case "$CKPT" in *'id="sessionBtn"'*'id="sessionCta"'*'function openSession'*) : 
 case "$CKPT" in *'id="pickModal"'*'function browseTo'*'/api/browse'*"/api/session'"*) : ;; *) fail "cockpit folder picker / session wiring missing";; esac
 case "$CKPT" in *"kind!=='sessions'"*'>Sessions<'*) : ;; *) fail "cockpit sessions tree section / project split missing";; esac
 case "$CKPT" in *'.panes{flex:1;display:none'*) : ;; *) fail "cockpit empty panes should default to display:none (grey-box fix)";; esac
-pass "cockpit free session (workbench) opener + empty-state grey-box fix"
+# folder/file pickers show a loading state + surface HTTP errors (empty list must never be silent)
+case "$CKPT" in *'불러오는 중…'*'인증이 만료'*) : ;; *) fail "pickers should show loading + auth/HTTP error instead of a blank list";; esac
+pass "cockpit free session (workbench) opener + empty-state grey-box fix + picker loading/error surfacing"
 
 # Tabs + split-tree panes: open=tab, manual split, drag tab→slot, fan-out auto-tiles, rename
 case "$CKPT" in *'id="tabs"'*'id="splitRow"'*'function buildNode'*'function splitFocused'*) : ;; *) fail "cockpit tab bar / split-tree missing";; esac

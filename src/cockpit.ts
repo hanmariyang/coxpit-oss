@@ -1361,8 +1361,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function openSession(){ $('pickModal').classList.add('on'); $('pickName').value=''; browseTo(''); }
   function closePicker(){ $('pickModal').classList.remove('on'); }
   async function browseTo(p){
+    $('pickList').innerHTML = '<div class="pick-row" style="cursor:default;color:var(--faint)">불러오는 중…</div>';
     try{
-      var d = await (await fetch('/api/browse'+(p?('?path='+encodeURIComponent(p)):''))).json();
+      var res = await fetch('/api/browse'+(p?('?path='+encodeURIComponent(p)):''));
+      if(!res.ok){ $('pickList').innerHTML = '<div class="pick-row" style="color:var(--failed)">'+(res.status===401?'인증이 만료됐어요 — 새로고침 후 다시 로그인':'폴더를 읽을 수 없습니다 (HTTP '+res.status+')')+'</div>'; return; }
+      var d = await res.json();
       pickPathCur = d.path; $('pickPath').textContent = d.path;
       var html = '';
       if (d.parent && d.parent!==d.path) html += '<div class="pick-row up" data-go="'+esc(d.parent)+'"><span class="ic">↑</span><span>..</span></div>';
@@ -1402,8 +1405,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function closeFilePicker(){ $('fpickModal').classList.remove('on'); }
   function fpIcon(kind){ return kind==='md'?'M':kind==='html'?'H':kind==='pdf'?'P':kind==='image'?'I':kind==='binary'?'·':'T'; }
   async function fpTo(p){
+    $('fpList').innerHTML = '<div class="pick-row" style="cursor:default;color:var(--faint)">불러오는 중…</div>';
     try{
-      var d = await (await fetch('/api/fs/list'+(p?('?path='+encodeURIComponent(p)):''))).json();
+      var res = await fetch('/api/fs/list'+(p?('?path='+encodeURIComponent(p)):''));
+      if(!res.ok){ $('fpList').innerHTML = '<div class="pick-row" style="color:var(--failed)">'+(res.status===401?'인증이 만료됐어요 — 새로고침':'읽을 수 없습니다 (HTTP '+res.status+')')+'</div>'; return; }
+      var d = await res.json();
       fpDirCur = d.path; $('fpPath').textContent = d.path; if($('fpHint')) $('fpHint').textContent='폴더=이동 · 파일=뷰어로 열기';
       var html='';
       if (d.parent && d.parent!==d.path) html += '<div class="pick-row up" data-dir="'+esc(d.parent)+'"><span class="ic">↑</span><span>..</span></div>';
