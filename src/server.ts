@@ -365,7 +365,10 @@ export async function buildServer(): Promise<FastifyInstance> {
     const m = authMode();
     return {
       effective: {
-        port: config.port, portStrict: config.portStrict, host: config.host, filesRoot: config.filesRoot,
+        port: config.port, portStrict: config.portStrict, host: config.host,
+        // filesRoot applies immediately (no restart) — report the LIVE value, not the boot-time one,
+        // so the Settings field shows what's actually in force. Precedence: env > settings.json > home.
+        filesRoot: process.env.COXPIT_FILES_ROOT ?? s.filesRoot ?? '',
         webhookUrl: config.webhookUrl, publicUrl: config.publicUrl,
         agent: { provider: config.agent.provider, model: config.agent.model, count: config.agent.count, real: config.agent.real },
       },
