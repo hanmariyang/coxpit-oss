@@ -54,6 +54,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .toggle:hover{color:var(--ink);border-color:var(--line-hi)}
 
   .layout{display:grid;grid-template-columns:270px 1fr;height:calc(100dvh - 46px)}
+  /* 포커스 모드 — 트리·요청바 숨기고 페인만(⌘.) */
+  .layout.focusmode{grid-template-columns:1fr}
+  .layout.focusmode .rail{display:none}
+  .layout.focusmode .reqbar{display:none}
+  .tc-btn.on{color:var(--brand-ink);background:var(--brand);border-color:var(--brand)}
   .layout > *{min-height:0;min-width:0}
 
   /* ── workspace tree ── */
@@ -82,7 +87,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   /* ── 탭 바 + 분할 트리 페인 ── */
   .stage{display:flex;flex-direction:column;min-width:0;background:var(--bg);position:relative}
   /* ── 터미널 스크롤백 검색바(⌘F) ── */
-  .term-find{position:absolute;top:44px;right:14px;z-index:30;display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line-hi);border-radius:9px;padding:5px 6px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  .term-find{position:absolute;top:44px;right:14px;z-index:30;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line-hi);border-radius:9px;padding:5px 6px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  .term-find[hidden]{display:none}          /* hidden 속성 존중 — 아래 규칙이 UA 를 이기지 않게 */
+  .term-find:not([hidden]){display:flex}
   .term-find input{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:200px;outline:none}
   .term-find input:focus{border-color:var(--brand)}
   .term-find .fc{font-family:var(--mono);font-size:10.5px;color:var(--faint);min-width:20px;text-align:center}
@@ -367,7 +374,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 </header>
 
 <div class="scrim" id="scrim"></div>
-<div class="layout">
+<div class="layout" id="layout">
   <aside class="rail" id="rail">
     <div class="lbl"><span>Workspace</span><span id="machName" style="color:var(--faint)">local</span></div>
     <div id="tree"></div>
@@ -382,6 +389,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <button class="tc-btn" id="splitCol" title="가로 분할 — 포커스 페인을 상하로" disabled>▬ split</button>
         <button class="tc-btn session" id="sessionBtn" title="자유 세션(폴더 지정 터미널) 열기">＋<span class="b-txt"> Session</span></button>
         <button class="tc-btn" id="fileBtn" title="파일 보기 — md·html·pdf·이미지·텍스트 뷰어(터미널 옆 페인)">▤<span class="b-txt"> File</span></button>
+        <button class="tc-btn" id="focusBtn" title="포커스 모드 — 트리·요청바 숨기고 페인만 (⌘.)">◱<span class="b-txt"> Focus</span></button>
         <button class="tc-btn" id="closeBtn" title="포커스 페인 닫기(탭은 유지)" disabled>×<span class="b-txt"> pane</span></button>
       </div>
     </div>
@@ -761,7 +769,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       if(ev.type==='keydown' && (ev.metaKey||ev.ctrlKey)){
         if(ev.key==='c'||ev.key==='C'){ if(term.hasSelection()){ copySel(); return false; } }
         // 전역 단축키(⌘K·⌘F·⌘⏎·⌘1~9)는 터미널로 보내지 않는다 — 문서 핸들러가 처리.
-        if(ev.key==='k'||ev.key==='K'||ev.key==='f'||ev.key==='F'||ev.key==='Enter'||(ev.key>='1'&&ev.key<='9')) return false;
+        if(ev.key==='k'||ev.key==='K'||ev.key==='f'||ev.key==='F'||ev.key==='Enter'||ev.key==='.'||(ev.key>='1'&&ev.key<='9')) return false;
       }
       return true;
     });
@@ -1170,6 +1178,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       {k:'cmd', label:'세로 분할', run:function(){ splitFocused('row'); }},
       {k:'cmd', label:'가로 분할', run:function(){ splitFocused('col'); }},
       {k:'cmd', label:'포커스 페인 닫기', run:function(){ if(focusLeaf) closeSlot(focusLeaf); }},
+      {k:'cmd', label:'포커스 모드 (트리 숨김, ⌘.)', run:toggleFocus},
+      {k:'cmd', label:'페인 최대화 토글 (⌘⏎)', run:function(){ toggleZoom(focusLeaf); }},
       {k:'cmd', label:'뷰어 / 히스토리', run:openHistory},
       {k:'cmd', label:'Review 열기 (비교·머지)', run:showReview},
       {k:'cmd', label:'시크릿 (env 주입)', run:openSecrets},
@@ -1221,10 +1231,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   document.addEventListener('keydown', function(e){
     if((e.metaKey||e.ctrlKey) && (e.key==='k'||e.key==='K')){ e.preventDefault(); if($('palette').classList.contains('on')) closePalette(); else openPalette(); }
   });
-  // ── 페인 단축키: ⌘⏎ 최대화 토글 · ⌘1~9 N번째 페인 포커스 ──
+  // ── 포커스 모드 — 트리·요청바 숨기고 페인만 ──
+  function toggleFocus(){ var on=$('layout').classList.toggle('focusmode'); $('focusBtn').classList.toggle('on', on); requestAnimationFrame(fitAllVisible); setTimeout(fitAllVisible, 120); }
+  $('focusBtn').addEventListener('click', toggleFocus);
+
+  // ── 페인 단축키: ⌘. 포커스 모드 · ⌘⏎ 최대화 토글 · ⌘1~9 N번째 페인 포커스 ──
   function typingInField(e){ var el=e.target; if(!el) return false; var tag=el.tagName||''; return (tag==='INPUT'||tag==='TEXTAREA') && !el.classList.contains('xterm-helper-textarea'); }
   document.addEventListener('keydown', function(e){
     if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
+    if(e.key==='.'){ if(!typingInField(e)){ e.preventDefault(); toggleFocus(); } return; }
     if(!tabOrder.length || typingInField(e)) return;
     if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); toggleZoom(focusLeaf); return; }
     if(e.key>='1' && e.key<='9'){ var order=leafOrder(); var idx=Number(e.key)-1; if(order[idx]){ e.preventDefault(); if(zoomLeaf){ zoomLeaf=order[idx].id; focusLeaf=order[idx].id; render(); } else setLeafFocus(order[idx].id); } }

@@ -140,6 +140,11 @@ case "$CKPT" in *'function leafOrder'*'function typingInField'*) : ;; *) fail "c
 case "$CKPT" in *'im.onerror'*'HEIC'*) : ;; *) fail "image viewer should show a fallback when the image can't render";; esac
 pass "pane zoom (⌘⏎/⤢) + keyboard pane focus (⌘1..9) + image load-fail fallback"
 
+# Focus mode (hide tree+reqbar, ⌘. / ◱) + find bar must honor [hidden] (was always showing)
+case "$CKPT" in *'.layout.focusmode'*'id="focusBtn"'*'function toggleFocus'*) : ;; *) fail "cockpit focus mode (toggleFocus/.focusmode) missing";; esac
+case "$CKPT" in *'.term-find[hidden]{display:none}'*) : ;; *) fail "term-find must honor [hidden] (find bar was always visible)";; esac
+pass "focus mode (⌘. hides tree+reqbar) + terminal find bar hidden by default"
+
 # File viewer (md/html/pdf/image/text) as a non-terminal pane + .env text edit
 case "$CKPT" in *'/vendor/marked.js'*) : ;; *) fail "cockpit should load marked (md render)";; esac
 expect_code 200 "$B/vendor/marked.js"
