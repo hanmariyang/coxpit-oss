@@ -238,6 +238,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .pane-act{font-family:var(--mono);font-size:10px;color:var(--brand);opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
   .leaf-h .pane-act:empty{display:none}
   .tnode.run .ract{margin-left:6px;font-size:10px;color:var(--brand);opacity:.85}
+  .leaf-h .zoom{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
+  .leaf-h .zoom:hover{color:var(--brand)}
   .leaf-h .lock{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .lock:hover{color:var(--brand)}
   .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
@@ -683,6 +685,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var tabOrder = [];         // 탭 바 순서(runId)
   var layout = { leaf:true, id:'L0', tab:null };  // 분할 트리 루트
   var focusLeaf = 'L0';
+  var zoomLeaf = null;   // 페인 최대화(줌) — 설정되면 그 리프만 전체 렌더
   var leafSeq = 1;
   var viewerSeq = 1;         // 뷰어 탭 키(문자열 'v#')
   var MAX_LEAVES = 6;
@@ -755,8 +758,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     host.addEventListener('mouseup', function(){ copySel(); });
     host.addEventListener('touchend', function(){ copySel(); });
     term.attachCustomKeyEventHandler(function(ev){
-      if(ev.type==='keydown' && (ev.metaKey||ev.ctrlKey) && (ev.key==='c'||ev.key==='C')){
-        if(term.hasSelection()){ copySel(); return false; }
+      if(ev.type==='keydown' && (ev.metaKey||ev.ctrlKey)){
+        if(ev.key==='c'||ev.key==='C'){ if(term.hasSelection()){ copySel(); return false; } }
+        // 전역 단축키(⌘K·⌘F·⌘⏎·⌘1~9)는 터미널로 보내지 않는다 — 문서 핸들러가 처리.
+        if(ev.key==='k'||ev.key==='K'||ev.key==='f'||ev.key==='F'||ev.key==='Enter'||(ev.key>='1'&&ev.key<='9')) return false;
       }
       return true;
     });
@@ -823,7 +828,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         var fp=document.createElement('iframe'); fp.src=rawUrl;   // 브라우저/Electron 내장 PDF 뷰어(수동적 — sandbox 불필요)
         body.innerHTML=''; body.appendChild(fp);
       } else if(d.kind==='image'){
-        body.innerHTML=''; var im=document.createElement('img'); im.src=rawUrl; im.alt=t.name; body.appendChild(im);
+        body.innerHTML=''; var im=document.createElement('img'); im.alt=t.name;
+        // 브라우저가 못 그리는 형식(HEIC/TIFF 등)이나 로드 실패 시 조용히 빈 화면 대신 이유+원본 링크
+        im.onerror=function(){ body.innerHTML='<div class="view-msg">이 이미지를 표시할 수 없습니다 · '+fmtSize(d.size||0)+'<br><span style="color:var(--faint)">브라우저가 못 그리는 형식일 수 있어요 (예: HEIC·TIFF)</span><br><br><a href="'+rawUrl+'" target="_blank">원본 열기 / 내려받기</a></div>'; };
+        im.src=rawUrl; body.appendChild(im);
       } else if(d.kind==='binary'){
         body.innerHTML='<div class="view-msg">미리보기 불가 · '+fmtSize(d.size||0)+(d.note?(' · '+esc(d.note)):'')+'<br><br><a href="'+rawUrl+'" target="_blank">원본 열기 / 내려받기</a></div>';
       } else { // text
@@ -913,16 +921,17 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var leaf=document.createElement('div'); leaf.className='leaf'+(node.id===focusLeaf?' focus':''); leaf.dataset.leaf=node.id;
       var t=node.tab!=null?tabs[node.tab]:null; var r=node.tab!=null?runById[node.tab]:null;
       var head=document.createElement('div'); head.className='leaf-h'; head.dataset.leafhead=node.id;
+      var zoomBtn = '<button class="zoom" data-zoom="'+node.id+'" title="이 페인 최대화 (⌘⏎)">'+(zoomLeaf?'⤡':'⤢')+'</button>';
       head.innerHTML = t
         ? (t.kind==='viewer'
           ? '<span class="st vdoc">▤</span><span class="nm">'+esc(t.name)+'</span>'
-            + '<button class="x" title="이 페인 닫기(뷰어 유지)">×</button>'
+            + zoomBtn + '<button class="x" title="이 페인 닫기(뷰어 유지)">×</button>'
           : '<span class="st '+esc(r?r.status:'')+'"></span><span class="nm">'+esc(t.name)+'</span>'
             + '<span data-role="act" class="pane-act">'+esc(latestActivity(node.tab))+'</span>'
             + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
             + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
             + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">⊟</button>'
-            + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>')
+            + zoomBtn + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>')
         : '<span class="nm" style="color:var(--faint)">빈 페인</span><button class="x" title="이 페인 닫기">×</button>';
       var body=document.createElement('div'); body.className='leaf-body'; body.dataset.leafbody=node.id;
       if (!t){ var em=document.createElement('div'); em.className='leaf-empty'; em.textContent='탭을 여기로 드래그하거나 탭을 클릭하세요'; body.appendChild(em); }
@@ -952,7 +961,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     $('panes').style.display = n?'flex':'none';
     renderTabs();
     var host=$('panes'); host.innerHTML='';
-    if (n){ host.appendChild(buildNode(layout)); attachHosts(); }
+    if (n){
+      var zl = zoomLeaf ? findLeaf(zoomLeaf) : null;   // 줌: 그 리프만 전체 렌더(레이아웃은 메모리에 보존)
+      var root = zl ? { leaf:true, id:zl.id, tab:zl.tab } : layout;
+      host.appendChild(buildNode(root)); attachHosts();
+    }
     updateControls();
     if (typeof reqMode!=='undefined') setMode(reqMode);
     requestAnimationFrame(fitAllVisible);
@@ -965,9 +978,19 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     updateControls();
     if (typeof reqMode!=='undefined' && reqMode!=='new') setMode(reqMode);
   }
+  // 페인 최대화(줌) 토글 — 포커스 페인(또는 지정 leaf)만 전체로. 다시 누르면 복원.
+  function toggleZoom(id){
+    var target = id || focusLeaf;
+    if(zoomLeaf===target){ zoomLeaf=null; }
+    else { var l=findLeaf(target); if(!l || l.tab==null) return; zoomLeaf=target; focusLeaf=target; }
+    render();
+  }
+  // 페인 순서(트리 순회) → ⌘1..9 로 N번째 포커스
+  function leafOrder(){ var out=[]; eachLeaf(layout,function(l){ out.push(l); }); return out; }
 
   // 탭 열기 = 포커스 슬롯에 표시(강제 분할 없음). 기존 호출부(openRunPane) 호환.
   function openTab(runId){
+    zoomLeaf=null;   // 새 탭은 보여야 하므로 줌 해제
     if(!tabs[runId]) ensureTab(runId);   // 뷰어 탭은 ensureViewer 로 이미 생성됨 → 터미널로 오생성 방지
     var l=leafOfTab(runId);
     if (l){ setLeafFocus(l.id); return; }
@@ -980,6 +1003,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   function splitFocused(dir){
     if (!tabOrder.length) return;
+    zoomLeaf=null;
     if (isMobile()){ toast('창분할은 데스크톱 전용 — 모바일은 탭으로 전환하세요'); return; }
     if (countLeaves()>=MAX_LEAVES){ toast('페인 최대 '+MAX_LEAVES+'개'); return; }
     var l=findLeaf(focusLeaf) || firstLeaf(); if(!l) return;
@@ -989,6 +1013,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     focusLeaf=bId; render(); renderTree();
   }
   function closeSlot(id){
+    zoomLeaf=null;
     if (countLeaves()<=1){ var only=findLeaf(id)||firstLeaf(); if(only) only.tab=null; if(only) focusLeaf=only.id; render(); renderTree(); return; }
     (function walk(node){
       if(node.leaf) return false;
@@ -1000,6 +1025,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     render(); renderTree();
   }
   function closeTab(runId){
+    zoomLeaf=null;
     var t=tabs[runId]; if(!t) return; t.closing=true;
     try{ if(t.ws) t.ws.close(); }catch(e){}
     try{ if(t.ro) t.ro.disconnect(); }catch(e){}
@@ -1018,6 +1044,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   function tileTabs(ids){
     ids=(ids||[]).filter(function(x){return x!=null;}); if(!ids.length) return;
+    zoomLeaf=null;
     ids.forEach(ensureTab);
     layout=buildTiled(ids,'row'); var f=firstLeaf(); focusLeaf=f?f.id:'L0';
     render(); renderTree();
@@ -1076,6 +1103,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   // ── 페인(슬롯) 이벤트: 포커스·닫기·드롭·리사이즈 ──
   $('panes').addEventListener('click', function(e){
+    var zoomBtn=e.target.closest('[data-zoom]');
+    if (zoomBtn){ e.stopPropagation(); toggleZoom(zoomBtn.getAttribute('data-zoom')); return; }
     var lockBtn=e.target.closest('[data-lock]');
     if (lockBtn){ e.stopPropagation(); startSecretSend(lockBtn.getAttribute('data-lock'), lockBtn); return; }
     var leaf=e.target.closest('[data-leaf]'); if(!leaf) return;
@@ -1191,6 +1220,14 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('palette').addEventListener('click', function(e){ if(e.target===this) closePalette(); });
   document.addEventListener('keydown', function(e){
     if((e.metaKey||e.ctrlKey) && (e.key==='k'||e.key==='K')){ e.preventDefault(); if($('palette').classList.contains('on')) closePalette(); else openPalette(); }
+  });
+  // ── 페인 단축키: ⌘⏎ 최대화 토글 · ⌘1~9 N번째 페인 포커스 ──
+  function typingInField(e){ var el=e.target; if(!el) return false; var tag=el.tagName||''; return (tag==='INPUT'||tag==='TEXTAREA') && !el.classList.contains('xterm-helper-textarea'); }
+  document.addEventListener('keydown', function(e){
+    if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
+    if(!tabOrder.length || typingInField(e)) return;
+    if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); toggleZoom(focusLeaf); return; }
+    if(e.key>='1' && e.key<='9'){ var order=leafOrder(); var idx=Number(e.key)-1; if(order[idx]){ e.preventDefault(); if(zoomLeaf){ zoomLeaf=order[idx].id; focusLeaf=order[idx].id; render(); } else setLeafFocus(order[idx].id); } }
   });
 
   // ── 모바일 터미널 입력바 — 조합 완료 텍스트를 통째로 포커스 탭의 PTY 로(IME 안전) ──

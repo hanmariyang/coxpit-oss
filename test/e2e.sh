@@ -134,6 +134,12 @@ case "$CKPT" in *'function latestActivity'*'data-role="act"'*) : ;; *) fail "coc
 case "$CKPT" in *'id="rvWs"'*'function revealWs'*) : ;; *) fail "cockpit Review whitespace toggle missing";; esac
 pass "Orca-inspired: ⌘K palette + ⌘F terminal search + live run status + diff whitespace toggle"
 
+# Pane power: zoom/maximize (⌘⏎ + header ⤢) + keyboard pane focus (⌘1..9); image viewer load-fail fallback
+case "$CKPT" in *'data-zoom'*'function toggleZoom'*'zoomLeaf'*) : ;; *) fail "cockpit pane zoom (toggleZoom/zoomLeaf) missing";; esac
+case "$CKPT" in *'function leafOrder'*'function typingInField'*) : ;; *) fail "cockpit keyboard pane focus (⌘1..9) missing";; esac
+case "$CKPT" in *'im.onerror'*'HEIC'*) : ;; *) fail "image viewer should show a fallback when the image can't render";; esac
+pass "pane zoom (⌘⏎/⤢) + keyboard pane focus (⌘1..9) + image load-fail fallback"
+
 # File viewer (md/html/pdf/image/text) as a non-terminal pane + .env text edit
 case "$CKPT" in *'/vendor/marked.js'*) : ;; *) fail "cockpit should load marked (md render)";; esac
 expect_code 200 "$B/vendor/marked.js"
