@@ -37,6 +37,7 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
   'addon-fit.js': { pkg: '@xterm/addon-fit/package.json', rel: 'lib/addon-fit.js', type: 'text/javascript' },
   'addon-unicode11.js': { pkg: '@xterm/addon-unicode11/package.json', rel: 'lib/addon-unicode11.js', type: 'text/javascript' },
   'addon-web-links.js': { pkg: '@xterm/addon-web-links/package.json', rel: 'lib/addon-web-links.js', type: 'text/javascript' },
+  'addon-search.js': { pkg: '@xterm/addon-search/package.json', rel: 'lib/addon-search.js', type: 'text/javascript' },
   'marked.js': { pkg: 'marked/package.json', rel: 'marked.min.js', type: 'text/javascript' },
 };
 

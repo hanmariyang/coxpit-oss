@@ -125,6 +125,15 @@ case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "co
 case "$CKPT" in *'/api/fleet?view=all'*'/ws/term/'*) : ;; *) fail "cockpit fleet/term wiring missing";; esac
 pass "Phase 2 cockpit workspace tree + pane-grid terminal (xterm attach, auto-tile)"
 
+# Orca-inspired batch: ⌘K palette, ⌘F terminal search, live per-run status, diff whitespace toggle
+expect_code 200 "$B/vendor/addon-search.js"
+case "$CKPT" in *'/vendor/addon-search.js'*'SearchAddon'*) : ;; *) fail "cockpit terminal search (SearchAddon) missing";; esac
+case "$CKPT" in *'id="termFind"'*'function focusedTermTab'*'function openFind'*) : ;; *) fail "cockpit ⌘F terminal find bar missing";; esac
+case "$CKPT" in *'id="palette"'*'function paletteItems'*'function openPalette'*) : ;; *) fail "cockpit ⌘K command palette missing";; esac
+case "$CKPT" in *'function latestActivity'*'data-role="act"'*) : ;; *) fail "cockpit live per-run activity status missing";; esac
+case "$CKPT" in *'id="rvWs"'*'function revealWs'*) : ;; *) fail "cockpit Review whitespace toggle missing";; esac
+pass "Orca-inspired: ⌘K palette + ⌘F terminal search + live run status + diff whitespace toggle"
+
 # File viewer (md/html/pdf/image/text) as a non-terminal pane + .env text edit
 case "$CKPT" in *'/vendor/marked.js'*) : ;; *) fail "cockpit should load marked (md render)";; esac
 expect_code 200 "$B/vendor/marked.js"

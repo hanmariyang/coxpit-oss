@@ -81,6 +81,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
   /* ── 탭 바 + 분할 트리 페인 ── */
   .stage{display:flex;flex-direction:column;min-width:0;background:var(--bg);position:relative}
+  /* ── 터미널 스크롤백 검색바(⌘F) ── */
+  .term-find{position:absolute;top:44px;right:14px;z-index:30;display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line-hi);border-radius:9px;padding:5px 6px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  .term-find input{font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;width:200px;outline:none}
+  .term-find input:focus{border-color:var(--brand)}
+  .term-find .fc{font-family:var(--mono);font-size:10.5px;color:var(--faint);min-width:20px;text-align:center}
+  .term-find button{font-family:var(--mono);font-size:13px;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 5px;border-radius:5px}
+  .term-find button:hover{color:var(--ink);background:var(--surface2)}
   .tabbar{display:flex;align-items:stretch;height:38px;border-bottom:1px solid var(--line);background:var(--panel);font-family:var(--mono)}
   .tabs{flex:1;display:flex;align-items:stretch;overflow-x:auto;overflow-y:hidden}
   .tab{display:inline-flex;align-items:center;gap:7px;padding:0 10px 0 12px;border-right:1px solid var(--line);font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;max-width:220px;user-select:none;flex:none}
@@ -185,6 +192,19 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   /* ── folder picker (자유 세션 폴더 지정) ── */
   .modal{position:fixed;inset:0;background:rgba(4,6,10,.6);display:none;align-items:center;justify-content:center;z-index:60}
   .modal.on{display:flex}
+  /* ── ⌘K 커맨드 팔레트 ── */
+  #palette{align-items:flex-start}
+  .pal{width:min(620px,94vw);margin-top:12vh;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line-hi);border-radius:14px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.5)}
+  .pal>input{font-family:var(--mono);font-size:14px;color:var(--ink);background:transparent;border:none;border-bottom:1px solid var(--line);padding:15px 18px;outline:none}
+  .pal-list{max-height:52vh;overflow:auto;padding:6px;scrollbar-width:none}
+  .pal-list::-webkit-scrollbar{width:0;display:none}
+  .pal-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+  .pal-row.sel{background:var(--brand-dim);color:var(--ink)}
+  .pal-row .pk{font-size:9px;letter-spacing:.04em;color:var(--faint);border:1px solid var(--line);border-radius:999px;padding:1px 7px;flex:none;text-transform:uppercase}
+  .pal-row.sel .pk{border-color:rgba(78,201,176,.4);color:var(--brand)}
+  .pal-row .pl{flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .pal-row .ph{font-size:10.5px;color:var(--faint);flex:none;max-width:40%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .pal-empty{padding:18px;text-align:center;color:var(--faint);font-family:var(--mono);font-size:12px}
   .pick{width:min(560px,92vw);max-height:76vh;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line-hi);border-radius:14px;overflow:hidden;font-family:var(--mono)}
   .pick-h{display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line)}
   .pick-h .t{font-size:13px;color:var(--ink);font-weight:600}
@@ -215,6 +235,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .sec-row .shint{color:var(--faint);font-size:11px;font-family:var(--mono)}
   .sec-row .sdel{color:var(--faint);border:none;background:none;cursor:pointer;font-size:14px;padding:0 4px}
   .sec-row .sdel:hover{color:var(--failed)}
+  .leaf-h .pane-act{font-family:var(--mono);font-size:10px;color:var(--brand);opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
+  .leaf-h .pane-act:empty{display:none}
+  .tnode.run .ract{margin-left:6px;font-size:10px;color:var(--brand);opacity:.85}
   .leaf-h .lock{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .lock:hover{color:var(--brand)}
   .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
@@ -259,6 +282,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .rv-diff > span{display:block;min-height:1.2em}
   .dl-file{color:var(--brand)} .dl-hunk{color:var(--open)} .dl-ctx{color:var(--muted)}
   .dl-add{color:#7fdca0;background:rgba(88,179,104,.08)} .dl-del{color:#e58a92;background:rgba(226,91,103,.08)}
+  .rv-diff .ws{color:var(--faint);opacity:.55}
+  .rv-ws{font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:3px 8px;cursor:pointer}
+  .rv-ws:hover{color:var(--ink)} .rv-ws.on{color:var(--brand-ink);background:var(--brand);border-color:var(--brand)}
   .rv-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--faint);font-family:var(--mono);font-size:13px;text-align:center;padding:24px}
 
   /* ── 모바일 대응 (드로어 트리 + 단일 터미널 + IME 입력바) ── */
@@ -358,6 +384,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       </div>
     </div>
     <div class="panes" id="panes"></div>
+    <div class="term-find" id="termFind" hidden>
+      <input id="findInput" placeholder="터미널에서 찾기 (⌘F)" autocomplete="off" spellcheck="false" />
+      <span class="fc" id="findCount"></span>
+      <button type="button" id="findPrev" title="이전 (⇧⏎)">↑</button>
+      <button type="button" id="findNext" title="다음 (⏎)">↓</button>
+      <button type="button" id="findClose" title="닫기 (esc)">×</button>
+    </div>
     <div class="empty" id="empty">
       <div class="card">
         <div class="glyph">⌗ ⌗ ⌗</div>
@@ -421,6 +454,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <input id="rvVcmd" placeholder="예: npm test — 정착 시 자동 실행" autocomplete="off" />
       <button type="button" id="rvVsave">save</button>
     </span>
+    <button type="button" id="rvWs" class="rv-ws" title="공백 표시(스페이스·탭)">␣ 공백</button>
     <span id="rvHint" style="margin-left:auto;color:var(--faint)">정착하면 자동 검증 · 승자를 base 에 merge</span>
   </div>
   <div class="rv-cols" id="rvCols"></div>
@@ -479,12 +513,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="modal" id="palette">
+  <div class="pal">
+    <input id="palInput" placeholder="이동·명령 검색 (⌘K)  ·  세션·run·프로젝트·명령" autocomplete="off" spellcheck="false" />
+    <div class="pal-list" id="palList"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
 <script src="/vendor/addon-unicode11.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
+<script src="/vendor/addon-search.js"></script>
 <script src="/vendor/marked.js"></script>
 <script>
   // 모바일 = 터미널 우선을 유지하되 좁은 화면에 맞춤(드로어 트리 + 단일 터미널 + IME 입력바).
@@ -496,6 +538,23 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function toast(msg){ var t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._h); toast._h=setTimeout(function(){ t.classList.remove('show'); }, 2600); }
   var V_GLYPH = { pass:'✓ verify', fail:'✗ verify', running:'⋯ verify', error:'! verify' };
   function vbadge(status){ if (!status || !V_GLYPH[status]) return ''; return '<span class="vbadge '+status+'" data-role="vbadge">'+V_GLYPH[status]+'</span>'; }
+  // 라이브 상태 — run 의 최신 이벤트에서 "지금 뭐 하는지"(도구명/사고)를 뽑는다. 실행 중일 때만.
+  function latestActivity(runId){
+    var r=runById[runId]; if(!r) return '';
+    if(r.status!=='running' && r.status!=='pending') return '';
+    var evs=r.events||[];
+    for(var i=evs.length-1;i>=0;i--){
+      var e=evs[i], k=e.kind;
+      if(k==='steer') return 'steer'; if(k==='ask') return 'asking';
+      if(k!=='assistant') continue;
+      try{ var o=JSON.parse(e.payload);
+        var c=o&&o.message&&o.message.content;
+        if(c&&c.length){ for(var j=c.length-1;j>=0;j--){ if(c[j].type==='tool_use') return c[j].name||'tool'; if(c[j].type==='text'&&(c[j].text||'').trim()) return 'thinking'; } }
+        else if(o&&o.text) return 'thinking';
+      }catch(_){}
+    }
+    return r.status==='pending' ? 'starting' : 'working';
+  }
 
   // ── fleet 상태 ──
   var fleet = { machines:[], repos:[], tasks:[], groups:[], runs:[], providers:[] };
@@ -595,8 +654,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       + '<span class="n">'+esc(t.title)+'</span></div>';
     if (!isFold(tk)) rns.sort(function(a,b){return a.id-b.id;}).forEach(function(r){
       var open = tabs[r.id] ? ' open' : '';
+      var act=latestActivity(r.id);
       s += '<div class="tnode run'+open+'" data-run="'+r.id+'"><span class="st '+esc(r.status)+'"></span>'
-        + '<span class="n">r'+r.id+' · '+esc(r.status)+'</span></div>';
+        + '<span class="n">r'+r.id+' · '+esc(r.status)+'</span>'+(act?'<span class="ract">'+esc(act)+'</span>':'')+'</div>';
     });
     return s;
   }
@@ -682,6 +742,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       }
       cb(links.length?links:undefined);
     }}); }catch(e){}
+    // 스크롤백 검색(⌘F) — SearchAddon. t.search 에 보관, 검색바가 findNext/Previous 호출.
+    var search=null; try{ search=new window.SearchAddon.SearchAddon(); term.loadAddon(search);
+      search.onDidChangeResults(function(e){ if($('termFind') && !$('termFind').hidden && focusedRunId()===runId){ var c=$('findCount'); if(c){ var n=(e&&e.resultCount)||0; c.textContent = n ? (((e.resultIndex>=0?e.resultIndex+1:0))+'/'+n) : '0'; } } });
+    }catch(e){}
     // 복사 배선: xterm 은 user-select:none 이라 네이티브 선택이 없다 → term.getSelection() 을 직접 클립보드로.
     // ① 드래그 놓으면 자동 복사(select-to-copy) ② Cmd/Ctrl+C 로도 복사(선택 없으면 통과 → SIGINT).
     var copySel=function(){ var s=''; try{ s=term.getSelection(); }catch(e){} if(!s) return false;
@@ -697,7 +761,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       return true;
     });
     // term.open 은 host 가 DOM 에 붙은 뒤(attachHosts) 최초 1회 — detached 에서 open 하면 렌더러가 안 뜬다.
-    var t={ runId:runId, name:tabName(runId), term:term, fit:fit, ws:null, retry:0, closing:false, host:host, ro:null, opened:false, connected:false };
+    var t={ runId:runId, name:tabName(runId), term:term, fit:fit, ws:null, retry:0, closing:false, host:host, ro:null, opened:false, connected:false, search:search };
     term.onData(function(d){ if(t.ws&&t.ws.readyState===1) t.ws.send(JSON.stringify({t:'i',d:d})); });
     tabs[runId]=t; tabOrder.push(runId);
     return t;   // open·connect 는 attachHosts 에서(Phase 2 순서: open → connect)
@@ -854,6 +918,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
           ? '<span class="st vdoc">▤</span><span class="nm">'+esc(t.name)+'</span>'
             + '<button class="x" title="이 페인 닫기(뷰어 유지)">×</button>'
           : '<span class="st '+esc(r?r.status:'')+'"></span><span class="nm">'+esc(t.name)+'</span>'
+            + '<span data-role="act" class="pane-act">'+esc(latestActivity(node.tab))+'</span>'
             + '<span data-role="chip" class="chip '+esc(r?r.status:'')+'">'+esc(r?r.status:'')+'</span>'
             + '<span data-role="vslot">'+vbadge(r&&r.verifyStatus)+'</span>'
             + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">⊟</button>'
@@ -970,6 +1035,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var st=head.querySelector('.st'); if(st) st.className='st '+r.status;
       var chip=head.querySelector('[data-role=chip]'); if(chip){ chip.className='chip '+r.status; chip.textContent=r.status; }
       var vslot=head.querySelector('[data-role=vslot]'); if(vslot) vslot.innerHTML=vbadge(r.verifyStatus);
+      var act=head.querySelector('[data-role=act]'); if(act) act.textContent=latestActivity(l.tab);
     });
   }
 
@@ -1046,6 +1112,86 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function setDrawer(open){ $('rail').classList.toggle('open', open); $('scrim').classList.toggle('on', open); }
   $('menuBtn').addEventListener('click', function(){ setDrawer(!$('rail').classList.contains('open')); });
   $('scrim').addEventListener('click', function(){ setDrawer(false); });
+
+  // ── 터미널 스크롤백 검색(⌘F) ──
+  function focusedTermTab(){ var rid=focusedRunId(); var t=(rid!=null)?tabs[rid]:null; return (t && t.term && t.search) ? t : null; }
+  var FIND_DECO={ matchBackground:'#3a4a2e', activeMatchBackground:'#4ec9b0', activeMatchColorOverviewRuler:'#4ec9b0', matchOverviewRuler:'#33415580' };
+  function runFind(dir){ var t=focusedTermTab(); var q=$('findInput').value; if(!t){ return; } if(!q){ try{ t.search.clearDecorations(); }catch(e){} var c=$('findCount'); if(c) c.textContent=''; return; }
+    try{ if(dir<0) t.search.findPrevious(q,{decorations:FIND_DECO}); else t.search.findNext(q,{decorations:FIND_DECO}); }catch(e){} }
+  function openFind(){ var t=focusedTermTab(); if(!t){ toast('검색할 터미널 페인을 먼저 선택하세요'); return; } $('termFind').hidden=false; var i=$('findInput'); i.focus(); i.select(); if(i.value) runFind(1); }
+  function closeFind(){ $('termFind').hidden=true; var t=focusedTermTab(); if(t){ try{ t.search.clearDecorations(); t.term.focus(); }catch(e){} } }
+  $('findInput').addEventListener('input', function(){ runFind(1); });
+  $('findInput').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); runFind(e.shiftKey?-1:1); } else if(e.key==='Escape'){ e.preventDefault(); closeFind(); } });
+  $('findNext').addEventListener('click', function(){ runFind(1); });
+  $('findPrev').addEventListener('click', function(){ runFind(-1); });
+  $('findClose').addEventListener('click', closeFind);
+  document.addEventListener('keydown', function(e){
+    if((e.metaKey||e.ctrlKey) && (e.key==='f'||e.key==='F') && !e.shiftKey && !e.altKey){
+      if(focusedTermTab()){ e.preventDefault(); openFind(); }
+    }
+  });
+
+  // ── ⌘K 커맨드 팔레트 — 이동(세션·run·프로젝트) + 명령 ──
+  var palItems=[], palSel=0;
+  function paletteItems(){
+    var items=[
+      {k:'cmd', label:'새 작업 세션 열기', run:openSession},
+      {k:'cmd', label:'파일 열기 (뷰어)', run:openFilePicker},
+      {k:'cmd', label:'터미널 검색 (⌘F)', run:openFind},
+      {k:'cmd', label:'세로 분할', run:function(){ splitFocused('row'); }},
+      {k:'cmd', label:'가로 분할', run:function(){ splitFocused('col'); }},
+      {k:'cmd', label:'포커스 페인 닫기', run:function(){ if(focusLeaf) closeSlot(focusLeaf); }},
+      {k:'cmd', label:'뷰어 / 히스토리', run:openHistory},
+      {k:'cmd', label:'Review 열기 (비교·머지)', run:showReview},
+      {k:'cmd', label:'시크릿 (env 주입)', run:openSecrets},
+      {k:'cmd', label:'보드로 전환', run:function(){ location.href='/'; }}
+    ];
+    // 세션 → 페인으로 열기
+    var runs=[]; Object.keys(runById).forEach(function(id){ runs.push(runById[id]); });
+    runs.sort(function(a,b){ return b.id-a.id; });
+    runs.forEach(function(r){
+      var task=taskById[r.taskId]; var repo=task&&repoById[task.repoId];
+      if(repo && repo.kind==='sessions'){ items.push({k:'session', label:(task&&task.title)||('session r'+r.id), hint:'r'+r.id, run:function(){ openRunPane(r.id); }}); }
+    });
+    // run → 페인으로 열기 (최근 40개)
+    var n=0; runs.forEach(function(r){
+      var task=taskById[r.taskId]; var repo=task&&repoById[task.repoId];
+      if(repo && repo.kind==='sessions') return; if(n>=40) return; n++;
+      items.push({k:'run', label:'r'+r.id+' · '+(repo?repo.name:'?')+' / '+((task&&task.title)||''), hint:r.status, run:function(){ openRunPane(r.id); }});
+    });
+    // 프로젝트 → 요청바 대상 지정(팬아웃 준비)
+    Object.keys(repoById).forEach(function(id){ var repo=repoById[id]; if(repo.kind==='sessions') return;
+      items.push({k:'project', label:repo.name, hint:'팬아웃 대상 지정', run:function(){ try{ $('reqRepo').value=String(repo.id); }catch(e){} var i=$('reqInput'); if(i){ i.focus(); } }}); });
+    return items;
+  }
+  function renderPalette(q){
+    q=(q||'').trim().toLowerCase();
+    var all=paletteItems();
+    palItems = q ? all.filter(function(it){ return (it.label+' '+(it.hint||'')+' '+it.k).toLowerCase().indexOf(q)>=0; }) : all;
+    palSel=0;
+    if(!palItems.length){ $('palList').innerHTML='<div class="pal-empty">일치 없음</div>'; return; }
+    $('palList').innerHTML = palItems.map(function(it,i){
+      return '<div class="pal-row'+(i===0?' sel':'')+'" data-i="'+i+'"><span class="pk">'+esc(it.k)+'</span><span class="pl">'+esc(it.label)+'</span>'+(it.hint?'<span class="ph">'+esc(it.hint)+'</span>':'')+'</div>';
+    }).join('');
+  }
+  function palMove(d){ if(!palItems.length) return; palSel=(palSel+d+palItems.length)%palItems.length;
+    var rows=$('palList').querySelectorAll('.pal-row'); rows.forEach(function(el,i){ el.classList.toggle('sel', i===palSel); });
+    var sel=rows[palSel]; if(sel) sel.scrollIntoView({block:'nearest'}); }
+  function palRun(i){ var it=palItems[i]; if(!it) return; closePalette(); try{ it.run(); }catch(e){} }
+  function openPalette(){ $('palette').classList.add('on'); var i=$('palInput'); i.value=''; renderPalette(''); i.focus(); }
+  function closePalette(){ $('palette').classList.remove('on'); }
+  $('palInput').addEventListener('input', function(){ renderPalette(this.value); });
+  $('palInput').addEventListener('keydown', function(e){
+    if(e.key==='ArrowDown'){ e.preventDefault(); palMove(1); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); palMove(-1); }
+    else if(e.key==='Enter'){ e.preventDefault(); palRun(palSel); }
+    else if(e.key==='Escape'){ e.preventDefault(); closePalette(); }
+  });
+  $('palList').addEventListener('click', function(e){ var row=e.target.closest('[data-i]'); if(row) palRun(Number(row.dataset.i)); });
+  $('palette').addEventListener('click', function(e){ if(e.target===this) closePalette(); });
+  document.addEventListener('keydown', function(e){
+    if((e.metaKey||e.ctrlKey) && (e.key==='k'||e.key==='K')){ e.preventDefault(); if($('palette').classList.contains('on')) closePalette(); else openPalette(); }
+  });
 
   // ── 모바일 터미널 입력바 — 조합 완료 텍스트를 통째로 포커스 탭의 PTY 로(IME 안전) ──
   function focusedWs(){ var rid=focusedRunId(); return (rid!=null && tabs[rid]) ? tabs[rid].ws : null; }
@@ -1339,10 +1485,14 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     loadCompare(rvTaskId);
   }
   $('rvTask').addEventListener('change', function(){ rvTaskId=Number(this.value); syncVcmd(); loadCompare(rvTaskId); });
+  $('rvWs').addEventListener('click', function(){ rvShowWs=!rvShowWs; this.classList.toggle('on', rvShowWs); if(rvTaskId!=null) loadCompare(rvTaskId); });
+  var rvShowWs=false;
+  function revealWs(e){ return e.replace(/ /g,'<span class="ws">·</span>').replace(/\\t/g,'<span class="ws">→\\u2003</span>'); }
   function diffHTML(text){
     if (!text || !text.trim()) return '<span style="color:var(--faint)">no changes</span>';
     return text.split('\\n').map(function(l){
       var e = esc(l) || '&nbsp;';
+      if (rvShowWs && l.indexOf('diff --git')!==0 && l.indexOf('@@')!==0) e = revealWs(e);
       if (l.indexOf('diff --git')===0 || l.indexOf('+++')===0 || l.indexOf('---')===0) return '<span class="dl-file">'+e+'</span>';
       if (l.indexOf('@@')===0) return '<span class="dl-hunk">'+e+'</span>';
       if (l.charAt(0)==='+') return '<span class="dl-add">'+e+'</span>';
