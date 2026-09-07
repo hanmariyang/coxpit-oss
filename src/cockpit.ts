@@ -776,9 +776,19 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     }catch(e){}
     // 복사 배선: xterm 은 user-select:none 이라 네이티브 선택이 없다 → term.getSelection() 을 직접 클립보드로.
     // ① 드래그 놓으면 자동 복사(select-to-copy) ② Cmd/Ctrl+C 로도 복사(선택 없으면 통과 → SIGINT).
+    // 복사: clipboard API 우선(HTTPS·PWA), 실패하면 execCommand 폴백(iOS 포함). 항상 토스트로 확인.
+    var copyFallback=function(s){ var ok=false;
+      try{ var ta=document.createElement('textarea'); ta.value=s; ta.setAttribute('readonly',''); ta.contentEditable='true';
+        ta.style.position='fixed'; ta.style.top='-9999px'; ta.style.opacity='0'; document.body.appendChild(ta);
+        var r=document.createRange(); r.selectNodeContents(ta); var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        try{ ta.setSelectionRange(0, s.length); }catch(e){}
+        ok=document.execCommand('copy'); document.body.removeChild(ta);
+      }catch(e){ ok=false; }
+      toast(ok?('복사됨 · '+s.length+'자'):'복사 실패 — 브라우저가 클립보드를 막았어요'); };
     var copySel=function(){ var s=''; try{ s=term.getSelection(); }catch(e){} if(!s) return false;
-      try{ if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(s); }catch(e){}
-      try{ var ta=document.createElement('textarea'); ta.value=s; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); }catch(e){}
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(s).then(function(){ toast('복사됨 · '+s.length+'자'); }).catch(function(){ copyFallback(s); });
+      } else { copyFallback(s); }
       return true; };
     host.addEventListener('mouseup', function(){ copySel(); });
     host.addEventListener('touchend', function(){ copySel(); });

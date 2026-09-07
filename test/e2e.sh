@@ -119,6 +119,8 @@ expect_code 200 "$B/vendor/addon-web-links.js"
 case "$CKPT" in *'WebLinksAddon'*) : ;; *) fail "cockpit should register WebLinksAddon (clickable URLs)";; esac
 # copy wiring: xterm has user-select:none → selection must be pushed to clipboard explicitly
 case "$CKPT" in *'getSelection'*'attachCustomKeyEventHandler'*) : ;; *) fail "cockpit should wire terminal copy (select-to-copy + Cmd/Ctrl+C)";; esac
+# copy must be robust off the desktop app (PWA/browser): clipboard API + execCommand fallback + toast feedback
+case "$CKPT" in *'copyFallback'*'navigator.clipboard.writeText'*'복사됨'*) : ;; *) fail "cockpit copy needs a fallback + feedback (PWA/browser clipboard)";; esac
 # design system: no colorful emoji in the cockpit (mono glyphs only)
 if printf '%s' "$CKPT" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "cockpit contains emoji — use monochrome glyphs (design system)"; fi
 case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "cockpit tree/pane logic missing";; esac
