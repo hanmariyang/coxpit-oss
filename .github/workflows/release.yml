@@ -56,21 +56,22 @@ jobs:
       # 데스크톱 셸 빌드 + Release 업로드
       - run: npm ci
         working-directory: desktop
-      # macOS 코드서명은 명시적 옵트인(repo variable MAC_SIGN=1)일 때만 시도한다.
-      # 이유: 잘못된 CSC_KEY_PASSWORD 로 서명이 깨지면 릴리스 전체가 draft 로 막혀 자동
-      # 업데이터가 옛 버전에 갇힌다(#signing). 기본은 unsigned 빌드로 파이프라인을 흐르게 하고,
-      # owner 가 인증서를 고쳐 CSC_LINK/CSC_KEY_PASSWORD 를 맞춘 뒤 MAC_SIGN=1 로 서명을 켠다.
+      # 서명 시크릿(CSC_LINK)이 있으면 macOS 서명+공증, 없으면 unsigned 로 자연 강등.
+      # 강등 시 notarize=false 를 명시해야 config(notarize:true)와 충돌하지 않는다.
+      # 잘못된 CSC_KEY_PASSWORD 는 `security … SecKeychainUnlock … not correct` 로 죽는다 →
+      # 러너 탓 아님, CSC_KEY_PASSWORD 오타/끝 개행이 원인(insol-partner/apple-signing.md).
       - run: |
-          if [ "$RUNNER_OS" != "macOS" ] || [ "${MAC_SIGN:-}" != "1" ] || [ -z "${CSC_LINK:-}" ]; then
+          if [ "$RUNNER_OS" != "macOS" ] || [ -z "${CSC_LINK:-}" ]; then
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             export CSC_IDENTITY_AUTO_DISCOVERY=false
+            npx electron-builder --publish always -c.mac.notarize=false
+          else
+            npx electron-builder --publish always
           fi
-          npx electron-builder --publish always
         shell: bash
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MAC_SIGN: ${{ vars.MAC_SIGN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
