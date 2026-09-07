@@ -50,6 +50,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .mach{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:7px;padding:4px 10px}
   .mach .dot{width:6px;height:6px;border-radius:50%;background:var(--done)}
   .vtabs{display:flex;gap:4px;margin-left:4px}
+  .ver{font-family:var(--mono);font-size:9.5px;color:var(--faint);opacity:.8}
   .vtab{font-size:12px;color:var(--muted);padding:6px 11px;border-radius:7px;display:inline-flex;align-items:center;gap:7px;cursor:pointer;background:none;border:none;font-family:var(--mono)}
   .vtab.on{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.28)}
   .vtab .g{color:var(--brand)}
@@ -382,6 +383,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     <button type="button" class="vtab" disabled title="Docs = 보드"><span class="g">▤</span><span class="b-txt">Docs</span></button>
   </div>
   <div class="right">
+    <span class="ver" id="ver" title="로드된 cockpit 버전 (캐시 확인용)">v__COXPIT_VER__</span>
     <span class="ws" id="ws"><span class="dot"></span><span id="wstext" class="b-txt">connecting</span></span>
     <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">∗<span class="b-txt"> Secrets</span></button>
     <a class="toggle" href="/" title="보드(모니터) 뷰로">←<span class="b-txt"> Board</span></a>
@@ -404,6 +406,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <button class="tc-btn" id="splitCol" title="가로 분할 — 포커스 페인을 상하로" disabled>▬ split</button>
         <button class="tc-btn session" id="sessionBtn" title="자유 세션(폴더 지정 터미널) 열기">＋<span class="b-txt"> Session</span></button>
         <button class="tc-btn" id="fileBtn" title="파일 보기 — md·html·pdf·이미지·텍스트 뷰어(터미널 옆 페인)">▤<span class="b-txt"> File</span></button>
+        <button class="tc-btn" id="attachBtn" title="파일 첨부 — 포커스한 터미널 폴더로 업로드 + 경로 삽입 (드롭도 가능)">↥<span class="b-txt"> 첨부</span></button>
         <button class="tc-btn" id="focusBtn" title="포커스 모드 — 트리·요청바 숨기고 페인만 (⌘.)">◱<span class="b-txt"> Focus</span></button>
         <button class="tc-btn" id="closeBtn" title="포커스 페인 닫기(탭은 유지)" disabled>×<span class="b-txt"> pane</span></button>
       </div>
@@ -545,6 +548,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<input type="file" id="attachInput" multiple hidden />
 <div class="toast" id="toast"></div>
 
 <script src="/vendor/xterm.js"></script>
@@ -745,6 +749,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var term=new window.Terminal({
       fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', monospace",
       fontSize: isMobile() ? 11 : 12, cursorBlink: true, allowProposedApi: true, scrollback: 4000,
+      macOptionClickForcesSelection: true,   // ⌥+드래그 = 로컬 선택(마우스모드 앱 안에서도) → mouseup 복사가 됨
+      rightClickSelectsWord: true,
       theme: { background:'#0b0d12', foreground:'#dee4ec', cursor:'#4ec9b0', selectionBackground:'rgba(78,201,176,.25)', black:'#1c212c', brightBlack:'#5c6675' },
     });
     var fit=new window.FitAddon.FitAddon(); term.loadAddon(fit);
@@ -1214,6 +1220,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       reader.readAsDataURL(file);
     });
   }
+  // 상단 "↥ 첨부" 버튼 — 포커스한 터미널 페인으로 파일 선택 업로드(드래그&드롭의 보이는 대안)
+  var attachTarget=null;
+  $('attachBtn').addEventListener('click', function(){ var rid=focusedRunId(); if(rid==null||isViewer(rid)||!tabs[rid]||!tabs[rid].ws){ toast('첨부할 터미널 페인을 먼저 선택하세요'); return; } attachTarget=rid; $('attachInput').value=''; $('attachInput').click(); });
+  $('attachInput').addEventListener('change', function(){ if(attachTarget!=null && this.files && this.files.length) uploadToTab(attachTarget, this.files); attachTarget=null; });
   $('panes').addEventListener('mousedown', function(e){
     var g=e.target.closest('[data-gutter]'); if(!g) return; e.preventDefault();
     var node=findSplit(g.dataset.gutter); if(!node) return;

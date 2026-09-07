@@ -124,6 +124,11 @@ case "$CKPT" in *'copyFallback'*'navigator.clipboard.writeText'*'복사됨'*) : 
 # OSC 52 clipboard: an in-terminal app (claude) that "copies" must reach the system clipboard
 expect_code 200 "$B/vendor/addon-clipboard.js"
 case "$CKPT" in *'/vendor/addon-clipboard.js'*'ClipboardAddon'*) : ;; *) fail "cockpit should load ClipboardAddon (OSC 52 → system clipboard)";; esac
+# ⌥+drag local selection even inside a mouse-mode app (claude); visible attach button; version badge (cache check)
+case "$CKPT" in *'macOptionClickForcesSelection'*) : ;; *) fail "cockpit should allow ⌥+drag selection inside mouse-mode apps";; esac
+case "$CKPT" in *'id="attachBtn"'*'id="attachInput"'*) : ;; *) fail "cockpit should have a visible file-attach button";; esac
+case "$CKPT" in *'__COXPIT_VER__'*) fail "cockpit version placeholder must be substituted at serve time";; *) : ;; esac
+case "$CKPT" in *'id="ver"'*) : ;; *) fail "cockpit should show a version badge (cache diagnosis)";; esac
 # design system: no colorful emoji in the cockpit (mono glyphs only)
 if printf '%s' "$CKPT" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "cockpit contains emoji — use monochrome glyphs (design system)"; fi
 case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "cockpit tree/pane logic missing";; esac
