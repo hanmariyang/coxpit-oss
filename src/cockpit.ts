@@ -30,6 +30,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;
     -webkit-font-smoothing:antialiased;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
   .term-host .xterm-viewport{overscroll-behavior:contain}   /* 터미널 스크롤이 페이지로 안 번지게 */
+  /* 전역 스크롤바 테마 — 흰 네이티브 바를 어디서든 제거(얇은 다크 바 + 투명 트랙).
+     개별 overflow 영역마다 재선언할 필요 없이 여기서 한 번에. 특정 스트립(트리·탭·팔레트)은
+     아래에서 scrollbar-width:none 으로 바 자체를 숨긴다. */
+  *{scrollbar-width:thin;scrollbar-color:var(--line-hi) transparent}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--line-hi);border-radius:4px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--faint)}
+  ::-webkit-scrollbar-corner{background:transparent}
   button{font-family:var(--sans)}
   :focus-visible{outline:2px solid rgba(78,201,176,.5);outline-offset:1px;border-radius:4px}
 
@@ -96,7 +105,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .term-find button{font-family:var(--mono);font-size:13px;color:var(--muted);background:none;border:none;cursor:pointer;padding:2px 5px;border-radius:5px}
   .term-find button:hover{color:var(--ink);background:var(--surface2)}
   .tabbar{display:flex;align-items:stretch;height:38px;border-bottom:1px solid var(--line);background:var(--panel);font-family:var(--mono)}
-  .tabs{flex:1;display:flex;align-items:stretch;overflow-x:auto;overflow-y:hidden}
+  .tabs{flex:1;display:flex;align-items:stretch;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{width:0;height:0;display:none}   /* 탭이 넘쳐도 흰 스크롤바 없이 스크롤만 */
   .tab{display:inline-flex;align-items:center;gap:7px;padding:0 10px 0 12px;border-right:1px solid var(--line);font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;max-width:220px;user-select:none;flex:none}
   .tab:hover{background:var(--surface)}
   .tab.shown{color:var(--ink);background:var(--bg);box-shadow:inset 0 -2px 0 var(--brand)}

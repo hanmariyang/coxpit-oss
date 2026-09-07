@@ -125,6 +125,10 @@ case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "co
 case "$CKPT" in *'/api/fleet?view=all'*'/ws/term/'*) : ;; *) fail "cockpit fleet/term wiring missing";; esac
 pass "Phase 2 cockpit workspace tree + pane-grid terminal (xterm attach, auto-tile)"
 
+# No white native scrollbars anywhere: global dark scrollbar theme + tab strip bar hidden
+case "$CKPT" in *'::-webkit-scrollbar-thumb{background:var(--line-hi)'*'.tabs::-webkit-scrollbar'*) : ;; *) fail "cockpit should theme scrollbars globally + hide the tab-strip bar (no white scrollbars)";; esac
+pass "no white scrollbars: global themed scrollbar + tab strip bar hidden (scroll kept)"
+
 # Orca-inspired batch: ⌘K palette, ⌘F terminal search, live per-run status, diff whitespace toggle
 expect_code 200 "$B/vendor/addon-search.js"
 case "$CKPT" in *'/vendor/addon-search.js'*'SearchAddon'*) : ;; *) fail "cockpit terminal search (SearchAddon) missing";; esac
