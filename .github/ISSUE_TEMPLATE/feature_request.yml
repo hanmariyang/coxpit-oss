@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Coxpit stays small and owner-first on purpose. Please skim the
-        [non-goals](https://github.com/hanmariyang/coxpit-oss/blob/main/ROADMAP.md#non-goals)
+        [non-goals](https://github.com/hanmariyang/coxpit-oss/blob/main/docs/ROADMAP.md#non-goals)
         first — accounts, telemetry, a cloud relay, and a board bundler are out of scope by design.
   - type: textarea
     id: problem
