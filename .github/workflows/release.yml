@@ -56,17 +56,21 @@ jobs:
       # 데스크톱 셸 빌드 + Release 업로드
       - run: npm ci
         working-directory: desktop
-      # 서명 시크릿은 macOS 에서만 사용 — 다른 OS 는 Apple p12 로 서명을 시도하다 깨진다.
-      # 미설정 시크릿도 빈 문자열로 주입되므로 함께 unset(=unsigned 빌드).
+      # macOS 코드서명은 명시적 옵트인(repo variable MAC_SIGN=1)일 때만 시도한다.
+      # 이유: 잘못된 CSC_KEY_PASSWORD 로 서명이 깨지면 릴리스 전체가 draft 로 막혀 자동
+      # 업데이터가 옛 버전에 갇힌다(#signing). 기본은 unsigned 빌드로 파이프라인을 흐르게 하고,
+      # owner 가 인증서를 고쳐 CSC_LINK/CSC_KEY_PASSWORD 를 맞춘 뒤 MAC_SIGN=1 로 서명을 켠다.
       - run: |
-          if [ "$RUNNER_OS" != "macOS" ] || [ -z "${CSC_LINK:-}" ]; then
+          if [ "$RUNNER_OS" != "macOS" ] || [ "${MAC_SIGN:-}" != "1" ] || [ -z "${CSC_LINK:-}" ]; then
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           npx electron-builder --publish always
         shell: bash
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAC_SIGN: ${{ vars.MAC_SIGN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
