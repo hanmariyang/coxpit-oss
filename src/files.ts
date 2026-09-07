@@ -186,6 +186,25 @@ export async function readRaw(input?: string) {
   return { path, name: pbasename(path), mime: mimeFor(path), buf: await readFile(path) };
 }
 
+const MAX_UPLOAD = 25 * 1024 * 1024;   // 25MB
+// Save an uploaded file into a directory (within root). Returns the final path (dedup, never clobbers).
+export async function uploadFile(dir: string, name: string, buf: Buffer) {
+  if (buf.length > MAX_UPLOAD) throw new Error('파일이 너무 큽니다 (25MB 초과)');
+  const base = (name || 'file').replace(/[\/\x00]/g, '_').replace(/^\.+/, '').slice(0, 200) || 'file';
+  const dot = base.lastIndexOf('.');
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : '';
+  const cleanDir = (dir || '').replace(/\/+$/, '');
+  let path = await jail(cleanDir + '/' + base);   // jail validates within root
+  for (let i = 1; i < 100; i++) {
+    const st = await stat(path).catch(() => null);
+    if (!st) break;                                 // free name
+    path = await jail(cleanDir + '/' + stem + '-' + i + ext);
+  }
+  await writeFile(path, buf);
+  return { path, name: pbasename(path), size: buf.length };
+}
+
 export async function writeText(input: string, content: string) {
   let path: string;
   try { path = await jail(input); } catch (e) { throw friendly(e); }

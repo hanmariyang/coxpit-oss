@@ -121,6 +121,9 @@ case "$CKPT" in *'WebLinksAddon'*) : ;; *) fail "cockpit should register WebLink
 case "$CKPT" in *'getSelection'*'attachCustomKeyEventHandler'*) : ;; *) fail "cockpit should wire terminal copy (select-to-copy + Cmd/Ctrl+C)";; esac
 # copy must be robust off the desktop app (PWA/browser): clipboard API + execCommand fallback + toast feedback
 case "$CKPT" in *'copyFallback'*'navigator.clipboard.writeText'*'복사됨'*) : ;; *) fail "cockpit copy needs a fallback + feedback (PWA/browser clipboard)";; esac
+# OSC 52 clipboard: an in-terminal app (claude) that "copies" must reach the system clipboard
+expect_code 200 "$B/vendor/addon-clipboard.js"
+case "$CKPT" in *'/vendor/addon-clipboard.js'*'ClipboardAddon'*) : ;; *) fail "cockpit should load ClipboardAddon (OSC 52 → system clipboard)";; esac
 # design system: no colorful emoji in the cockpit (mono glyphs only)
 if printf '%s' "$CKPT" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "cockpit contains emoji — use monochrome glyphs (design system)"; fi
 case "$CKPT" in *'function renderTree'*'function openRunPane'*) : ;; *) fail "cockpit tree/pane logic missing";; esac
@@ -195,8 +198,16 @@ case "$FSRAW" in *'content-disposition: inline'*) : ;; *) fail "fs/raw should se
 FSW=$(curl -s -X POST "$B/api/fs/write" -H 'content-type: application/json' --data "{\"path\":\"$FSD/.env\",\"content\":\"K=v2\\n\"}")
 case "$FSW" in *'"size"'*) : ;; *) fail "fs/write (.env edit) failed: $FSW";; esac
 case "$(cat "$FSD/.env")" in "K=v2") : ;; *) fail "fs/write did not persist";; esac
+# file attach: upload (base64) into a dir, dedup, jail
+FUP=$(curl -s -X POST "$B/api/fs/upload" -H 'content-type: application/json' --data "{\"path\":\"$FSD\",\"name\":\"att.txt\",\"dataB64\":\"$(printf hiattach | base64)\"}")
+case "$FUP" in *'"name":"att.txt"'*) : ;; *) fail "fs/upload failed: $FUP";; esac
+[ "$(cat "$FSD/att.txt" 2>/dev/null)" = "hiattach" ] || fail "fs/upload did not write file"
+FUP2=$(curl -s -X POST "$B/api/fs/upload" -H 'content-type: application/json' --data "{\"path\":\"$FSD\",\"name\":\"att.txt\",\"dataB64\":\"$(printf hiattach | base64)\"}")
+case "$FUP2" in *'att-1.txt'*) : ;; *) fail "fs/upload should dedup names: $FUP2";; esac
+case "$(curl -s -X POST "$B/api/fs/upload" -H 'content-type: application/json' --data "{\"path\":\"/etc\",\"name\":\"x\",\"dataB64\":\"eA==\"}")" in *'root'*) : ;; *) fail "fs/upload must jail outside root";; esac
+case "$CKPT" in *'function uploadToTab'*'/api/fs/upload'*) : ;; *) fail "cockpit file-attach (uploadToTab drop) missing";; esac
 rm -rf "$FSD"
-pass "file viewer: marked + viewer pane + fs list/read/find/jail/raw-inline/write(.env edit) + terminal path links"
+pass "file viewer: marked + viewer pane + fs list/read/find/jail/raw-inline/write(.env edit) + upload/attach + terminal path links"
 
 # issue #7 — Funnel must be discriminated by AllowFunnel, not by port (serve/funnel share one ServeConfig)
 grep -q 'funnelActiveForPort' src/remote.ts || fail "remote.ts: funnel AllowFunnel discrimination missing (issue #7)"

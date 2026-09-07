@@ -552,6 +552,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <script src="/vendor/addon-unicode11.js"></script>
 <script src="/vendor/addon-web-links.js"></script>
 <script src="/vendor/addon-search.js"></script>
+<script src="/vendor/addon-clipboard.js"></script>
 <script src="/vendor/marked.js"></script>
 <script>
   // 모바일 = 터미널 우선을 유지하되 좁은 화면에 맞춤(드로어 트리 + 단일 터미널 + IME 입력바).
@@ -770,6 +771,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       }
       cb(links.length?links:undefined);
     }}); }catch(e){}
+    // OSC 52 클립보드 — 터미널 안 앱(claude 등)이 "복사"하면 실제 시스템 클립보드로. (앱은 됐다는데 안 붙던 원인)
+    try{ term.loadAddon(new window.ClipboardAddon.ClipboardAddon()); }catch(e){}
     // 스크롤백 검색(⌘F) — SearchAddon. t.search 에 보관, 검색바가 findNext/Previous 호출.
     var search=null; try{ search=new window.SearchAddon.SearchAddon(); term.loadAddon(search);
       search.onDidChangeResults(function(e){ if($('termFind') && !$('termFind').hidden && focusedRunId()===runId){ var c=$('findCount'); if(c){ var n=(e&&e.resultCount)||0; c.textContent = n ? (((e.resultIndex>=0?e.resultIndex+1:0))+'/'+n) : '0'; } } });
@@ -1179,14 +1182,38 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (e.target.closest('.leaf-h .x')){ closeSlot(leaf.dataset.leaf); return; }
     setLeafFocus(leaf.dataset.leaf);
   });
-  $('panes').addEventListener('dragover', function(e){ var body=e.target.closest('[data-leafbody]'); if(body && dragRunId!=null){ e.preventDefault(); body.classList.add('drop'); } });
+  function dragHasFiles(e){ try{ return e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types||[],'Files')>=0; }catch(_){ return false; } }
+  $('panes').addEventListener('dragover', function(e){ var body=e.target.closest('[data-leafbody]'); if(body && (dragRunId!=null || dragHasFiles(e))){ e.preventDefault(); if(dragHasFiles(e)) try{ e.dataTransfer.dropEffect='copy'; }catch(_){}; body.classList.add('drop'); } });
   $('panes').addEventListener('dragleave', function(e){ var body=e.target.closest('[data-leafbody]'); if(body) body.classList.remove('drop'); });
   $('panes').addEventListener('drop', function(e){
-    var body=e.target.closest('[data-leafbody]'); if(!body || dragRunId==null) return; e.preventDefault(); body.classList.remove('drop');
+    var body=e.target.closest('[data-leafbody]'); if(!body) return;
+    if(dragHasFiles(e)){ e.preventDefault(); body.classList.remove('drop'); var lf=findLeaf(body.dataset.leafbody);
+      if(lf && lf.tab!=null && e.dataTransfer.files && e.dataTransfer.files.length) uploadToTab(lf.tab, e.dataTransfer.files); else toast('업로드할 터미널 페인이 아닙니다'); return; }
+    if(dragRunId==null) return; e.preventDefault(); body.classList.remove('drop');
     var l=findLeaf(body.dataset.leafbody); if(!l) return;
     var rid=dragRunId; eachLeaf(layout,function(x){ if(x.tab===rid) x.tab=null; });
     ensureTab(rid); l.tab=rid; focusLeaf=l.id; render(); renderTree();
   });
+  // 파일 첨부 — 로컬 파일을 그 페인 run 의 작업폴더(cwd)로 업로드하고 경로를 터미널에 삽입.
+  function uploadToTab(tabId, files){
+    var t=tabs[tabId]; if(!t || t.kind==='viewer' || !t.ws){ toast('터미널 페인에만 첨부할 수 있어요'); return; }
+    var r=runById[tabId]; var cwd=r&&r.worktreePath; if(!cwd){ toast('이 페인의 작업 폴더를 몰라 첨부할 수 없어요'); return; }
+    Array.prototype.forEach.call(files, function(file){
+      if(file.size > 25*1024*1024){ toast('너무 큼(25MB 초과): '+file.name); return; }
+      var reader=new FileReader();
+      reader.onload=function(){
+        var b64=String(reader.result||'').split(',')[1]||'';
+        fetch('/api/fs/upload',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:cwd, name:file.name, dataB64:b64})})
+          .then(function(x){return x.json();}).then(function(d){
+            if(d.error){ toast('첨부 실패: '+d.error); return; }
+            var p=d.path; var ins=/[ "'\\\\]/.test(p) ? ('"'+p.replace(/(["\\\\])/g,'\\\\$1')+'"') : p;
+            if(t.ws && t.ws.readyState===1) t.ws.send(JSON.stringify({t:'i', d:ins+' '}));
+            toast('첨부됨 · '+d.name+' → 경로 삽입');
+          }).catch(function(){ toast('첨부 실패'); });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
   $('panes').addEventListener('mousedown', function(e){
     var g=e.target.closest('[data-gutter]'); if(!g) return; e.preventDefault();
     var node=findSplit(g.dataset.gutter); if(!node) return;

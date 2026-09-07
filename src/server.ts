@@ -26,7 +26,7 @@ import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
 import { BOARD_HTML } from './board';
 import { COCKPIT_HTML } from './cockpit';
-import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText, findFiles as fsFindFiles } from './files';
+import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText, findFiles as fsFindFiles, uploadFile as fsUploadFile } from './files';
 
 const require_ = createRequire(import.meta.url);
 
@@ -38,6 +38,7 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
   'addon-unicode11.js': { pkg: '@xterm/addon-unicode11/package.json', rel: 'lib/addon-unicode11.js', type: 'text/javascript' },
   'addon-web-links.js': { pkg: '@xterm/addon-web-links/package.json', rel: 'lib/addon-web-links.js', type: 'text/javascript' },
   'addon-search.js': { pkg: '@xterm/addon-search/package.json', rel: 'lib/addon-search.js', type: 'text/javascript' },
+  'addon-clipboard.js': { pkg: '@xterm/addon-clipboard/package.json', rel: 'lib/addon-clipboard.js', type: 'text/javascript' },
   'marked.js': { pkg: 'marked/package.json', rel: 'marked.min.js', type: 'text/javascript' },
 };
 
@@ -783,6 +784,13 @@ export async function buildServer(): Promise<FastifyInstance> {
         .header('x-content-type-options', 'nosniff')
         .send(buf);
     } catch (e: any) { return reply.code(400).send({ error: String(e?.message || e) }); }
+  });
+  // 파일 첨부 — 로컬 파일을 세션 폴더로 업로드(base64). 경로 삽입은 클라가 함. 32MB 바디 허용.
+  app.post('/api/fs/upload', { bodyLimit: 32 * 1024 * 1024 }, async (req, reply) => {
+    const b = (req.body ?? {}) as { path?: string; name?: string; dataB64?: string };
+    if (!b.path || !b.name || typeof b.dataB64 !== 'string') return reply.code(400).send({ error: 'path, name, dataB64 required' });
+    try { const buf = Buffer.from(b.dataB64, 'base64'); return await fsUploadFile(b.path, b.name, buf); }
+    catch (e: any) { return reply.code(400).send({ error: String(e?.message || e) }); }
   });
   app.post('/api/fs/write', async (req, reply) => {
     const b = (req.body ?? {}) as { path?: string; content?: string };
