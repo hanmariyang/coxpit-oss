@@ -73,7 +73,7 @@ These keep the project small and safe — a PR that breaks one won't merge:
 - **External tools stay external.** `git`, `tmux`, and the agent CLIs are spawned,
   never vendored or wrapped.
 
-See also the [non-goals](ROADMAP.md#non-goals) — accounts, telemetry, a cloud
+See also the [non-goals](docs/ROADMAP.md#non-goals) — accounts, telemetry, a cloud
 relay, and a board bundler are out of scope by design.
 
 ## Making a change
