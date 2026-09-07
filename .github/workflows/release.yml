@@ -45,6 +45,9 @@ jobs:
           - os: ubuntu-latest     # AppImage
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30          # 서명·notarize 여유 (macOS 실측 ~7분)
+    env:
+      # 시크릿 노출 없이 "서명 자산이 있나"만 문자열로. 아래 스텝 if 게이트에 쓴다.
+      HAS_MAC_SIGN: ${{ secrets.CSC_LINK != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,24 +59,34 @@ jobs:
       # 데스크톱 셸 빌드 + Release 업로드
       - run: npm ci
         working-directory: desktop
-      # 서명 시크릿(CSC_LINK)이 있으면 macOS 서명+공증, 없으면 unsigned 로 자연 강등.
-      # 강등 시 notarize=false 를 명시해야 config(notarize:true)와 충돌하지 않는다.
-      # 잘못된 CSC_KEY_PASSWORD 는 `security … SecKeychainUnlock … not correct` 로 죽는다 →
-      # 러너 탓 아님, CSC_KEY_PASSWORD 오타/끝 개행이 원인(insol-partner/apple-signing.md).
+
+      # macOS 서명: electron-builder 내장 p12 임포트는 `security set-key-partition-list`
+      # 에서 SecKeychainUnlock 로 깨지는 알려진 버그가 있다(로컬선 p12 가 열려도). 표준 해법 —
+      # 인증서를 이 액션으로 먼저 키체인에 넣고, electron-builder 는 AUTO_DISCOVERY 로 그 신원을 쓴다.
+      - name: Import Developer ID certificate (signed macOS build)
+        if: ${{ matrix.os == 'macos-latest' && env.HAS_MAC_SIGN == 'true' }}
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.CSC_LINK }}
+          p12-password: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      # 서명: mac + 서명자산 있으면 키체인 신원으로 서명+공증. 아니면 unsigned(notarize=false 명시).
       - run: |
-          if [ "$RUNNER_OS" != "macOS" ] || [ -z "${CSC_LINK:-}" ]; then
+          if [ "$RUNNER_OS" = "macOS" ] && [ "$HAS_MAC_SIGN" = "true" ]; then
+            export CSC_IDENTITY_AUTO_DISCOVERY=true   # 위 스텝이 넣은 키체인 신원 사용
+            npx electron-builder --publish always
+          else
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             export CSC_IDENTITY_AUTO_DISCOVERY=false
             npx electron-builder --publish always -c.mac.notarize=false
-          else
-            npx electron-builder --publish always
           fi
         shell: bash
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          HAS_MAC_SIGN: ${{ env.HAS_MAC_SIGN }}
+          # CSC_LINK/CSC_KEY_PASSWORD 는 일부러 안 넘긴다 — 임포트 스텝이 이미 키체인에 넣었고,
+          # electron-builder 에 다시 주면 그 깨지는 내장 임포트를 또 탄다.
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
