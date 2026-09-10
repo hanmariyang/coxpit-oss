@@ -75,7 +75,10 @@ console.log(`[coxpit] listening on http://${config.host === '0.0.0.0' ? '127.0.0
     if (config.auth.disabled) {
       console.warn('[coxpit] auth is DISABLED (COXPIT_AUTH_DISABLED=1) — every request is allowed. Front it with your own gateway if exposed.');
     } else if (!isExposedBind()) {
-      console.log(`[coxpit] loopback-only bind (${config.host}) — trusted local, no login required. Bind to 0.0.0.0 to require an access key.`);
+      console.log(
+        `[coxpit] loopback-only bind (${config.host}), no access key set — local requests need no login.\n` +
+        '[coxpit] requests arriving through a proxy (x-forwarded-for / cf-connecting-ip) are NOT trusted and must set a key.',
+      );
     }
   } else if (m.mode === 'setup') {
     const token = ensureSetupToken();

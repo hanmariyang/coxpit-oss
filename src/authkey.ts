@@ -104,11 +104,14 @@ export function isExposedBind(): boolean {
 
 export function authMode(): AuthMode {
   if (config.auth.disabled) return { mode: 'disabled' };
-  // loopback-only 바인드 = 로컬 신뢰 → 인증 없음(login/setup 페이지도 없음).
-  if (!isExposedBind()) return { mode: 'disabled' };
+  // 운영자가 설정한 키는 바인드와 무관하게 항상 우선한다. loopback 바인드라는 이유로
+  // 설정된 키를 버리면 리버스 프록시 뒤 배포(README 권장 구성)가 조용히 무인증이 된다 — issue #11.
   if (config.auth.pass !== '') return { mode: 'env', key: config.auth.pass };
   const rec = loadStored();
   if (rec) return { mode: 'stored', rec };
+  // 키가 아예 없을 때만 loopback 로컬 신뢰(npx coxpit 무마찰). 이때도 "이 요청이 로컬인가"는
+  // authGate 가 요청 단위로 다시 본다 — 바인드 주소만으로는 프록시 경유를 구분할 수 없다.
+  if (!isExposedBind()) return { mode: 'disabled' };
   return { mode: 'setup' };
 }
 
@@ -248,13 +251,30 @@ export function isLoopback(ip: string): boolean {
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1' || ip === 'localhost';
 }
 
+/**
+ * 이 "요청"이 진짜 로컬인가 — 소켓 remote 가 loopback 이고 forwarding 헤더가 없다.
+ * 바인드 주소(isExposedBind)와 달리 프록시 경유를 구분할 수 있는 유일한 신호다:
+ * 리버스 프록시는 loopback 으로 붙으므로 소켓 IP 만으로는 외부 요청과 구분되지 않는다.
+ */
+export function isLocalRequest(headers: Record<string, unknown>, remoteIp: string): boolean {
+  const hasFwd = headers['x-forwarded-for'] != null
+    || headers['cf-connecting-ip'] != null
+    || headers['x-real-ip'] != null
+    || headers['forwarded'] != null;
+  return isLoopback(remoteIp) && !hasFwd;
+}
+
+/** Fastify 요청의 소켓 remote IP(없으면 빈 문자열). */
+export function socketIp(req: { socket?: { remoteAddress?: string } }): string {
+  return req.socket?.remoteAddress ?? '';
+}
+
 export function setupAllowed(
   headers: Record<string, unknown>,
   remoteIp: string,
   token: string,
 ): { ok: boolean; via: 'token' | 'local' | null } {
   if (verifySetupToken(token)) return { ok: true, via: 'token' };
-  const hasFwd = headers['x-forwarded-for'] != null || headers['cf-connecting-ip'] != null;
-  if (isLoopback(remoteIp) && !hasFwd) return { ok: true, via: 'local' };
+  if (isLocalRequest(headers, remoteIp)) return { ok: true, via: 'local' };
   return { ok: false, via: null };
 }
