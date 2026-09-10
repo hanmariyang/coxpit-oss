@@ -1453,5 +1453,10 @@ FRR=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
 case "$FRR" in *'"kind":"text"'*) : ;; *) fail "COXPIT_FILES_ROOT=/ should allow reading /etc/hosts: $FRR";; esac
 pass "COXPIT_FILES_ROOT widens the file-viewer root (/ opens the whole filesystem)"
 
+# pty master fd 누수 회귀(issue #9). darwin 에서 실검증, 리눅스 CI 는 self-skip(성공).
+kill "$DPID" 2>/dev/null || true; sleep 0.3
+node --import tsx "$ROOT/test/pty-fd.mjs"
+pass "pty master fd leak regression (spawnPty wrapper, darwin)"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

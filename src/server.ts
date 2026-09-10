@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { resolve as presolve, dirname as pdirname, join as pjoin, sep as psep } from 'node:path';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import websocket from '@fastify/websocket';
 import { eq, inArray, and, like, desc } from 'drizzle-orm';
@@ -185,8 +186,26 @@ function sharePageHTML(
 </div></body></html>`;
 }
 
+// macOS 의 machine-wide pty 상한(kern.tty.ptmx_max). 1회 캐시. 다른 OS 는 null.
+let cachedPtyMax: number | null | undefined;
+function ptyMax(): number | null {
+  if (cachedPtyMax !== undefined) return cachedPtyMax;
+  cachedPtyMax = null;
+  if (process.platform === 'darwin') {
+    try {
+      const n = Number(execFileSync('sysctl', ['-n', 'kern.tty.ptmx_max'], { timeout: 2000 }).toString().trim());
+      cachedPtyMax = Number.isFinite(n) && n > 0 ? n : null;
+    } catch { cachedPtyMax = null; }
+  }
+  return cachedPtyMax;
+}
+
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
+  // 살아있는 웹 터미널 수 — pty 압력 조기경보(/api/health)용. openTerm 성공 시 +1, 소켓 close 시 -1.
+  // 누수가 재발하면 이 값이 실제 열린 탭보다 커지지 않아도(닫을 때 감소), machine-wide ptmx 대비
+  // 이 데몬의 부하를 노출한다. leak 재발 자체는 회귀 테스트(test/pty-fd.mjs)가 잡는다.
+  let liveTerminals = 0;
   await app.register(websocket);
   // urlencoded 본문 파서(deps 0) — login/setup 폼이 real navigation POST 를 보내면
   // 브라우저가 그 응답의 Set-Cookie 를 확정 커밋한다(Safari fetch-then-replace 레이스 회피).
@@ -205,7 +224,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.addHook('onRequest', authGate);
 
   // 무인증 헬스(외부 감시용)
-  app.get('/api/health', async () => ({ ok: true, name: 'coxpit', version: config.version }));
+  app.get('/api/health', async () => {
+    const max = ptyMax();
+    return { ok: true, name: 'coxpit', version: config.version, terminals: liveTerminals, ...(max ? { ptyMax: max } : {}) };
+  });
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨(무인증 요청은 게이트가 login/setup 페이지로 응답).
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
@@ -1603,10 +1625,25 @@ export async function buildServer(): Promise<FastifyInstance> {
     try {
       term = openTerm(info.machine, info.session, cols, rows);
     } catch (e) {
-      socket.send(JSON.stringify({ t: 'err', d: 'pty spawn failed: ' + String(e).slice(0, 200) }));
+      // 에러 문구를 실행 가능한 사유로 번역(원문은 원인을 가린다 — issue #9/#10).
+      const raw = String(e);
+      let d: string;
+      if (raw.includes('posix_spawnp failed')) {
+        d = 'no free pty on this machine (kern.tty.ptmx_max reached) — restart the coxpit daemon';
+        req.log.warn({ err: raw }, 'pty exhausted (posix_spawnp failed) — machine out of ptys');
+      } else if (raw.includes('ENOENT')) {
+        const bin = /spawn (\S+) ENOENT/.exec(raw)?.[1] ?? 'tmux';
+        d = `terminal binary "${bin}" not found on the daemon PATH — install it, or set COXPIT_TMUX / launch the app with Homebrew on PATH`;
+        req.log.warn({ err: raw }, 'terminal binary not on PATH (ENOENT)');
+      } else {
+        d = 'pty spawn failed: ' + raw.slice(0, 200);
+      }
+      socket.send(JSON.stringify({ t: 'err', d }));
       socket.close();
       return;
     }
+    liveTerminals++;   // pty 압력 지표(/api/health) — close 에서 정확히 1회 감소
+    let closed = false;
     // 백프레셔 — WS 송신 버퍼가 차면 pty 를 잠시 멈춰 폭주 방지
     let paused = false;
     term.onData((d) => {
@@ -1629,6 +1666,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       } catch { /* ignore */ }
     });
     socket.on('close', () => {
+      if (!closed) { closed = true; liveTerminals = Math.max(0, liveTerminals - 1); }
       clearInterval(drain); clearInterval(keepalive);
       try { term.kill(); } catch { /* gone */ }
     });

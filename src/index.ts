@@ -5,7 +5,12 @@ import { machines } from './db/schema';
 import { acquireDaemonLock, updateLockPort } from './lock';
 import { reconcileOrphanRuns } from './orchestrator';
 import { buildServer } from './server';
+import { augmentPathForGuiLaunch } from './paths';
 import type { AddressInfo } from 'node:net';
+
+// macOS: GUI/launchd 로 뜨면 PATH 에 Homebrew 가 없어 로컬 tmux 를 못 찾는다(issue #10).
+// 어떤 로컬 spawn 보다 먼저 PATH 를 보강한다.
+augmentPathForGuiLaunch();
 
 // Windows 네이티브는 에이전트 실행 계층(sh·tmux·git worktree over sh)이 성립하지 않는다.
 // 보드/원격 머신 관제는 되지만 로컬 run 은 불가 — WSL 데몬을 안내한다.

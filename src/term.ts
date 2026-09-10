@@ -50,7 +50,7 @@ function liveFds(): Set<number> {
   }
   return s;
 }
-function spawnPty(file: string, args: string[], opts: Parameters<PtyModule['spawn']>[2]): IPty {
+export function spawnPty(file: string, args: string[], opts: Parameters<PtyModule['spawn']>[2]): IPty {
   if (process.platform !== 'darwin') return pty().spawn(file, args, opts);
   const before = liveFds();
   const term = pty().spawn(file, args, opts);

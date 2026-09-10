@@ -1,6 +1,6 @@
 {
   "name": "coxpit-desktop",
-  "version": "5.27.4",
+  "version": "5.27.5",
   "description": "Coxpit desktop app — embeds the coxpit daemon and opens the fleet board.",
   "main": "main.cjs",
   "private": true,
@@ -16,6 +16,7 @@
   "build": {
     "appId": "dev.coxpit.app",
     "productName": "Coxpit",
+    "afterSign": "build/after-sign.cjs",
     "files": [
       "main.cjs",
       "preload-auth.cjs"
