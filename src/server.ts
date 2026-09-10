@@ -12,7 +12,7 @@ import { authGate } from './auth';
 import { loginPageHTML } from './login';
 import {
   authMode, authIsOpen, verifyKey, storeKey, clearStored, isExposedBind, signSession, SESSION_COOKIE,
-  clientKey, rateCheck, rateFail, rateReset, setupAllowed,
+  clientKey, rateCheck, rateFail, rateReset, setupAllowed, socketIp,
 } from './authkey';
 import { config } from './config';
 import { readSettings, writeSettings } from './settings';
@@ -255,8 +255,6 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (isSecureReq(req)) parts.push('Secure');
     reply.header('set-cookie', parts.join('; '));
   };
-  const socketIp = (req: { socket?: { remoteAddress?: string } }): string =>
-    String(req.socket?.remoteAddress ?? '');
   // real form navigation POST(urlencoded + nav flag) 인가 — 그러면 JSON 대신 303/HTML 로 답한다.
   // 이 경로는 브라우저가 응답의 Set-Cookie 를 커밋한 뒤 GET / 로 이동하므로 Safari 쿠키 레이스가 없다.
   const isFormNav = (req: { body?: unknown; headers: Record<string, unknown> }): boolean => {

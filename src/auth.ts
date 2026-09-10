@@ -1,7 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { config } from './config';
 import {
-  authMode, verifyKey, verifySession, readCookie, SESSION_COOKIE,
+  authMode, verifyKey, verifySession, readCookie, SESSION_COOKIE, isLocalRequest, socketIp,
 } from './authkey';
 import { loginPageHTML } from './login';
 
@@ -32,12 +32,29 @@ function wantsHtml(req: FastifyRequest): boolean {
  * 거부 시 HTML GET 은 login/setup 페이지(200), 그 외는 401(WWW-Authenticate 없음 → 팝업 없음).
  */
 export async function authGate(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const m = authMode();
-  if (m.mode === 'disabled') return;
-
   const path = req.url.split('?')[0] ?? '';
   if (EXEMPT.has(path)) return;
   if (EXEMPT_PREFIX.some((p) => path.startsWith(p))) return;
+
+  const m = authMode();
+  if (m.mode === 'disabled') {
+    // COXPIT_AUTH_DISABLED=1 은 운영자의 명시적 해제 — 그대로 존중한다.
+    if (config.auth.disabled) return;
+    // 여기 오는 나머지는 "키 미설정 + loopback 바인드"의 로컬 신뢰다.
+    // 신뢰 여부는 바인드가 아니라 이 요청이 실제로 로컬인지로 판단한다 — 프록시를 타고 온
+    // 요청은 소켓이 loopback 이어도 로컬이 아니다(issue #11).
+    if (isLocalRequest(req.headers as Record<string, unknown>, socketIp(req))) return;
+    // 프록시 경유인데 키가 없다 → 전부 서빙하지 말고 첫 실행 셋업으로 유도한다.
+    if (wantsHtml(req)) {
+      await reply.type('text/html').code(200).send(loginPageHTML(true));
+      return;
+    }
+    await reply.code(401).send({
+      error: 'unauthorized',
+      detail: 'no access key is set and this request came through a proxy — set a key first',
+    });
+    return;
+  }
 
   // 세션 쿠키(언락 완료 기기) — 무상태 서명 검증.
   const sess = readCookie(req.headers.cookie, SESSION_COOKIE);

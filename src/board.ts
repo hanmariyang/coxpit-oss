@@ -1769,8 +1769,8 @@ async function renderSettings(){
   const dis = (on)=> on ? ' disabled' : '';
   const keyState = au.mode==='env' ? 'Managed by env (COXPIT_AUTH_PASS)'
     : L.authDisabled ? 'Disabled by env (COXPIT_AUTH_DISABLED)'
-    : au.hasKey ? 'Access key is set' + (au.exposed?'':' (loopback trusted — asked only when exposed)')
-    : au.exposed ? 'No key yet — this daemon is exposed, set one' : 'No key — loopback trusted, no sign-in needed';
+    : au.hasKey ? 'Access key is set — asked on every bind'
+    : au.exposed ? 'No key yet — this daemon is exposed, set one' : 'No key — local requests trusted, proxied ones are not';
   box.innerHTML =
     '<div class="set-sec"><div class="set-h">Daemon</div>'
       + '<label class="set-row"><span class="set-lbl">Port '+lockNote(L.port,'COXPIT_PORT')+'</span>'
