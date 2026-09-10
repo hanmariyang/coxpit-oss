@@ -20,7 +20,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with:
+          node-version: 22
+          # ⛔ 캐시를 빼지 말 것. macOS 러너는 1분이 10분으로 차감되는데
+          #    이 잡은 npm ci 를 두 번(루트 + desktop/) 돈다. 2026-09 실측:
+          #    캐시 없이 macOS npm ci 에만 월 26분 = 환산 260분(약 $4)이 나갔다.
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
       # apt 미러 stall 방어: 시도마다 자체 timeout + 재시도 (apt 는 hung 커넥션에 자체 타임아웃이 없다)
       - name: install tmux
         run: |
@@ -51,7 +59,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with:
+          node-version: 22
+          # ⛔ 캐시를 빼지 말 것. macOS 러너는 1분이 10분으로 차감되는데
+          #    이 잡은 npm ci 를 두 번(루트 + desktop/) 돈다. 2026-09 실측:
+          #    캐시 없이 macOS npm ci 에만 월 26분 = 환산 260분(약 $4)이 나갔다.
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
 
       # 데몬 프로덕션 의존성 (플랫폼별 네이티브 프리빌드 포함) — 앱에 번들됨
       - run: npm ci --omit=dev
@@ -99,7 +115,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with:
+          node-version: 22
+          # ⛔ 캐시를 빼지 말 것. macOS 러너는 1분이 10분으로 차감되는데
+          #    이 잡은 npm ci 를 두 번(루트 + desktop/) 돈다. 2026-09 실측:
+          #    캐시 없이 macOS npm ci 에만 월 26분 = 환산 260분(약 $4)이 나갔다.
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
       - run: npm ci
       - run: node --import tsx test/pty-fd.mjs
 
