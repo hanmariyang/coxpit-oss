@@ -164,3 +164,17 @@ jobs:
           tags: |
             ghcr.io/hanmariyang/coxpit:latest
             ghcr.io/hanmariyang/coxpit:${{ steps.v.outputs.version }}
+
+      # ⛔ 이 스텝을 빼지 말 것. GHCR 은 옛 버전을 절대 자동 삭제하지 않는다.
+      #    2026-09 실측: 릴리스 86회가 쌓여 5.73GB — 포함 저장공간 2GB 의 286%.
+      #    한도를 넘으면 초과분이 과금되고, 예산 정지가 걸리면 그 계정의
+      #    아티팩트 업로드까지 "Artifact storage quota has been hit" 으로 막힌다
+      #    (에러 문구가 엉뚱한 곳을 가리키니 원인 추적이 오래 걸린다).
+      - name: 옛 이미지 버전 정리 — 최근 10벌만 남긴다
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: coxpit
+          package-type: container
+          min-versions-to-keep: 10
+          # :latest 가 가리키는 버전은 지우지 않는다(태그 없는 중간 산출물만 먼저 정리)
+          delete-only-untagged-versions: false
