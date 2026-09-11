@@ -104,11 +104,14 @@ export function isExposedBind(): boolean {
 
 export function authMode(): AuthMode {
   if (config.auth.disabled) return { mode: 'disabled' };
-  // loopback-only 바인드 = 로컬 신뢰 → 인증 없음(login/setup 페이지도 없음).
-  if (!isExposedBind()) return { mode: 'disabled' };
+  // 명시 키(COXPIT_AUTH_PASS)·저장 키는 바인드와 무관하게 항상 우선한다 — 리버스 프록시가
+  // 앞에 있으면 요청이 loopback 으로 들어와도 인터넷 전체가 도달할 수 있어서, 바인드로
+  // 신뢰를 판단하면 안 된다(issue #11). "loopback = 무마찰"은 authGate 가 요청별로 판단한다.
   if (config.auth.pass !== '') return { mode: 'env', key: config.auth.pass };
   const rec = loadStored();
   if (rec) return { mode: 'stored', rec };
+  // 키 미구성. 노출 바인드면 첫 실행 셋업을 강제하고, loopback 이면 setup 상태로 두되
+  // authGate 가 "진짜 로컬(소켓 loopback + 포워딩 헤더 부재)"만 무마찰 통과시킨다.
   return { mode: 'setup' };
 }
 

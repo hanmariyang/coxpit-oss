@@ -1443,6 +1443,27 @@ case "$LB" in *'<title>coxpit'*) : ;; *) fail "loopback bind should serve the bo
 case "$LB" in *'Unlock this coxpit'*|*'Protect this coxpit'*) fail "loopback bind must not gate with a login page";; *) : ;; esac
 pass "loopback bind = trusted local, board open (no login, zero-friction npx)"
 
+# issue #11: on the SAME loopback+no-key daemon, a proxied request (forwarding header) must NOT be
+# trusted as local — otherwise a reverse-proxy/tunnel in front serves everything unauthenticated.
+expect_code 401 -H 'X-Forwarded-For: 203.0.113.9' "$B/api/machines"
+expect_code 401 -H 'CF-Connecting-IP: 203.0.113.9' "$B/api/machines"
+pass "issue #11: proxied request (fwd header) on a loopback daemon is NOT trusted-local (401)"
+
+# issue #11: an explicitly set COXPIT_AUTH_PASS must be enforced even on a loopback bind
+# (the key wins over the bind — a loopback daemon behind a proxy stays protected).
+kill "$DPID" 2>/dev/null || true; sleep 0.5
+rm -f "$DB"*; rm -f "$AUTHDIR/auth.json" 2>/dev/null || true
+COXPIT_HOST=127.0.0.1 COXPIT_AUTH_PASS=loopback-key-e2e COXPIT_DB="$DB" COXPIT_PORT="$PORT" \
+  node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
+DPID=$!
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+expect_code 401 "$B/api/machines"                         # no credentials
+expect_code 401 -u x:wrong-key "$B/api/machines"          # wrong key never consulted → must fail
+expect_code 200 -u x:loopback-key-e2e "$B/api/machines"   # right key unlocks
+LBK=$(curl -s -H 'accept: text/html' "$B/")
+case "$LBK" in *'Unlock this coxpit'*) : ;; *) fail "loopback+COXPIT_AUTH_PASS must gate the board with the unlock page";; esac
+pass "issue #11: explicit COXPIT_AUTH_PASS enforced on loopback (key wins over bind, wrong key 401)"
+
 # COXPIT_FILES_ROOT widens the viewer jail (default home). "/" opens the whole fs.
 kill "$DPID" 2>/dev/null || true; sleep 0.5
 COXPIT_HOST=127.0.0.1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" COXPIT_FILES_ROOT=/ \

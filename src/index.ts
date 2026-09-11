@@ -72,17 +72,22 @@ console.log(`[coxpit] listening on http://${config.host === '0.0.0.0' ? '127.0.0
 {
   const m = authMode();
   if (m.mode === 'disabled') {
-    if (config.auth.disabled) {
-      console.warn('[coxpit] auth is DISABLED (COXPIT_AUTH_DISABLED=1) — every request is allowed. Front it with your own gateway if exposed.');
-    } else if (!isExposedBind()) {
-      console.log(`[coxpit] loopback-only bind (${config.host}) — trusted local, no login required. Bind to 0.0.0.0 to require an access key.`);
-    }
+    console.warn('[coxpit] auth is DISABLED (COXPIT_AUTH_DISABLED=1) — every request is allowed. Front it with your own gateway if exposed.');
   } else if (m.mode === 'setup') {
-    const token = ensureSetupToken();
-    console.log(
-      '[coxpit] no access key configured yet — open the board to set one (first-run setup).\n' +
-      `[coxpit] one-time setup token (needed unless you visit http://127.0.0.1:${boundPort} directly): ${token}`,
-    );
+    if (!isExposedBind()) {
+      // loopback 바인드 + 키 미구성 = npx 무마찰 경로. 진짜 로컬만 통과하고 프록시/원격 요청은
+      // 셋업 페이지로 막힌다(issue #11) — 키 없이 리버스 프록시 뒤에 세워도 열리지 않는다.
+      console.log(
+        `[coxpit] loopback bind, no access key — local requests are trusted (no login). ` +
+        `A proxied/remote request sees first-run setup instead; set COXPIT_AUTH_PASS or bind 0.0.0.0 to require a key everywhere.`,
+      );
+    } else {
+      const token = ensureSetupToken();
+      console.log(
+        '[coxpit] no access key configured yet — open the board to set one (first-run setup).\n' +
+        `[coxpit] one-time setup token (needed unless you visit http://127.0.0.1:${boundPort} directly): ${token}`,
+      );
+    }
   } else if (m.mode === 'env') {
     console.log('[coxpit] access-key auth ON (COXPIT_AUTH_PASS) — the branded unlock page asks for that key.');
   } else {

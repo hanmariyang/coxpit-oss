@@ -1,9 +1,19 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { config } from './config';
 import {
-  authMode, verifyKey, verifySession, readCookie, SESSION_COOKIE,
+  authMode, verifyKey, verifySession, readCookie, SESSION_COOKIE, isLoopback, isExposedBind,
 } from './authkey';
 import { loginPageHTML } from './login';
+
+/**
+ * 이 요청이 "진짜 로컬"인가 — 소켓 peer 가 loopback 이고 포워딩 헤더가 없어야 한다.
+ * 리버스 프록시/터널을 탄 요청은 소켓이 127.0.0.1 이라도 x-forwarded-for·cf-connecting-ip 를
+ * 실어 오므로 로컬로 신뢰하지 않는다(issue #11 — 바인드가 아니라 요청별로 신뢰 판단).
+ */
+function isTrustedLocalReq(req: FastifyRequest): boolean {
+  const ip = req.socket?.remoteAddress ?? '';
+  const hasFwd = req.headers['x-forwarded-for'] != null || req.headers['cf-connecting-ip'] != null;
+  return isLoopback(ip) && !hasFwd;
+}
 
 // /api/design/capture · /design/bookmarklet.js 는 외부 앱(북마클릿)에서 오므로
 // 헤더/쿠키를 못 싣는다 — 라우트 자체가 캡처 키(?k=)를 검증한다.
@@ -38,6 +48,12 @@ export async function authGate(req: FastifyRequest, reply: FastifyReply): Promis
   const path = req.url.split('?')[0] ?? '';
   if (EXEMPT.has(path)) return;
   if (EXEMPT_PREFIX.some((p) => path.startsWith(p))) return;
+
+  // 키 미구성(setup)이고 loopback 바인드일 때만, 진짜 로컬 요청을 무마찰 통과(npx coxpit 랩탑 경로).
+  // ‑ 프록시/원격 요청(포워딩 헤더)은 loopback 바인드라도 통과시키지 않는다 → 프록시 뒤 무인증 노출 차단.
+  // ‑ 노출 바인드(0.0.0.0)에 키가 없으면 로컬 포함 전원에게 setup 페이지를 강제한다(먼저 키를 걸게).
+  // env/stored(키 구성됨)는 어떤 경우에도 우회 없음(issue #11).
+  if (m.mode === 'setup' && !isExposedBind() && isTrustedLocalReq(req)) return;
 
   // 세션 쿠키(언락 완료 기기) — 무상태 서명 검증.
   const sess = readCookie(req.headers.cookie, SESSION_COOKIE);
