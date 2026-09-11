@@ -251,6 +251,10 @@ case "$CKPT" in *'function startRename'*'function renameTask'*"'/api/tasks/'"*) 
 case "$CKPT" in *'id="pickName"'*'title:nm'*) : ;; *) fail "cockpit session-name input missing";; esac
 pass "cockpit tabs + split-tree panes + session naming/rename"
 
+# 마지막 세션 자동 기억/복원: 첫 hydrate 뒤 restoreSession, render 말미 persistSession (파일 순서대로 매칭).
+case "$CKPT" in *'restoreSession();'*'persistSession();'*"'coxpit.session'"*'function persistSession'*'function restoreSession'*) : ;; *) fail "cockpit last-session persist/restore missing or unwired";; esac
+pass "cockpit remembers + auto-restores the last open session tabs (localStorage snapshot, dead runs pruned)"
+
 # Session delete affordance present in the cockpit (endpoint flow is tested at the end — it consumes ids)
 case "$CKPT" in *'data-delsession'*'function deleteSession'*) : ;; *) fail "cockpit session delete affordance/handler missing";; esac
 

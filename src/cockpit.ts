@@ -604,6 +604,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       if (d.machines && d.machines[0]) { $('mach').textContent = d.machines[0].slug; $('machName').textContent = d.machines[0].slug; }
       renderTree();
       syncPanes();
+      restoreSession();   // 첫 hydrate 로 runById 가 채워진 뒤 마지막 세션 탭을 되살린다(1회)
       populateReq();
       if (reviewOn) renderReviewPicker();
     }catch(e){ /* 재시도는 WS 재연결 or 다음 hydrate */ }
@@ -1017,6 +1018,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (typeof reqMode!=='undefined') setMode(reqMode);
     requestAnimationFrame(fitAllVisible);
     setTimeout(fitAllVisible, 60);   // 레이아웃 확정 후 재핏(초기 0-size 보정)
+    persistSession();   // 탭·페인 배치가 바뀔 때마다 마지막 세션 스냅샷 저장(복원 후에만 동작)
   }
   function setLeafFocus(id){
     focusLeaf=id;
@@ -1056,6 +1058,32 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function restoreLayout(nm){ var o=loadLayouts(); var s=o[nm]; if(!s){ toast('없는 레이아웃'); return; }
     layout=rebuildNode(s.tree); zoomLeaf=null; var f=firstLeaf(); focusLeaf=f?f.id:'L0'; render(); renderTree(); toast('레이아웃 복원 · '+nm); }
   function deleteLayout(nm){ var o=loadLayouts(); delete o[nm]; saveLayouts(o); toast('레이아웃 삭제 · '+nm); }
+
+  // ── 마지막 세션 자동 기억/복원 (localStorage 'coxpit.session', 기기·데몬 origin 별) ──
+  // 탭·페인 배치가 바뀔 때마다 스냅샷을 저장하고, 코크핏을 다시 열면 마지막 모습 그대로 되살린다.
+  // rebuildNode 가 이미 사라진 run 은 걸러내므로 죽은 세션은 자동 제외된다. 별도 조작 불필요.
+  var SESSION_KEY='coxpit.session';
+  var sessionRestoreDone=false;
+  function persistSession(){
+    if(!sessionRestoreDone) return;   // 첫 복원 전(초기 빈 render)에 저장하면 스냅샷을 덮어써 버린다
+    try{ localStorage.setItem(SESSION_KEY, JSON.stringify(serializeNode(layout))); }catch(e){}
+  }
+  function restoreSession(){
+    if(sessionRestoreDone) return;    // 1회만(이후 hydrate 는 통과)
+    sessionRestoreDone=true;
+    // 이미 탭이 열려 있으면(딥링크 등) 손대지 않는다. 그 외에는 저장분을 되살린다.
+    if(!tabOrder.length){
+      var raw; try{ raw=localStorage.getItem(SESSION_KEY); }catch(e){ raw=null; }
+      var sn=null; if(raw){ try{ sn=JSON.parse(raw); }catch(e){ sn=null; } }
+      if(sn){ try{
+        var rebuilt=rebuildNode(sn);   // 살아있는 run·뷰어 탭을 되살린다(죽은 것은 tab=null 로 떨궈짐)
+        if(rebuilt){ layout=rebuilt; zoomLeaf=null; var f=firstLeaf(); focusLeaf=f?f.id:'L0'; }
+        if(!tabOrder.length){ layout={leaf:true,id:'L0',tab:null}; focusLeaf='L0'; }  // 되살릴 게 없으면 깔끔한 빈 상태
+        render(); renderTree();
+      }catch(e){} }
+    }
+    persistSession();   // 복원할 게 없거나 이미 탭이 있어도, 지금부터 현재 상태를 마지막-세션으로 기록한다
+  }
 
   // 탭 열기 = 포커스 슬롯에 표시(강제 분할 없음). 기존 호출부(openRunPane) 호환.
   function openTab(runId){
