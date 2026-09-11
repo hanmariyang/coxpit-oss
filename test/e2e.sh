@@ -1341,9 +1341,23 @@ case "$UNLOCK_HTML" in *'/brand/wave.png'*) : ;; *) fail "unlock page missing we
 case "$UNLOCK_HTML" in *"font-family:'Pixelify'"*) : ;; *) fail "unlock page missing Pixelify wordmark";; esac
 # /share/* 는 무인증 예외(없는 토큰이라도 401 이 아니라 404 여야 함)
 expect_code 404 "$B/share/no-such-token"
-expect_code 201 -X POST "$B/api/design/capture?k=pw-e2e" -H 'content-type: application/json' -d '{"selector":"x"}'
+expect_code 200 -u x:pw-e2e "$B/api/machines"
+pass "auth gate (exposed bind, env key, Basic back-compat)"
+
+# issue #13: Design Mode uses a scoped capture key, NOT the master access key.
+# capture-key readout is behind the gate; the master key must not authorize captures; rotation retires the old key.
+expect_code 401 "$B/api/design/capture-key"   # 캡처 키 조회는 게이트 뒤(인증된 보드만)
+CAPK=$(curl -s -u x:pw-e2e "$B/api/design/capture-key" | grep -oE '"key":"[^"]*"' | sed 's/.*"key":"//;s/"//')
+case "$CAPK" in cap_*) : ;; *) fail "capture-key endpoint should return a scoped key (got: $CAPK)";; esac
+expect_code 201 -X POST "$B/api/design/capture?k=$CAPK" -H 'content-type: application/json' -d '{"selector":"x"}'
+expect_code 401 -X POST "$B/api/design/capture?k=pw-e2e" -H 'content-type: application/json' -d '{}'  # ← 마스터 키는 캡처 불가(#13)
 expect_code 401 -X POST "$B/api/design/capture?k=nope" -H 'content-type: application/json' -d '{}'
-pass "auth gate + capture key (exposed bind, env key, Basic back-compat)"
+pass "design capture uses a scoped capture key; master access key rejected (#13)"
+NCAPK=$(curl -s -u x:pw-e2e -X POST "$B/api/design/capture-key/rotate" | grep -oE '"key":"[^"]*"' | sed 's/.*"key":"//;s/"//')
+case "$NCAPK" in cap_*) [ "$NCAPK" != "$CAPK" ] || fail "rotate should mint a different capture key";; *) fail "rotate should return a key";; esac
+expect_code 401 -X POST "$B/api/design/capture?k=$CAPK" -H 'content-type: application/json' -d '{}'   # 회전 후 구키 폐기
+expect_code 201 -X POST "$B/api/design/capture?k=$NCAPK" -H 'content-type: application/json' -d '{"selector":"y"}'
+pass "capture key rotates: old key 401, new key 201 (#13)"
 
 # v4.8 — API 401 carries NO WWW-Authenticate header (no native browser popup)
 WWWH=$(curl -s -D - -o /dev/null "$B/api/machines")

@@ -13,6 +13,7 @@ import { loginPageHTML } from './login';
 import {
   authMode, authIsOpen, verifyKey, storeKey, clearStored, isExposedBind, signSession, SESSION_COOKIE,
   clientKey, rateCheck, rateFail, rateReset, setupAllowed,
+  captureKey, captureKeyIsFixed, rotateCaptureKey, verifyCaptureKey,
 } from './authkey';
 import { config } from './config';
 import { readSettings, writeSettings } from './settings';
@@ -201,7 +202,14 @@ function ptyMax(): number | null {
 }
 
 export async function buildServer(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: true });
+  // 로거: 쿼리스트링의 캡처 키(?k=…)가 데몬 로그에 평문으로 남지 않게 가린다(issue #13).
+  // (프록시/엣지 로그는 데몬이 못 막지만, 캡처 키는 저가치·회전가능이라 감수 가능.)
+  const app = Fastify({ logger: {
+    redact: {
+      paths: ['req.url'],
+      censor: (v: unknown) => (typeof v === 'string' ? v.replace(/([?&]k=)[^&]*/g, '$1REDACTED') : v),
+    },
+  } });
   // 살아있는 웹 터미널 수 — pty 압력 조기경보(/api/health)용. openTerm 성공 시 +1, 소켓 close 시 -1.
   // 누수가 재발하면 이 값이 실제 열린 탭보다 커지지 않아도(닫을 때 감소), machine-wide ptmx 대비
   // 이 데몬의 부하를 노출한다. leak 재발 자체는 회귀 테스트(test/pty-fd.mjs)가 잡는다.
@@ -822,14 +830,13 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   // ─── Design Mode ───────────────────────────────────────────────
-  // 캡처 키: 인증 off 면 자유, on 이면 ?k=<COXPIT_AUTH_PASS> (북마클릿은 basic 헤더 불가)
+  // 캡처 키 = 마스터 접근키와 분리된 저가치 전용 키(issue #13). 오직 이 캡처 엔드포인트만 허가한다.
+  // 인증 꺼짐이면 자유, 아니면 ?k=<capture key> 를 검증(마스터 접근키가 아니라 캡처 키로).
+  // setup(마스터 키 미설정) 상태여도 캡처 키는 독립적으로 존재하므로 캡처는 동작한다.
   const captureKeyOk = (req: { query?: unknown }): boolean => {
-    const m = authMode();
-    // 인증 꺼짐 → 자유. 아직 키 미설정(setup) → 캡처 불가(키가 없으니 증명 수단 없음).
-    if (m.mode === 'disabled') return true;
-    if (m.mode === 'setup') return false;
+    if (authMode().mode === 'disabled') return true;
     const k = ((req.query ?? {}) as { k?: string }).k ?? '';
-    return verifyKey(k, m);
+    return verifyCaptureKey(k);
   };
   const cors = (reply: { header: (k: string, v: string) => unknown }) => {
     reply.header('access-control-allow-origin', '*');
@@ -855,6 +862,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   app.get('/api/design', async () => ({ captures: await db.select().from(designCaptures) }));
+
+  // 캡처 키 조회/회전 — 인증 게이트 뒤(EXEMPT 아님)라 인증된 보드 사용자만 접근한다.
+  // 보드가 이걸로 북마클릿 href(?k=…)를 만들고, 회전 버튼으로 새 키를 발급한다.
+  app.get('/api/design/capture-key', async () => ({ key: captureKey(), fixed: captureKeyIsFixed() }));
+  app.post('/api/design/capture-key/rotate', async () => ({ key: rotateCaptureKey(), fixed: captureKeyIsFixed() }));
 
   app.delete('/api/design/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);

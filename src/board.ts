@@ -933,8 +933,10 @@ ${ICON_SPRITE}
       <div id="captures" style="display:flex;flex-direction:column;gap:6px;margin-top:10px"></div>
       <a id="bmk" class="btn-ghost sm" style="text-decoration:none;text-align:center;display:block;padding:6px;margin-top:6px"
          title="drag me to your bookmarks bar, then click it on your running app">⌖ coxpit inspect</a>
-      <span style="font-size:11px;color:var(--faint)">Drag to bookmarks. Click it on your app, then click an element.
-      With auth on, append ?k=&lt;pass&gt; to the script URL.</span>
+      <div style="display:flex;gap:6px;align-items:flex-start;margin-top:4px">
+        <span style="font-size:11px;color:var(--faint);flex:1">Drag to bookmarks, click it on your app, then click an element. The capture key is built into the link — it only allows captures, never the daemon.</span>
+        <button type="button" id="bmkRotate" class="btn-ghost sm" title="rotate the capture key — retires a bookmarklet that leaked onto a shared page" style="font-size:11px;padding:4px 6px;white-space:nowrap">↻ key</button>
+      </div>
     </details>
   </aside>
 
@@ -2096,8 +2098,32 @@ function paintSidebar(){
     + '<button class="x" data-delcap="'+c.id+'" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button>'
     + '<div class="path">'+esc((c.url||'').slice(0,70))+'</div></div>').join('')
     || '<div class="repo" style="color:var(--faint)">none captured</div>';
-  $('bmk').href = "javascript:(function(){var s=document.createElement('script');s.src='"
-    + location.origin + "/design/bookmarklet.js';document.body.appendChild(s)})()";
+  buildBmkHref();
+}
+
+// ── Design Mode 캡처 키(마스터 접근키와 분리, issue #13) ──
+// 보드는 캡처 전용 키를 서버에서 받아 북마클릿 href(?k=…)에 심는다. 회전 버튼으로 새 키 발급.
+let captureKeyVal = '', captureKeyFixed = false;
+function buildBmkHref(){
+  var q = captureKeyVal ? ('?k=' + encodeURIComponent(captureKeyVal)) : '';
+  var el = $('bmk'); if (!el) return;
+  el.href = "javascript:(function(){var s=document.createElement('script');s.src='"
+    + location.origin + "/design/bookmarklet.js" + q + "';document.body.appendChild(s)})()";
+}
+async function loadCaptureKey(){
+  try{
+    var d = await (await fetch('/api/design/capture-key')).json();
+    captureKeyVal = d.key || ''; captureKeyFixed = !!d.fixed;
+    var rb = $('bmkRotate'); if (rb) rb.style.display = captureKeyFixed ? 'none' : '';
+    buildBmkHref();
+  }catch(e){ /* 인증 만료 등 — 다음 로드에서 재시도 */ }
+}
+async function rotateCaptureKeyUI(){
+  try{
+    var d = await (await fetch('/api/design/capture-key/rotate', { method:'POST' })).json();
+    captureKeyVal = d.key || ''; buildBmkHref();
+    toast('capture key rotated — drag the bookmarklet again to update it', true);
+  }catch(e){ toast('rotate failed', false); }
 }
 /* ── v5.0 navigator rail — machine switcher · repo list(counts+attention+scope) · nav counts ── */
 const FAILED_STATES = ['failed','error'];
@@ -3877,7 +3903,8 @@ function openFromURL(){
   if (q) history.replaceState(null, '', location.pathname);
 }
 
-hydrate().then(()=>{ connectWS(); openFromURL(); });
+var _bmkRot = $('bmkRotate'); if (_bmkRot) _bmkRot.addEventListener('click', rotateCaptureKeyUI);
+hydrate().then(()=>{ connectWS(); openFromURL(); loadCaptureKey(); });
 </script>
 </body>
 </html>`;

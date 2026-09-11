@@ -34,6 +34,36 @@ export function constantEqHex(aHex: string, bHex: string): boolean {
   }
 }
 
+// ── Design Mode 캡처 키(저가치, 마스터 접근키와 분리) ─────────────────
+// issue #13: 캡처는 마스터 접근키(셸까지 여는 키)로 인증하면 안 된다 — 북마클릿 src 쿼리·로그·
+// 북마크로 새기 때문. 이 키는 오직 POST /api/design/capture 만 허가하고(누설 피해 = 잡 캡처 행뿐),
+// 언제든 회전 가능하다. 보드가 북마클릿 href 를 만들려면 원문을 다시 읽어야 하므로 평문 저장.
+const CAPTURE_PATH = path.join(path.dirname(AUTH_PATH), 'capture-key.txt');
+let captureCache: string | undefined;
+function genCaptureKey(): string { return 'cap_' + randomBytes(18).toString('base64url'); }
+export function captureKey(): string {
+  const env = (process.env.COXPIT_CAPTURE_KEY ?? '').trim();
+  if (env) return env;                     // env 고정이면 그 값(회전 불가)
+  if (captureCache) return captureCache;
+  try { const v = fs.readFileSync(CAPTURE_PATH, 'utf8').trim(); if (v) { captureCache = v; return v; } } catch { /* 없음 → 생성 */ }
+  const k = genCaptureKey();
+  try { fs.mkdirSync(path.dirname(CAPTURE_PATH), { recursive: true }); fs.writeFileSync(CAPTURE_PATH, k, { mode: 0o600 }); } catch { /* best effort */ }
+  captureCache = k; return k;
+}
+/** 캡처 키가 env 로 고정됐나(그러면 보드에서 회전 불가). */
+export function captureKeyIsFixed(): boolean { return (process.env.COXPIT_CAPTURE_KEY ?? '').trim() !== ''; }
+export function rotateCaptureKey(): string {
+  if (captureKeyIsFixed()) return captureKey();   // env 고정이면 no-op
+  const k = genCaptureKey();
+  try { fs.mkdirSync(path.dirname(CAPTURE_PATH), { recursive: true }); fs.writeFileSync(CAPTURE_PATH, k, { mode: 0o600 }); } catch { /* best effort */ }
+  captureCache = k; return k;
+}
+export function verifyCaptureKey(k: string): boolean {
+  const a = Buffer.from(String(k ?? '')); const b = Buffer.from(captureKey());
+  if (a.length === 0 || a.length !== b.length) return false;
+  try { return timingSafeEqual(a, b); } catch { return false; }
+}
+
 let cache: StoredAuth | null | undefined; // undefined = 미로드, null = 파일 없음
 
 /** 저장된 인증(있으면). env-mode 여도 파일이 있을 수 있으나 precedence 는 authMode 가 결정. */
