@@ -276,6 +276,22 @@ Sequencing (revised after review): **1** A2 no-op + A3 overlap (cheap, origin-fr
 target/fetch/drift foundation → **3** conflict preview A1 vs `origin/<target>` → **4** land (C)
 → **5** the agent-resolution loop (B). e2e-green commits on main, dry-safe; cut **5.1** when the loop closes.
 
+## v5.28 — agent terminal flow *(spec ready — Part A — [design/v5.28-agent-terminal-flow.md](../design/v5.28-agent-terminal-flow.md))*
+
+Usage-driven: the daily surface is the **terminal** (`/cockpit`), driven to run AI agents —
+so the next milestone deepens that. Theme: **run many agents from the terminal, get pulled
+back only when one needs you.** Grounded in Giting's measured references (ruflo — ship only
+what works, no stub state; PokeTokenBar — ambient glance).
+
+- [ ] **Part A — agent state & attention** *(spec ready)*: coarse per-terminal state
+      (working · waiting · idle · exited) read from the real PTY stream (`src/agentstate.ts`,
+      tapped in `/ws/term`), surfaced as tab dots + an Agents rail + a waiting count, with
+      opt-in sound / browser notification / webhook when a *background* tab needs you.
+      Honesty guardrail: `waiting` only on a positive prompt-pattern hit, never fabricated.
+- [ ] Part B — stale-process guard (what's actually running on this port/path)
+- [ ] Part C — quick actions + safe context injection (start/resume, quick replies)
+- [ ] Part D — input/output ergonomics (multi-line paste, mobile input, clickable paths/diffs)
+
 ## Non-goals
 
 - Vendoring or wrapping agent CLIs — external tools stay external (`git`, `tmux`, the agent)
