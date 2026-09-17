@@ -4,21 +4,22 @@
 
 # Coxpit
 
-**Own your agent fleet. Run parallel AI coding agents across your own machines — steer them from any browser.**
+**Own your agent fleet. A terminal-first cockpit for parallel AI coding agents on your own machines — steer them from any browser.**
 
 **[Landing & downloads](https://hanmariyang.github.io/coxpit-oss/)** · [Latest release](https://github.com/hanmariyang/coxpit-oss/releases/latest)
 
 ![coxpit fleet board — three agents racing the same task](docs/demo.gif)
 
-Coxpit is a self-hosted cockpit for CLI coding agents (Claude Code first). Give it a task and it launches N agents in parallel — each in its own **isolated git worktree**, on its own branch, inside its own tmux session — then streams everything to a live board where you watch, compare diffs side by side, attach a real terminal, and merge the winner.
+Coxpit is a self-hosted cockpit for CLI coding agents (Claude Code first). The **cockpit** (`/cockpit`) is the home: a workspace tree of **Project ▸ Work ▸ Session** with a real terminal behind every row. Add a second agent to a work and you have a fleet — each run in its own **isolated git worktree**, on its own branch, inside its own tmux session. The **board** (`/`) is the reading room next door: live run cards, diffs side by side, merge the winner, archive and goal workrooms — one `⌘K` away, never in your way.
 
 Your machines. Your auth. Your code never leaves your network.
 
 ## What it does
 
+- **Terminal-first cockpit** — the home screen is your workspace tree (Project ▸ Work ▸ Session) with split panes, tabs, and a real PTY behind every row. Plenty of agent consoles *draw* a terminal; this one attaches to the tmux session the agent is actually running in, so what you type reaches the process and what it prints comes back. One surface that works beats five that render.
 - **Fleet runs** — one task, N agents. Each run = worktree + branch + tmux window. No agent ever touches your checkout.
 - **Two providers** — Claude Code and OpenAI Codex CLI, selectable per launch. Fan the same task across both and compare; steering resumes each agent's own session. The provider seam (`src/providers.ts`) is ~100 lines per provider — adding a third is a PR, not a fork.
-- **Live board** — WebSocket-driven console: status, event timeline (parsed from the agent's stream-json), per-run diff.
+- **The board, as the reading room** — WebSocket-driven review and records: status, event timeline (parsed from the agent's stream-json), per-run diff, archive, goal workrooms. It keeps working exactly as it always has; new capability just lands in the cockpit now.
 - **Compare & merge** — all runs of a task side by side; pick the winner, merge to the base branch (auto-commits the worktree, guards a clean base, aborts on conflict).
 - **Real terminal** — attach to any run's tmux session in the browser (xterm.js over a server-side PTY; resize propagates, `Ctrl-b d` detaches).
 - **Multi-machine** — register remote machines over SSH (Tailscale/LAN); probe reachability (git·tmux), run fleets there.
@@ -51,7 +52,7 @@ cp .env.example .env        # set COXPIT_AUTH_PASS (or COXPIT_AUTH_DISABLED=1 lo
 npm run dev
 ```
 
-Open the board, register a repo (absolute path), write a task, hit **Run fleet**.
+Open the board, register a repo (absolute path), write a task, hit **Run fleet**. Then switch to **`/cockpit`** (the desktop app's default entry) — that's where the terminals live, and `⌘K` brings the board back whenever you want to review.
 
 By default agents run in **dry-run mode** (a mock that exercises the whole pipeline without spending credits). Flip the Dry/Real toggle per launch, or set `COXPIT_AGENT_REAL=1` to default to real.
 
@@ -138,7 +139,7 @@ On Windows, install the daemon inside WSL2 (`npm i -g coxpit`) — WSL2 forwards
 ## Architecture
 
 ```
-browser (board · xterm)
+browser (cockpit · board · xterm)
    │  HTTP + WS
 daemon — Node/TS · Fastify · libSQL(Drizzle)
    │  spawn / ssh
@@ -147,7 +148,7 @@ machines — git worktrees · tmux sessions · agent CLIs
 
 One daemon, one SQLite file, zero external services. Machines are reached over SSH; the local machine is just `sh`.
 
-**One daemon per machine.** Every install method shares `~/.coxpit/` — the daemon takes a lock there (`daemon.lock.json`) and refuses to start if another daemon already owns the database (running two would corrupt each other's live runs). The desktop app checks for a running daemon first and attaches to it (prompting for its basic auth if set); it only spawns its own embedded daemon when none is running. So npm CLI, launchd/systemd service, and the desktop app all see the same machines, tasks, and run history.
+**One daemon per machine.** Every install method shares `~/.coxpit/` — the daemon takes a lock there (`daemon.lock.json`) and refuses to start if another daemon already owns the database (running two would corrupt each other's live runs). The desktop app checks for a running daemon first and attaches to it (prompting for its basic auth if set); it only spawns its own embedded daemon when none is running, and it opens the cockpit (`COXPIT_ENTRY` overrides). So npm CLI, launchd/systemd service, and the desktop app all see the same machines, tasks, and run history.
 
 ## Status
 
