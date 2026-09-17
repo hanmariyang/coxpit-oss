@@ -82,6 +82,7 @@ export const agentRuns = sqliteTable('agent_runs', {
   taskId: integer('task_id').notNull(),
   machineId: integer('machine_id').notNull(),
   agent: text('agent').notNull().default('claude-code'),
+  title: text('title').notNull().default(''), // v6.0 — 작업 안에서의 역할 이름(예: 구현·기타). 빈값 = 프로바이더 이름/main 으로 표시
   worktreePath: text('worktree_path').notNull().default(''),
   branch: text('branch').notNull().default(''),
   tmuxWindow: text('tmux_window').notNull().default(''),

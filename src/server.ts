@@ -955,10 +955,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     return { ok: true, title };
   });
 
+  // 역할 이름(run.title) 상한 — 탭 한 칸에 들어가는 길이. 작업 이름(140)보다 짧게 둔다.
+  const RUN_TITLE_MAX = 60;
+
   // N개의 에이전트 run 을 만들고 각자 오케스트레이션 시작(fire-and-forget).
   app.post('/api/tasks/:id/run', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const b = (req.body ?? {}) as { agent?: string; count?: number; real?: boolean; model?: string };
+    const b = (req.body ?? {}) as { agent?: string; count?: number; real?: boolean; model?: string; title?: string };
     const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     const task = tr[0];
     if (!task) return reply.code(404).send({ error: 'task not found' });
@@ -973,16 +976,18 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (model && (model.length > 64 || !/^[\w.\-:/]*$/.test(model))) {
       return reply.code(400).send({ error: 'invalid model name' });
     }
+    // v6.0 T4 — 역할 이름(선택). 작업 안에서 이 run 이 무엇인지(구현·기타). 빈값 = 프로바이더 이름으로 표시.
+    const title = (b.title ?? '').trim().slice(0, RUN_TITLE_MAX);
     const created: Array<typeof agentRuns.$inferSelect> = [];
     for (let i = 0; i < count; i++) {
       const ins = await db.insert(agentRuns)
-        .values({ taskId: id, machineId: rp[0].machineId, agent, model, status: 'pending' })
+        .values({ taskId: id, machineId: rp[0].machineId, agent, model, title, status: 'pending' })
         .returning();
       created.push(ins[0]!);
     }
     // 보드가 taskId 를 알도록 생성 브로드캐스트 후 백그라운드 시작.
     for (const r of created) {
-      broadcast({ type: 'run', runId: r.id, taskId: id, status: 'pending', agent, branch: '', filesChanged: 0 });
+      broadcast({ type: 'run', runId: r.id, taskId: id, status: 'pending', agent, title, branch: '', filesChanged: 0 });
       void launchRun(r.id, b.real);
     }
     return reply.code(202).send({ ok: true, runs: created.map((r) => ({ id: r.id, status: r.status })) });
@@ -1048,6 +1053,22 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     const events = await db.select().from(agentEvents).where(eq(agentEvents.runId, id));
     return { run: rr[0], events };
+  });
+
+  // v6.0 T4 — run 의 역할 이름 변경(탭 더블클릭). title 만 받는다.
+  // (세션 버킷 run 은 지금까지처럼 태스크 이름을 바꾼다 — 클라이언트가 갈라 부른다.)
+  app.patch('/api/runs/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { title?: unknown };
+    const title = typeof b.title === 'string' ? b.title.trim() : '';
+    if (!title) return reply.code(400).send({ error: 'title required' });
+    if (title.length > RUN_TITLE_MAX) return reply.code(400).send({ error: `title too long (max ${RUN_TITLE_MAX})` });
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    await db.update(agentRuns).set({ title }).where(eq(agentRuns.id, id));
+    // status 를 싣지 않는다 — 이름 변경은 정착 이벤트가 아니다(보드의 settle 알림을 깨우지 않게).
+    broadcast({ type: 'run', runId: id, taskId: rr[0].taskId, title });
+    return { ok: true, title };
   });
 
   app.post('/api/runs/:id/cleanup', async (req, reply) => {
