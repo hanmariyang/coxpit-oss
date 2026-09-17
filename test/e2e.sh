@@ -268,13 +268,13 @@ pass "v6.0 T1–T4 cockpit: Scratch→project▸work▸session tree + ＋새 작
 
 # v6.0 Part S — Scratch(리프레임) · 정리(S1b) · 승격(S2). 파일 순서대로 매칭:
 # CSS → 시트 마크업 → 트리 라벨/행 → 정리 로직 → 승격 로직.
-case "$CKPT" in *'.tree-note{'*'.scrub-row{'*'.scrub-fold{'*) : ;; *) fail "cockpit Scratch styles (tree-note/scrub-row/scrub-fold) missing";; esac
+case "$CKPT" in *'.scrub-row{'*'.scrub-fold{'*) : ;; *) fail "cockpit Scratch styles (scrub-row/scrub-fold) missing";; esac
 # 정리 판은 **폴더는 보존된다**고 말하고, 접힌 오래된 세션은 선택도 삭제도 되지 않는다고 말한다
 case "$CKPT" in *'id="scrubModal"'*'폴더와 파일은 언제나 그대로 보존'*'선택되지도 지워지지도 않습니다'*'id="scrubList"'*'id="scrubGo"'*) : ;; *) fail "cockpit Scratch cleanup sheet must state the folder is preserved and that folded sessions are untouched";; esac
 # 승격 메뉴 — 등록 / 이동 두 길
 case "$CKPT" in *'id="promoModal"'*'data-promo="register"'*'>프로젝트로 등록<'*'data-promo="move"'*'>프로젝트로 이동<'*) : ;; *) fail "cockpit promotion menu (프로젝트로 등록 / 프로젝트로 이동) missing";; esac
 # 라벨 = Scratch + 한 줄 카피(트리 목소리 그대로) + 정리… + 행마다 ⇧ 승격
-case "$CKPT" in *'<span>Scratch</span>'*'data-scrub="1"'*'>정리…</span>'*'프로젝트가 되기 전의 생각들'*'data-promote='*) : ;; *) fail "cockpit Scratch section needs the reframe copy + 정리… + per-session ⇧ promote";; esac
+case "$CKPT" in *'<span>Scratch</span>'*'data-scrub="1"'*'>정리…</span>'*'data-promote='*) : ;; *) fail "cockpit Scratch section needs the reframe label + 정리… + per-session promote";; esac
 # 오래된 세션은 접기만 한다 — 접는 것은 훑기 위한 장치이지 지우는 장치가 아니다
 case "$CKPT" in *'SCRUB_STALE_DAYS = 14'*'data-scrubold="1"'*'오래된 세션 '*'접힌 것은 지워지지 않습니다'*) : ;; *) fail "cockpit Scratch cleanup must fold >14d-quiet sessions without deleting anything";; esac
 # 지우는 길은 기존 세션 삭제 하나 — 한 건이든 정리 판이든 같은 DELETE /api/runs/:id 를 지난다

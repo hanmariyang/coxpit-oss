@@ -319,8 +319,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none}
   /* 섹션 라벨에 액션이 둘 이상이면 한 묶음으로 — 양쪽 끝으로 흩어지지 않게(.tact+.tact 와 같은 이유) */
   .lbl .lacts{display:flex;align-items:center;gap:10px}
-  /* v6.0 S1 — Scratch 는 아직 프로젝트가 아닌 것들이다. 한 줄로 그렇게 말한다 */
-  .tree-note{padding:0 8px 9px;font-size:10.5px;color:var(--faint);line-height:1.45;white-space:normal}
+  /* v6.0 S1 — Scratch 안내문은 제거함(의뢰자 요청 2026-09-17). .tree-note 미사용 */
   .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
   .tnode.session.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
   /* 이름 우선: .n(flex:1) 이 공간을 갖고, 경로는 끝만 짧게(고정 폭) — hover 시 title 로 전체 표시 */
@@ -1011,7 +1010,6 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     html += '<div class="lbl"><span>Scratch</span><span class="lacts">'
       + '<span class="lnk" data-scrub="1" title="정리 — 터미널이 없는 세션을 한 번에 지웁니다(폴더는 보존)">정리…</span>'
       + '<span class="lnk" data-newsession="1">＋ 새 세션</span></span></div>';
-    html += '<div class="tree-note">프로젝트가 되기 전의 생각들 — 자라면 ⇧ 로 프로젝트가 됩니다</div>';
     if (sessRuns.length){
       sessRuns.forEach(function(s){
         var r=s.run; var open = tabs[r.id] ? ' open' : '';
