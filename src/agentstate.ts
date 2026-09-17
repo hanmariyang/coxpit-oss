@@ -10,6 +10,8 @@
 // 클라이언트에 미러링하므로 두 클라이언트가 붙으면 같은 바이트가 두 번 들어온다 →
 // attach 레퍼런스 카운트로 tracker 를 공유하고, 타이머도 tracker 당 하나만 둔다.
 
+import { broadcast } from './hub';
+
 export type AgentState = 'unknown' | 'working' | 'waiting' | 'idle' | 'exited';
 
 const ACTIVE_MS = 600;      // 이만큼 새 바이트가 없으면 "멎었다"고 보고 분류한다
@@ -89,11 +91,15 @@ interface Tracker {
 
 const trackers = new Map<number, Tracker>();
 
-function setState(t: Tracker, next: AgentState): void {
+function setState(runId: number, t: Tracker, next: AgentState): void {
   if (t.state === next) return;
   t.state = next;
   t.since = Date.now();
-  // TODO(v5.28 phase 2): broadcast agentstate over the hub
+  // 안정된 전이만 허브로 나간다(같은 상태 재지정은 위에서 잘린다).
+  // detail 은 이 단계에서 **항상 빈 문자열**이다 — 모양만 먼저 고정하고, tail 에서 뽑는 일은
+  // 소독 규칙이 생기는 phase 3 의 몫이다. 터미널 출력은 시크릿을 그대로 뱉을 수 있어서,
+  // 규칙 없이 꼬리 조각을 허브에 태우지 않는다.
+  broadcast({ type: 'agentstate', runId, state: next, detail: '', ts: t.since });
 }
 
 function clearTimer(t: Tracker): void {
@@ -118,11 +124,11 @@ function onQuiet(runId: number): void {
   const next = classifyIdle(t.tail);
   // 화면이 아직 작업 중이라고 말한다 — 상태는 working 그대로 두고 타이머를 놓는다.
   // (바이트가 더 안 오면 화면도 안 바뀌므로 다시 재봐야 달라질 것이 없다.)
-  if (next === 'working') { setState(t, 'working'); return; }
+  if (next === 'working') { setState(runId, t, 'working'); return; }
   // 플랩 억제: working↔idle 이 FLAP_MS 안에서 오가지 않도록 idle 은 충분히 조용해야 확정한다.
   // waiting 은 사람을 부르는 신호라 늦추지 않는다.
   if (next === 'idle' && quiet < FLAP_MS) { arm(runId, t, FLAP_MS - quiet); return; }
-  setState(t, next);
+  setState(runId, t, next);
 }
 
 /** 터미널이 열렸다 — tracker 생성 또는 refcount+1(미러된 두 번째 클라이언트). */
@@ -139,7 +145,7 @@ export function feed(runId: number, chunk: string): void {
   t.tail += chunk;
   if (t.tail.length > TAIL_MAX) t.tail = t.tail.slice(t.tail.length - TAIL_MAX);
   t.lastByteAt = Date.now();
-  setState(t, 'working');
+  setState(runId, t, 'working');
   arm(runId, t, ACTIVE_MS);
 }
 
@@ -151,7 +157,7 @@ export function feed(runId: number, chunk: string): void {
 export function input(runId: number): void {
   const t = trackers.get(runId);
   if (!t || t.state === 'exited') return;
-  setState(t, 'working');
+  setState(runId, t, 'working');
   arm(runId, t, ACTIVE_MS);  // 곧 재분류
 }
 
@@ -160,7 +166,7 @@ export function onExit(runId: number): void {
   const t = trackers.get(runId);
   if (!t) return;
   clearTimer(t);
-  setState(t, 'exited');
+  setState(runId, t, 'exited');
 }
 
 /** 소켓 종료 — refcount−1. 0 이면 타이머를 멈추고 tail 을 버리고 tracker 를 지운다(누수 금지). */
@@ -178,6 +184,18 @@ export function detach(runId: number): void {
 export function getAgentState(runId: number): { state: AgentState; since: number } | null {
   const t = trackers.get(runId);
   return t ? { state: t.state, since: t.since } : null;
+}
+
+/**
+ * 지금 살아 있는 상태 전부 — `/api/fleet` 이 이걸로 `agentStates` 를 만든다.
+ * 갓 뜬 코크핏·재연결이 다음 델타를 기다리지 않고 현재 상태를 칠할 수 있게 하는 용도다.
+ * 맵에는 **터미널이 붙어 있는 run 만** 들어있다(detach 하면 사라진다) — 그게 계약 그대로다.
+ * detail 은 허브 메시지와 같은 이유로 아직 빈 문자열이다(phase 3).
+ */
+export function allAgentStates(): Record<number, { state: AgentState; detail: string; ts: number }> {
+  const out: Record<number, { state: AgentState; detail: string; ts: number }> = {};
+  for (const [runId, t] of trackers) out[runId] = { state: t.state, detail: '', ts: t.since };
+  return out;
 }
 
 /** 테스트용 — tracker/타이머가 정말 비었는지 확인하는 창구(타이머 누수는 DoD 항목). */
