@@ -132,6 +132,12 @@ case "$CKPT" in *'/vendor/addon-clipboard.js'*'ClipboardAddon'*) : ;; *) fail "c
 # ⌥+drag local selection even inside a mouse-mode app (claude); visible attach button; version badge (cache check)
 case "$CKPT" in *'macOptionClickForcesSelection'*) : ;; *) fail "cockpit should allow ⌥+drag selection inside mouse-mode apps";; esac
 case "$CKPT" in *'id="attachBtn"'*'id="attachInput"'*) : ;; *) fail "cockpit should have a visible file-attach button";; esac
+# toolbar consistency (2026-09-18): every tabctl label lives in .b-txt (uniform icon-only on mobile), and the labels are English
+case "$CKPT" in *'id="attachBtn"'*'<span class="b-txt"> Attach</span>'*) : ;; *) fail "attach button label should be English 'Attach' in a .b-txt span (was 첨부, not wrapped uniformly)";; esac
+case "$CKPT" in *'첨부</span>'*) fail "toolbar 'Attach' must not be Korean 첨부 (rest of the toolbar is English)";; *) : ;; esac
+case "$CKPT" in *'id="splitRow"'*'<span class="b-txt"> Split</span>'*) : ;; *) fail "split labels must be wrapped in .b-txt like the rest (were bare text, stayed visible on mobile)";; esac
+# terminal readability: minimumContrastRatio lifts black-on-black (ANSI black on the dark bg)
+case "$CKPT" in *'minimumContrastRatio'*) : ;; *) fail "terminal should set minimumContrastRatio so black-on-black text stays readable";; esac
 case "$CKPT" in *'__COXPIT_VER__'*) fail "cockpit version placeholder must be substituted at serve time";; *) : ;; esac
 case "$CKPT" in *'id="ver"'*) : ;; *) fail "cockpit should show a version badge (cache diagnosis)";; esac
 # design system: no colorful emoji in the cockpit (mono glyphs only)

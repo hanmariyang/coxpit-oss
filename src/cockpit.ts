@@ -558,13 +558,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     <div class="tabbar">
       <div class="tabs" id="tabs"></div>
       <div class="tabctl">
-        <button class="tc-btn" id="splitRow" title="세로 분할 — 포커스 페인을 좌우로" disabled>▐ split</button>
-        <button class="tc-btn" id="splitCol" title="가로 분할 — 포커스 페인을 상하로" disabled>▬ split</button>
+        <button class="tc-btn" id="splitRow" title="세로 분할 — 포커스 페인을 좌우로" disabled>▐<span class="b-txt"> Split</span></button>
+        <button class="tc-btn" id="splitCol" title="가로 분할 — 포커스 페인을 상하로" disabled>▬<span class="b-txt"> Split</span></button>
         <button class="tc-btn session" id="sessionBtn" title="자유 세션(폴더 지정 터미널) 열기">＋<span class="b-txt"> Session</span></button>
         <button class="tc-btn" id="fileBtn" title="파일 보기 — md·html·pdf·이미지·텍스트 뷰어(터미널 옆 페인)">▤<span class="b-txt"> File</span></button>
-        <button class="tc-btn" id="attachBtn" title="파일 첨부 — 포커스한 터미널 폴더로 업로드 + 경로 삽입 (드롭도 가능)">↥<span class="b-txt"> 첨부</span></button>
+        <button class="tc-btn" id="attachBtn" title="파일 첨부 — 포커스한 터미널 폴더로 업로드 + 경로 삽입 (드롭도 가능)">↥<span class="b-txt"> Attach</span></button>
         <button class="tc-btn" id="focusBtn" title="포커스 모드 — 트리·요청바 숨기고 페인만 (⌘.)">◱<span class="b-txt"> Focus</span></button>
-        <button class="tc-btn" id="closeBtn" title="포커스 페인 닫기(탭은 유지)" disabled>×<span class="b-txt"> pane</span></button>
+        <button class="tc-btn" id="closeBtn" title="포커스 페인 닫기(탭은 유지)" disabled>×<span class="b-txt"> Pane</span></button>
       </div>
     </div>
     <div class="panes" id="panes"></div>
@@ -1327,6 +1327,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       fontSize: isMobile() ? 11 : 12, cursorBlink: true, allowProposedApi: true, scrollback: 4000,
       macOptionClickForcesSelection: true,   // ⌥+드래그 = 로컬 선택(마우스모드 앱 안에서도) → mouseup 복사가 됨
       rightClickSelectsWord: true,
+      // 검은 바탕에 검은 글자(ANSI black=SGR30) 안 보이던 것 방지 — 배경과 대비가 이 비율 미만인
+      // 전경색은 xterm 이 자동으로 끌어올린다. 3 = 안 보이던 것만 구제하고 의도된 어두운 톤은 대체로 보존(2026-09-18).
+      minimumContrastRatio: 3,
       theme: { background:'#0b0d12', foreground:'#dee4ec', cursor:'#4ec9b0', selectionBackground:'rgba(78,201,176,.25)', black:'#1c212c', brightBlack:'#5c6675' },
     });
     var fit=new window.FitAddon.FitAddon(); term.loadAddon(fit);
