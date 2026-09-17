@@ -303,7 +303,7 @@ what works, no stub state; PokeTokenBar — ambient glance).
 - [ ] Part B — stale-process guard (what's actually running on this port/path)
 - [ ] Part C — quick actions + safe context injection (start/resume, quick replies)
 - [ ] T6b — worktree disk pressure: show .coxpit-worktrees total size (health + reclaim surface), extend Reclaim to merged/exported done runs (unmerged flagged, never auto-selected) — the disk axis of hygiene (design/v6.0 §T6b, from the 2026-09-17 99%-full incident)
-- [ ] Part D — input/output ergonomics (multi-line paste, mobile input, clickable paths/diffs) — **incl. terminal file-link fix**: resolve relative paths against the pane's live pwd (tmux #{pane_current_path}), stitch wrapped rows, clickable jail toast (diagnosed 2026-09-17, see design/v5.28 §D-fix)
+- [ ] Part D — input/output ergonomics (multi-line paste, mobile input, clickable paths/diffs) — **incl. terminal file-link fix**: resolve relative paths against the pane's live pwd (tmux #{pane_current_path}), stitch wrapped rows, clickable jail toast (diagnosed 2026-09-17, see design/v5.28 §D-fix); repo-row affordances overflow to a ⋯ menu so the project name is not crowded out by buttons (§D-rail)
 
 Relationship to v6.0: Part A phases 1–2 (detection + transport) are tree-independent and may
 ship first; the surface phase (Agents rail, tab dots) lands on the v6.0 work tree, grouped by
