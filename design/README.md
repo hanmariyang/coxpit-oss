@@ -51,8 +51,13 @@ Hard-won pitfalls of this codebase — every one of these has bitten before:
    explicitly) in dry-run, because e2e is dry-only and spends zero credits.
    Dry mock output is claude-shaped; the parser for dry runs is always the claude
    provider regardless of the selected provider.
-9. **DESIGN.md is the UI contract**: any new component/affordance must be added to
-   its table in the same commit. No native browser UI (alert/confirm/select).
+9. **DESIGN.md is the UI contract — and it is enforced**: any new component/affordance
+   must be added to its table in the same commit. No native browser UI
+   (alert/confirm/select). New UI takes colors from `var(--tokens)`, never fresh hex —
+   the e2e **design ratchet** counts hard-coded hex literals in board/cockpit/login and
+   fails if the count grows. Legitimately extending the palette = update DESIGN.md's
+   token table *and* bump the ratchet baseline in the same commit (a conscious act,
+   not a drive-by).
 10. **Landing lives in `docs/`** (GitHub Pages). Specs live here in `design/`.
     Don't mix them. New landing assets get new filenames (browser cache).
 11. **Providers are a seam** (`src/providers.ts`): launch command, resume command,
@@ -60,3 +65,13 @@ Hard-won pitfalls of this codebase — every one of these has bitten before:
     Provider interface, not through inline command strings.
 12. **Codex flag order**: `--json`/`--sandbox`/`-m` are `exec` flags and must come
     *before* the `resume` subcommand.
+13. **Delegated implementation (fleet runs included) gets a design preamble.** A
+    context-poor implementer redraws UI from scratch — that is the failure mode, not a
+    surprise. Every implementation prompt handed to an agent (a coxpit fleet run, a bare
+    session, anyone) must include, verbatim: (a) the relevant `design/vX.Y-*.md` section,
+    (b) the DESIGN.md rules line — *"reuse the components and `var(--tokens)` named in
+    the spec; introduce no new colors/classes; if a token is genuinely missing, extend
+    DESIGN.md in the same commit and bump the e2e design-ratchet baseline"* — and
+    (c) the named existing seams to reuse (specs name them for exactly this reason).
+    The ratchet (#9) is the backstop when the preamble is ignored; the diff review is
+    the last gate. Three layers, in that order: inject → enforce → review.

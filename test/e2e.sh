@@ -1492,6 +1492,20 @@ FRR=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
 case "$FRR" in *'"kind":"text"'*) : ;; *) fail "COXPIT_FILES_ROOT=/ should allow reading /etc/hosts: $FRR";; esac
 pass "COXPIT_FILES_ROOT widens the file-viewer root (/ opens the whole filesystem)"
 
+# 디자인 래칫: 하드코딩 hex 색이 늘면 실패 — 맥락 없는 구현(플릿 run 포함)이 토큰 대신
+# 새로 그리는 사고를 결정적으로 잡는다. 정당하게 늘 때(=DESIGN.md 토큰 확장)는 같은 커밋에서
+# DESIGN.md 갱신과 함께 이 기준선을 의식적으로 올린다. (node 정규식 = BSD/GNU grep 차이 없음)
+HEXES=$(node -e "
+const fs=require('fs');const rx=/#[0-9a-fA-F]{3,8}(?![0-9a-zA-Z-])/g;
+const c=(p)=>((fs.readFileSync(p,'utf8').match(rx)||[]).length);
+console.log(c('$ROOT/src/board.ts')+' '+c('$ROOT/src/cockpit.ts')+' '+c('$ROOT/src/login.ts'));
+")
+set -- $HEXES
+[ "$1" -le 60 ] || fail "design ratchet: board.ts hard-coded colors grew ($1 > 60) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
+[ "$2" -le 46 ] || fail "design ratchet: cockpit.ts hard-coded colors grew ($2 > 46) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
+[ "$3" -le 29 ] || fail "design ratchet: login.ts hard-coded colors grew ($3 > 29) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
+pass "design ratchet: no new hard-coded colors (board $1/60 · cockpit $2/46 · login $3/29)"
+
 # pty master fd 누수 회귀(issue #9). darwin 에서 실검증, 리눅스 CI 는 self-skip(성공).
 kill "$DPID" 2>/dev/null || true; sleep 0.3
 node --import tsx "$ROOT/test/pty-fd.mjs"
