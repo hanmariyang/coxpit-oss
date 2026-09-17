@@ -21,7 +21,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getRunPwd, getSessionChat } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates } from './agentstate';
 import { addSink, removeSink, broadcast } from './hub';
@@ -1258,6 +1258,15 @@ export async function buildServer(): Promise<FastifyInstance> {
     const res = await getScrollback(id, Number(q.lines) || 3000);
     if (!res.ok) return reply.code(422).send(res);
     return res;
+  });
+
+  // 페인이 지금 서 있는 폴더 (v5.28 D-fix) — 터미널이 찍은 상대경로를 무엇 기준으로 풀지.
+  // 못 알아내면 200 + { ok:false, pwd:'' } — 클라이언트가 worktree 로 폴백한다(지어낸 경로는 없다).
+  app.get('/api/runs/:id/pwd', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    return await getRunPwd(id);
   });
 
   // 수동 재검증 — repo.verifyCmd 를 이 run 의 worktree 에서 다시 실행(정착 자동검증과 동일 경로).

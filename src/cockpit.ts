@@ -102,6 +102,22 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tnode:hover .tact{opacity:1}
   .tnode .tact:hover{color:var(--brand);background:var(--surface2)}
   body.touch .tnode .tact{opacity:.7}
+  /* ── 프로젝트 행 넘침 메뉴 (v5.28 D-rail) ──
+     opacity:0 은 픽셀만 감추고 자리는 그대로 먹는다 → 안 보이는 버튼 셋이 이름의 폭을 삼켰다.
+     그래서 repo 행의 액션은 ⋯ 하나로 접는다: ⋯ 는 항상 떠 있고(hover 없는 모바일도 닿는다),
+     ＋ 새 작업 은 hover 때만 **자리까지** 나타난다(display, opacity 아님) — 쉴 때 이름이 폭을 다 갖는다. */
+  .tnode.repo .tact{display:none;margin-left:2px}
+  .tnode.repo:hover .tact,.tnode.repo:focus-within .tact{display:inline-block}
+  .tnode.repo .tmore{display:inline-block;opacity:1;color:var(--faint)}
+  .tnode.repo .tmore:hover,.tnode.repo .tmore[aria-expanded="true"]{color:var(--brand);background:var(--surface2)}
+  body.touch .tnode.repo .tmore{opacity:1}
+  /* 작은 자체 메뉴 — 보드의 .dd 를 끌어오지 않는다(코크핏은 자가완결 단일 파일). 토큰만 쓴다. */
+  .rmenu{position:fixed;z-index:70;min-width:132px;padding:4px;font-family:var(--mono);font-size:11.5px;
+    background:var(--surface);border:1px solid var(--line-hi);border-radius:9px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+  .rmenu[hidden]{display:none}
+  .rmenu button{display:block;width:100%;text-align:left;font:inherit;color:var(--muted);white-space:nowrap;
+    background:none;border:none;border-radius:5px;padding:6px 9px;cursor:pointer}
+  .rmenu button:hover,.rmenu button:focus-visible{color:var(--brand);background:var(--surface2)}
   .tnode.run{padding-left:44px;font-size:12px;cursor:pointer}
   .tnode.run:hover{background:var(--surface)}
   .tnode.run.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
@@ -357,6 +373,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line-hi);color:var(--ink);
     font-family:var(--mono);font-size:12px;padding:8px 14px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40;max-width:80vw}
   .toast.show{opacity:1}
+  /* 토스트 안의 유일한 클릭 대상 — "설정에서 넓힐 수 있음" 같은 안내가 실제 길이 되게(v5.28 D-fix).
+     토스트는 pointer-events:none 이라 이 버튼만 되살린다. */
+  .toast .tgo{pointer-events:auto;margin-left:10px;font:inherit;color:var(--brand);background:none;
+    border:none;border-bottom:1px solid rgba(78,201,176,.45);padding:0 0 1px;cursor:pointer}
+  .toast .tgo:hover{color:var(--ink);border-bottom-color:var(--line-hi)}
 
   /* ── Review (compare/merge) ── */
   .review{position:absolute;inset:46px 0 0 0;background:var(--bg);display:none;flex-direction:column;overflow:hidden;z-index:20}
@@ -766,6 +787,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 </div>
 
 <input type="file" id="attachInput" multiple hidden />
+<div class="rmenu" id="rowMenu" role="menu" hidden></div>
 <div class="toast" id="toast"></div>
 
 <script src="/vendor/xterm.js"></script>
@@ -782,7 +804,17 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); };
   var $ = function(id){ return document.getElementById(id); };
 
-  function toast(msg){ var t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._h); toast._h=setTimeout(function(){ t.classList.remove('show'); }, 2600); }
+  // act(선택) = { label, run } — 토스트가 "설정에서 넓힐 수 있음" 같은 말을 할 때, 그 말이 실제로 눌려야 한다(v5.28 D-fix).
+  function toast(msg, act){
+    var t=$('toast'); t.textContent=msg;
+    if (act && act.label){
+      var b=document.createElement('button'); b.className='tgo'; b.type='button'; b.textContent=act.label;
+      b.addEventListener('click', function(){ t.classList.remove('show'); act.run(); });
+      t.appendChild(b);
+    }
+    t.classList.add('show'); clearTimeout(toast._h);
+    toast._h=setTimeout(function(){ t.classList.remove('show'); }, act?7000:2600);
+  }
   var V_GLYPH = { pass:'✓ verify', fail:'✗ verify', running:'⋯ verify', error:'! verify' };
   function vbadge(status){ if (!status || !V_GLYPH[status]) return ''; return '<span class="vbadge '+status+'" data-role="vbadge">'+V_GLYPH[status]+'</span>'; }
   // 라이브 상태 — run 의 최신 이벤트에서 "지금 뭐 하는지"(도구명/사고)를 뽑는다. 실행 중일 때만.
@@ -1047,12 +1079,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var runCount = rTasks.reduce(function(n,t){ return n+((runsByTask[t.id]||[]).length); }, 0);
       // 프로젝트 행의 어포던스 셋: 만들기 하나(＋ 새 작업) + 치우기 둘(v6.0 T6).
       // 치우는 둘은 **디스크의 파일을 건드리지 않는다** — 하나는 작업을 닫고, 하나는 등록만 뺀다.
+      // v5.28 D-rail: 셋을 한 줄에 늘어놓으니 이름이 버튼에 밀렸다 → 치우기 둘은 ⋯ 안으로 접는다.
+      // 이름(.n)이 먼저 폭을 갖고, ⋯ 는 hover 없이도 떠 있어 모바일에서도 닿는다.
       html += '<div class="tnode repo" data-fold="'+rk+'"><span class="car">'+(isFold(rk)?'▸':'▾')+'</span>'
         + '<span class="n" title="'+esc(repo.path||repo.name)+'">'+esc(repo.name)+'</span>'
+        + '<span class="meta">'+runCount+' run'+(runCount===1?'':'s')+'</span>'
         + '<button class="tact" data-newwork="'+repo.id+'" title="새 작업 — 작업을 만들고 repo 체크아웃에서 main 터미널을 엽니다">＋ 새 작업</button>'
-        + '<button class="tact" data-tidy="'+repo.id+'" title="묵은 작업 정리 — 더 안 도는(정착한) 작업들을 한 번에 닫습니다. 미머지 산출물은 표로 한 번에 보여줍니다">정리…</button>'
-        + '<button class="tact" data-unreg="'+repo.id+'" title="등록 해제 — 목록에서만 뺍니다. 디스크의 폴더는 그대로이고, 다시 등록하는 데 클릭 한 번입니다">등록 해제</button>'
-        + '<span class="meta">'+runCount+' run'+(runCount===1?'':'s')+'</span></div>';
+        + '<button class="tact tmore" data-more="'+repo.id+'" aria-haspopup="menu" aria-expanded="false" title="더 보기 — 새 작업 · 정리 · 등록 해제">⋯</button></div>';
       if (isFold(rk)) return;
       // goal(group) 로 묶기
       var byGroup = {}, ungrouped = [];
@@ -1067,6 +1100,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       if (!rTasks.length) html += '<div class="tnode empty" style="padding-left:30px">태스크 없음</div>';
     });
     el.innerHTML = html;
+    // 열려 있던 ⋯ 메뉴는 트리가 다시 그려져도 살아 있어야 한다(델타마다 닫히면 못 누른다) —
+    // 같은 repo 의 새 버튼으로 주인을 옮기고, 그 행이 사라졌으면 그때 닫는다.
+    if (rowMenuOwner){
+      var again = el.querySelector('[data-more="'+rowMenuOwner.getAttribute('data-more')+'"]');
+      if (again){ again.setAttribute('aria-expanded','true'); rowMenuOwner=again; } else closeRowMenu();
+    }
   }
   // 작업(task) 한 줄 + 그 아래 세션(run) 들. 이름은 작업이 갖고, run 은 역할로 읽힌다.
   function taskHTML(t, rns){
@@ -1096,10 +1135,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     // 노드 액션은 접기(data-fold)·열기(data-run) 보다 먼저 가로챈다 — 같은 행 안에 있으므로.
     var nw = e.target.closest('[data-newwork]');
     if (nw){ e.stopPropagation(); openNewWork(+nw.dataset.newwork); return; }
-    var td = e.target.closest('[data-tidy]');
-    if (td){ e.stopPropagation(); openTidy(+td.dataset.tidy); return; }
-    var ur = e.target.closest('[data-unreg]');
-    if (ur){ e.stopPropagation(); openUnreg(+ur.dataset.unreg); return; }
+    var mo = e.target.closest('[data-more]');
+    if (mo){ e.stopPropagation(); openRowMenu(mo, +mo.dataset.more); return; }
     var na = e.target.closest('[data-newagent]');
     if (na){ e.stopPropagation(); openAddAgent(+na.dataset.newagent); return; }
     var wm = e.target.closest('[data-workmd]');
@@ -1111,6 +1148,58 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var fn = e.target.closest('[data-fold]');
     if (fn){ var k = fn.dataset.fold; fold[k] = !isFold(k); renderTree(); }
   });
+  // ── 프로젝트 행 넘침 메뉴 (v5.28 D-rail) ──
+  // 레일 폭은 이름 것이다. 액션은 ⋯ 뒤로 접히고, 하는 일은 하나도 안 바뀐다 —
+  // 같은 핸들러(openNewWork·openTidy·openUnreg)를 그대로 부른다. 클릭으로 열리니 hover 가 없어도 닿는다.
+  var rowMenuOwner = null;
+  var ROW_MENU_ACTS = [
+    { act:'newwork', label:'＋ 새 작업' },
+    { act:'tidy',    label:'정리…' },
+    { act:'unreg',   label:'등록 해제' }
+  ];
+  function openRowMenu(btn, repoId){
+    var m=$('rowMenu');
+    if (rowMenuOwner===btn && !m.hidden){ closeRowMenu(); return; }
+    m.innerHTML = ROW_MENU_ACTS.map(function(a){
+      return '<button type="button" role="menuitem" data-act="'+a.act+'" data-repo="'+repoId+'">'+esc(a.label)+'</button>';
+    }).join('');
+    m.hidden=false;
+    // 버튼 아래 왼쪽 정렬, 화면 밖으로 나가면 안쪽으로 당긴다(fixed 좌표라 레일 스크롤과 무관).
+    var r=btn.getBoundingClientRect();
+    var w=m.offsetWidth, h=m.offsetHeight;
+    m.style.left = Math.max(6, Math.min(r.left, window.innerWidth - w - 6)) + 'px';
+    m.style.top  = ((r.bottom + h + 6 > window.innerHeight) ? Math.max(6, r.top - h - 4) : r.bottom + 4) + 'px';
+    btn.setAttribute('aria-expanded','true');
+    rowMenuOwner=btn;
+    var first=m.querySelector('button'); if(first) first.focus();
+  }
+  function closeRowMenu(){
+    var m=$('rowMenu'); if(m.hidden) return;
+    m.hidden=true; m.innerHTML='';
+    if (rowMenuOwner){ rowMenuOwner.setAttribute('aria-expanded','false'); rowMenuOwner=null; }
+  }
+  $('rowMenu').addEventListener('click', function(e){
+    var b=e.target.closest('button[data-act]'); if(!b) return;
+    var id=+b.dataset.repo, act=b.dataset.act;
+    closeRowMenu();
+    if (act==='newwork') openNewWork(id);
+    else if (act==='tidy') openTidy(id);
+    else if (act==='unreg') openUnreg(id);
+  });
+  // 닫기 배선은 주의 팝오버(#attnPop)와 같은 모양이다 — 바깥 클릭 · Escape(포커스 되돌림) · 포커스 이탈.
+  document.addEventListener('click', function(e){ if(!$('rowMenu').hidden && !$('rowMenu').contains(e.target) && !e.target.closest('[data-more]')) closeRowMenu(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('rowMenu').hidden){ e.preventDefault(); var o=rowMenuOwner; closeRowMenu(); if(o) o.focus(); } });
+  $('rowMenu').addEventListener('focusout', function(){
+    // ⋯ 로 포커스가 돌아간 경우는 닫지 않는다 — 안 그러면 두 번째 클릭이 토글이 아니라 재개방이 된다
+    // (mousedown 이 먼저 포커스를 옮기고, 그 focusout 이 닫아버린 뒤 click 이 다시 연다).
+    setTimeout(function(){
+      var a=document.activeElement;
+      if(!$('rowMenu').hidden && !$('rowMenu').contains(a) && !(a && a.closest && a.closest('[data-more]'))) closeRowMenu();
+    }, 0);
+  });
+  window.addEventListener('resize', closeRowMenu);
+  $('rail').addEventListener('scroll', closeRowMenu);   // fixed 좌표라 레일이 구르면 메뉴만 남는다
+
   // 트리 세션 행 더블클릭 → 이름 변경
   $('tree').addEventListener('dblclick', function(e){
     var s = e.target.closest('.tnode.session[data-run]'); if(!s) return;
@@ -1166,19 +1255,30 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     try{ term.loadAddon(new window.WebLinksAddon.WebLinksAddon(function(ev, uri){ window.open(uri, '_blank', 'noopener'); })); }catch(e){}
     // 파일 경로 링크: 에이전트가 찍는 경로(src/x.ts:12 · /Users/…/README.md 등)를 클릭하면 뷰어 페인으로.
     try{ term.registerLinkProvider({ provideLinks: function(y, cb){
-      var ln; try{ ln=term.buffer.active.getLine(y-1); }catch(e){ cb(undefined); return; }
+      var buf=term.buffer.active;
+      var ln; try{ ln=buf.getLine(y-1); }catch(e){ cb(undefined); return; }
       if(!ln){ cb(undefined); return; }
       var s=ln.translateToString(true);
+      // 줄바꿈으로 반토막 난 경로를 잇는다(v5.28 D-fix #2). xterm 은 앞 행에서 이어진 행을 isWrapped 로 표시한다:
+      // 이 행이 이어진 것이면 앞 행의 **마지막 토큰**을, 다음 행이 이어지는 것이면 그 **첫 토큰**을 붙여 매칭한다.
+      // 좌표는 이 행에만 남긴다(다중 행 range 없음) — 여는 문자열만 온전해지면 되고, 보수적인 쪽이 안전하다.
+      var head='', tail='';
+      try{ if(ln.isWrapped){ var pv=buf.getLine(y-2); if(pv){ var hm=pv.translateToString(true).match(/(\\S+)$/); head=hm?hm[1]:''; } } }catch(e){}
+      try{ var nx=buf.getLine(y); if(nx && nx.isWrapped){ var tm=nx.translateToString(true).match(/^(\\S+)/); tail=tm?tm[1]:''; } }catch(e){}
+      var joined=head+s+tail;
       var re=/(?:~\\/|\\.{0,2}\\/)?[\\w.\\-\\/]*\\.[A-Za-z0-9]{1,8}(?::\\d+(?::\\d+)?)?/g;
       var links=[], m;
-      while((m=re.exec(s))){
+      while((m=re.exec(joined))){
         var raw=m[0]; if(!raw || raw.indexOf('://')>=0 || raw.slice(0,2)==='//') continue;   // URL 은 WebLinksAddon 담당
-        var before = m.index>0 ? s.charAt(m.index-1) : ' ';
+        var before = m.index>0 ? joined.charAt(m.index-1) : ' ';
         if(before===':' || before==='/' || /[A-Za-z0-9]/.test(before)) continue;   // URL 조각·토큰 중간 배제
         var pathPart=raw.replace(/:\\d+(?::\\d+)?$/,'');
         var ext=(pathPart.split('.').pop()||'').toLowerCase();
         if(!(VIEW_EXT[ext] || pathPart.indexOf('/')>=0)) continue;  // 오탐 축소: 알려진 확장자거나 경로형
-        var sx=m.index+1, ex=m.index+raw.length;
+        // joined 좌표 → 이 행 좌표. 이 행과 안 겹치는 매치(앞/뒤 행에만 있는 것)는 그 행이 스스로 제공한다.
+        var sx=m.index-head.length+1, ex=m.index+raw.length-head.length;
+        if(ex<1 || sx>s.length) continue;
+        if(sx<1) sx=1; if(ex>s.length) ex=s.length;
         links.push({ text:raw, range:{ start:{x:sx,y:y}, end:{x:ex,y:y} },
           activate:function(ev, txt){ openPathFromTerm(runId, txt); } });
       }
@@ -1240,14 +1340,55 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var VIEW_EXT = (function(){ var o={}; ('md markdown mdx html htm pdf png jpg jpeg gif webp svg bmp ico avif txt env json jsonc yaml yml toml ini conf cfg log csv tsv xml sql sh bash zsh js cjs mjs ts tsx jsx css scss less py rb php go rs java c h cpp hpp swift kt lua pl r dart vue svelte').split(' ').forEach(function(e){o[e]=1;}); return o; })();
   var fsHome = '';
   try{ fetch('/api/fs/list').then(function(r){return r.json();}).then(function(d){ fsHome=d.home||''; }).catch(function(){}); }catch(e){}
-  // 터미널에서 클릭한 경로 → 절대경로로 해석 후 뷰어 페인. 상대경로는 그 run 의 작업폴더(cwd) 기준.
+  // 페인이 지금 서 있는 폴더 — 서버가 tmux 에게 직접 묻는다(v5.28 D-fix #1).
+  // 링크 하나 누를 때마다 물으면 시끄러우니 run 별로 몇 초 캐시하고, 실패는 빈 문자열로 돌려준다(폴백은 호출부의 몫).
+  var pwdCache = {};   // runId -> { pwd, at }
+  function runPwd(runId){
+    var c=pwdCache[runId];
+    if (c && (Date.now()-c.at) < 5000) return Promise.resolve(c.pwd);
+    return fetch('/api/runs/'+runId+'/pwd').then(function(r){ return r.json(); })
+      .then(function(d){ var p=(d&&d.pwd)||''; pwdCache[runId]={pwd:p,at:Date.now()}; return p; })
+      .catch(function(){ return ''; });
+  }
+  // 있는지부터 본다 — 뷰어가 읽는 그 창구로. { ok } 는 "열린다", error 는 그대로 사람 말이다.
+  function fsProbe(abs){
+    return fetch('/api/fs/read?path='+encodeURIComponent(abs))
+      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok && !d.error, error: (d&&d.error)||'' }; }); })
+      .catch(function(){ return { ok:false, error:'' }; });
+  }
+  // 터미널에서 클릭한 경로 → 절대경로로 해석 후 뷰어 페인.
+  // 상대경로는 **페인의 지금 폴더** 기준(모노레포 하위 패키지·cd 뒤에는 worktree 루트가 답이 아니다),
+  // worktree 루트는 폴백. 어느 쪽에도 없으면 열지 않고 말한다 — 지어낸 경로는 조용히 열지 않는다.
   function openPathFromTerm(runId, raw){
     var p=(raw||'').replace(/:\\d+(?::\\d+)?$/,'');   // :line:col 제거
-    var abs;
-    if(p.charAt(0)==='/') abs=p;
-    else if(p.slice(0,2)==='~/') abs=(fsHome||'').replace(/\\/$/,'')+p.slice(1);
-    else { var r=runById[runId]; var cwd=r&&r.worktreePath; if(!cwd){ toast('작업 폴더를 몰라 경로를 열 수 없습니다'); return; } abs=cwd.replace(/\\/$/,'')+'/'+p; }
-    openViewer(abs);
+    if(p.charAt(0)==='/'){ openResolved([p]); return; }
+    if(p.slice(0,2)==='~/'){ openResolved([(fsHome||'').replace(/\\/$/,'')+p.slice(1)]); return; }
+    var rel=p.replace(/^\\.\\//,'');
+    var r=runById[runId]; var wt=(r&&r.worktreePath)||'';
+    runPwd(runId).then(function(pwd){
+      var bases=[]; if(pwd) bases.push(pwd); if(wt && wt!==pwd) bases.push(wt);
+      if(!bases.length){ toast('작업 폴더를 몰라 경로를 열 수 없습니다'); return; }
+      openResolved(bases.map(function(b){ return b.replace(/\\/$/,'')+'/'+rel; }));
+    });
+  }
+  // 후보를 순서대로 확인해 **있는 것 하나**만 연다. 다 없으면 이유를 말한다.
+  function openResolved(cands){
+    var i=0, lastErr='';
+    (function next(){
+      if(i>=cands.length){ pathMiss(cands, lastErr); return; }
+      var abs=cands[i++];
+      fsProbe(abs).then(function(res){
+        if(res.ok){ openViewer(abs); return; }
+        // 첫 이유를 들고 가되, 잼(뷰어 루트 밖)이 보이면 그쪽으로 바꾼다 — 유일하게 사람이 할 일이 있는 이유다.
+        if(res.error && (!lastErr || res.error.indexOf('폴더 밖')>=0)) lastErr=res.error;
+        next();
+      });
+    })();
+  }
+  function pathMiss(cands, err){
+    // 잼(뷰어 루트 밖)이면 안내가 아니라 **길**이어야 한다 — 눌러서 그 설정으로 간다(v5.28 D-fix #3).
+    if(err && err.indexOf('폴더 밖')>=0){ toast(err, { label:'설정 → 파일 뷰어 루트', run:function(){ gotoBoard('settings'); } }); return; }
+    toast('그 경로를 찾지 못했습니다 · '+(cands[0]||''));
   }
   function fmtSize(n){ return n<1024?(n+' B'):n<1048576?((n/1024).toFixed(1)+' KB'):((n/1048576).toFixed(1)+' MB'); }
   var MD_FRAME_CSS = 'body{margin:0 auto;padding:40px 28px 80px;background:#0b0d12;color:#dee4ec;font:14px/1.7 -apple-system,BlinkMacSystemFont,\\'Apple SD Gothic Neo\\',\\'Noto Sans KR\\',sans-serif;max-width:740px}'

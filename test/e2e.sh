@@ -185,6 +185,18 @@ case "$CKPT" in *'id="fileBtn"'*) : ;; *) fail "cockpit file-open affordance (#f
 # file picker recursive search + terminal path→viewer link provider
 case "$CKPT" in *'id="fpSearch"'*'function fpFind'*) : ;; *) fail "cockpit file picker search (fpSearch/fpFind) missing";; esac
 case "$CKPT" in *'registerLinkProvider'*'function openPathFromTerm'*) : ;; *) fail "cockpit terminal path→viewer link provider missing";; esac
+# v5.28 D-fix — 링크는 **에이전트가 말한 그 파일**을 열어야 한다. 파일 순서대로:
+# 토스트 액션 스타일 → 액션을 받는 toast → 줄바꿈 이음(isWrapped) → 페인 pwd 질의 → worktree 폴백 → 없으면 안 연다.
+case "$CKPT" in *'.toast .tgo{pointer-events:auto'*'function toast(msg, act)'*) : ;; *) fail "toast must accept one clickable action (the jail toast needs a real way out)";; esac
+case "$CKPT" in *'if(ln.isWrapped)'*'nx.isWrapped'*'var joined=head+s+tail;'*) : ;; *) fail "the link provider must stitch wrapped continuation rows before matching (half-paths opened the wrong file)";; esac
+D_PWDFETCH="fetch('/api/runs/'+runId+'/pwd')"
+case "$CKPT" in *'var pwdCache'*"$D_PWDFETCH"*) : ;; *) fail "relative paths must resolve against the pane's live pwd (GET /api/runs/:id/pwd)";; esac
+D_WTFALL="if(wt && wt!==pwd) bases.push(wt);"
+case "$CKPT" in *'function openPathFromTerm'*"$D_WTFALL"*'function openResolved'*) : ;; *) fail "worktreePath must stay the fallback base behind the live pwd";; esac
+case "$CKPT" in *'function pathMiss'*'그 경로를 찾지 못했습니다'*) : ;; *) fail "a path that exists under neither base must be reported — never opened on a guess";; esac
+D_JAILGO="toast(err, { label:'설정 → 파일 뷰어 루트', run:function(){ gotoBoard('settings'); } })"
+case "$CKPT" in *"$D_JAILGO"*) : ;; *) fail "the jail toast's 설정 → 파일 뷰어 루트 must be an actual action (opens the existing board settings view)";; esac
+pass "v5.28 D-fix cockpit: relative paths resolve against the pane's pwd (worktree fallback) · wrapped rows stitched · jail toast is a click target"
 FSD=$(mktemp -d "$HOME/.coxpit-e2e-XXXXXX")
 printf '# Hi\n\nbody\n' > "$FSD/doc.md"; printf 'K=v\n' > "$FSD/.env"
 mkdir -p "$FSD/sub/deep"; printf 'x\n' > "$FSD/sub/deep/report-final.md"
@@ -334,7 +346,10 @@ case "$CKPT" in *'id="tidyModal"'*'묵은 작업 정리'*'터미널이 살아 �
 case "$CKPT" in *'id="unregModal"'*'목록에서만 뺍니다 — 디스크의 폴더와 파일은 손대지 않습니다'*'다시 등록하는 데는 클릭 한 번'*'id="unregRisk"'*'id="unregGo"'*) : ;; *) fail "cockpit unregister sheet must say registration-only (folder untouched, one click to re-register) and aggregate the close risk";; esac
 # 수거 판: 살아 있는 run 의 세션은 오르지도 않고, 돌고 있는 것은 표시만 한다
 case "$CKPT" in *'id="reapModal"'*'살아 있는 run 의 세션은 여기 오르지 않습니다'*'표시만 하고 절대 미리 고르지 않습니다'*'id="reapList"'*'id="reapGo"'*) : ;; *) fail "cockpit orphan-reaper panel must exclude live runs and never preselect a busy pane";; esac
-case "$CKPT" in *'data-tidy='*'>정리…</button>'*'data-unreg='*'>등록 해제</button>'*) : ;; *) fail "project node needs both hygiene affordances (묵은 작업 정리… / 등록 해제)";; esac
+# 둘 다 살아 있다 — v5.28 D-rail 에서 repo 행의 상시 버튼이 아니라 ⋯ 메뉴 항목이 됐을 뿐이다.
+T6_TIDY="act:'tidy'"
+T6_UNREG="act:'unreg'"
+case "$CKPT" in *"$T6_TIDY"*"label:'정리…'"*"$T6_UNREG"*"label:'등록 해제'"*'openTidy(id)'*'openUnreg(id)'*) : ;; *) fail "project node needs both hygiene affordances (묵은 작업 정리… / 등록 해제), reachable from the ⋯ menu";; esac
 # 기존 창구 재사용 — 진짜 새 서버 표면은 고아 tmux 둘뿐이다
 case "$CKPT" in *"'/api/tasks/'+taskId+'/close'"*"'/api/repos/'+unregRepoId,{method:'DELETE'}"*"'/api/tmux/orphans'"*"'/api/tmux/orphans/kill'"*) : ;; *) fail "T6 must reuse close/repo-delete and add only the two orphan endpoints";; esac
 # 409 는 작업 수만큼 창을 띄우지 않는다 — 표는 한 번, 확인도 한 번("그래도 닫기")
@@ -342,6 +357,21 @@ case "$CKPT" in *'function closeRiskOf'*'그래도 닫기 ('*'r.status===409'*) 
 # 빈 셸만 미리 체크 — 보여주지 않은 것을 지우는 판은 빗자루가 아니라 함정이다
 case "$CKPT" in *'if(x.idle) reapSel[x.name]=true;'*) : ;; *) fail "the reaper must preselect idle shells only";; esac
 pass "v6.0 T6 cockpit: 등록 해제 (folder preserved · close-risk aggregated) · 묵은 작업 정리 (one table, one pass) · orphan-tmux reaper (idle preselected, busy flagged)"
+
+# v5.28 D-rail — 레일의 폭은 이름 것이다. T6 가 repo 행에 버튼 셋을 세우자 프로젝트 이름이 밀렸다.
+# 파일 순서대로: 자리까지 비우는 hover 규칙 → 작은 자체 메뉴 스타일 → 메뉴 판 → repo 행(이름 먼저, ⋯ 하나) → 여는 함수.
+case "$CKPT" in *'.tnode.repo .tact{display:none;margin-left:2px}'*) : ;; *) fail "the repo row must reveal actions with display, not opacity — opacity:0 keeps the width and eats the name";; esac
+case "$CKPT" in *'.rmenu{position:fixed'*'.rmenu button{'*) : ;; *) fail "cockpit needs its own small overflow menu (never cross-import the board's .dd)";; esac
+case "$CKPT" in *'<div class="rmenu" id="rowMenu"'*) : ;; *) fail "the ⋯ overflow menu panel is missing";; esac
+# 행 순서: 이름(.n) 이 먼저 폭을 갖고, 액션은 그 뒤 — T6 버튼 둘은 더 이상 이름 앞을 막지 않는다
+case "$CKPT" in *'class="tnode repo"'*'class="n"'*'class="meta"'*'data-newwork='*'class="tact tmore" data-more='*) : ;; *) fail "repo row order must be name → meta → ＋ 새 작업 → ⋯ (the name is never preceded by the actions)";; esac
+case "$CKPT" in *'<button class="tact" data-tidy='*) fail "정리… must live in the ⋯ menu, not as an always-present flex:none button on the repo row";; *) : ;; esac
+case "$CKPT" in *'<button class="tact" data-unreg='*) fail "등록 해제 must live in the ⋯ menu, not as an always-present flex:none button on the repo row";; *) : ;; esac
+# 메뉴는 클릭으로 열린다(hover 가 없는 모바일도 닿는다)·Escape/바깥클릭이 닫는다·키보드로 잡힌다
+case "$CKPT" in *'function openRowMenu'*'role="menuitem"'*'first.focus()'*'function closeRowMenu'*) : ;; *) fail "the ⋯ menu must open on click and be keyboard-focusable (hover-independent for touch)";; esac
+D_MENUESC="if(e.key==='Escape' && !\$('rowMenu').hidden){ e.preventDefault(); var o=rowMenuOwner; closeRowMenu(); if(o) o.focus(); }"
+case "$CKPT" in *"$D_MENUESC"*) : ;; *) fail "Escape must close the ⋯ menu and hand focus back to the ⋯ button";; esac
+pass "v5.28 D-rail: repo row keeps the name's width — 정리…/등록 해제 collapse into one always-visible ⋯ menu (click-opened, Escape-closed)"
 
 # v6.0 T6b — 디스크 빚을 보이게 하고, 되찾을 수 있게 하되, 유일한 사본은 놀라서 사라지지 않게.
 # 파일 순서대로: 레일의 ▤ 링크 → 회수 판(한 줄 판독 + 규칙) → 로직(미리 체크 규칙 · 언제나 runIds).
@@ -942,6 +972,20 @@ assert run["worktreePath"]==os.environ["SESSDIR"], "wt="+run["worktreePath"]
 print("free-session bucket ok")
 ' || fail "free session not isolated into sessions bucket"
 tmux has-session -t "coxpit-r$FSRUN" 2>/dev/null || fail "free session tmux missing"
+# v5.28 D-fix — 페인이 지금 서 있는 폴더. 터미널이 찍은 상대경로는 worktree 루트가 아니라 이걸 기준으로 푼다.
+# 정확한 경로는 tmux/플랫폼에 따라 심링크 해소가 갈리니 값은 눈감고, **모양과 정직함**만 못박는다.
+FPWD=$(curl -sf "$B/api/runs/$FSRUN/pwd") || fail "GET /api/runs/:id/pwd failed"
+echo "$FPWD" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b);
+  if(!("pwd" in j)) throw new Error("the pwd payload must always carry a pwd key: "+b);
+  if(typeof j.pwd!=="string") throw new Error("pwd must be a string: "+b);
+  if(j.ok && !j.pwd) throw new Error("ok:true with an empty pwd would be a fabricated answer: "+b);
+  if(!j.ok && j.pwd) throw new Error("ok:false must come with an empty pwd: "+b);
+  console.log("pwd shape ok");
+})' || fail "pwd payload shape wrong: $FPWD"
+expect_code 404 "$B/api/runs/999999/pwd"
+pass "v5.28 D-fix: GET /api/runs/:id/pwd reports the pane's current dir (unknown run 404s; never a guessed path)"
 curl -s -X POST "$B/api/session" -H 'content-type: application/json' -d '{"machineSlug":"local"}' -o /dev/null -w '%{http_code}' | grep -q 400 || fail "session without path should 400"
 curl -s -X POST "$B/api/runs/$FSRUN/cleanup" | grep -q '"ok":true' || fail "free session cleanup"
 [ -f "$SESSDIR/keep.txt" ] || fail "free session close destroyed the folder"
