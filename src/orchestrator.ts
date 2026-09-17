@@ -796,6 +796,25 @@ export async function getScrollback(runId: number, lines: number): Promise<{ ok:
 }
 
 /**
+ * 이 run 의 페인이 **지금 서 있는 폴더** (v5.28 D-fix).
+ * 터미널이 찍은 상대경로를 열려면 worktree 루트가 아니라 페인의 cwd 가 기준이어야 한다 —
+ * 모노레포 하위 패키지나 `cd` 뒤에는 루트가 답이 아니고, 그때 링크는 없는 파일을 가리켰다.
+ * 타깃은 언제나 '=' 정확 일치(coxpit-r5 가 coxpit-r50 을 집는 사고를 두 번 겪었다).
+ * display-message 가 페인 타깃으로 '=' 를 못 받는 tmux 가 있어 list-panes -s(타깃-세션) 로 한 번 더 받친다.
+ * 못 알아내면 빈 문자열 — 클라이언트는 worktree 로 폴백한다. 지어내지 않는다.
+ */
+export async function getRunPwd(runId: number): Promise<{ ok: boolean; pwd: string }> {
+  const info = await getRunTermInfo(runId);
+  if (!info) return { ok: false, pwd: '' };
+  const t = shq('=' + info.session);
+  const cmd = `tmux display -p -t ${t} '#{pane_current_path}' 2>/dev/null || tmux list-panes -s -t ${t} -F '#{pane_current_path}' 2>/dev/null | head -1`;
+  const r = await runShellOn(info.machine, cmd, 8000);
+  const pwd = ((r.stdout || '').split('\n')[0] || '').trim();
+  if (!r.ok || !pwd) return { ok: false, pwd: '' };
+  return { ok: true, pwd };
+}
+
+/**
  * 실행 중 run 중지 — 자식 프로세스 SIGTERM. close 핸들러가 status='stopped' 로 봉인.
  */
 export async function stopRun(runId: number): Promise<{ ok: boolean; detail: string }> {
