@@ -80,8 +80,16 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tnode .n{overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
   .tnode .meta{color:var(--faint);font-size:11px}
   .tnode.repo{color:var(--ink)}
-  .tnode.goal{padding-left:20px} .tnode.goal .gi{color:var(--brand)}
+  /* goal/그룹 = repo 섹션 안의 얇은 띠. 보드 .gband 와 같은 규칙(점선 테두리, 좌측 액센트 바 금지)을 트리 폭으로 축약. */
+  .tnode.goal{margin:3px 4px 3px 12px;padding:5px 8px;border:1px dashed var(--line);border-radius:6px}
+  .tnode.goal .gi{color:var(--brand)}
   .tnode.task{padding-left:30px}
+  /* 트리 노드 액션(＋ 새 작업 · ＋ 에이전트) — hover 에서만 드러나고, 터치 기기는 옅게 상주 */
+  .tnode .tact{margin-left:auto;flex:none;white-space:nowrap;font-family:var(--mono);font-size:10.5px;line-height:1;
+    color:var(--faint);background:none;border:none;border-radius:5px;padding:3px 5px;cursor:pointer;opacity:0}
+  .tnode:hover .tact{opacity:1}
+  .tnode .tact:hover{color:var(--brand);background:var(--surface2)}
+  body.touch .tnode .tact{opacity:.7}
   .tnode.run{padding-left:44px;font-size:12px;cursor:pointer}
   .tnode.run:hover{background:var(--surface)}
   .tnode.run.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
@@ -247,6 +255,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .pick-name:focus{outline:none;border-color:var(--brand)}
   .pick-name::placeholder{color:var(--faint)}
 
+  /* ── 작업/에이전트 시트 — 트리 노드에서 뜨는 작은 시트(폴더 피커 .pick 뼈대 재사용) ── */
+  .sheet-note{padding:11px 15px 0;font-size:11px;color:var(--faint);line-height:1.55}
+  .sheet-note b{color:var(--muted);font-weight:600}
+  .sheet-body{padding:12px 15px 4px;display:flex;flex-direction:column;gap:5px}
+  .sheet-body .pick-name{width:100%;flex:none}
+  .sheet-body .modes{align-self:flex-start;margin-bottom:3px}
+  .flabel{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:5px}
   .sec-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;font-size:12.5px;color:var(--ink)}
   .sec-row:hover{background:var(--surface2)}
   .sec-row .snm{flex:1;font-family:var(--mono)}
@@ -501,6 +516,38 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="modal" id="workModal">
+  <div class="pick" style="width:min(460px,92vw)">
+    <div class="pick-h"><span class="t">새 작업</span><button class="x" id="workClose" title="닫기">×</button></div>
+    <div class="pick-path" id="workRepoName">…</div>
+    <div class="sheet-note">작업을 만들면 그 <b>repo 체크아웃</b>에서 <b>main</b> 터미널이 바로 열립니다 — 에이전트도 worktree 도 없는 내 손 터미널입니다. 에이전트는 작업 아래에서 따로 추가합니다.</div>
+    <div class="pick-f">
+      <input class="pick-name" id="workName" placeholder="작업 이름 (예: 기능 업데이트 6.0)" autocomplete="off" />
+      <button class="go" id="workGo">만들고 열기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="agentModal">
+  <div class="pick" style="width:min(460px,92vw)">
+    <div class="pick-h"><span class="t">＋ 에이전트</span><button class="x" id="agentClose" title="닫기">×</button></div>
+    <div class="pick-path" id="agentWorkName">…</div>
+    <div class="sheet-body">
+      <div class="flabel">역할 이름</div>
+      <input class="pick-name" id="agentRole" placeholder="예: 구현 (비우면 에이전트 이름)" maxlength="60" autocomplete="off" />
+      <div class="flabel">에이전트</div>
+      <div class="modes" id="agentProv"></div>
+      <div class="flabel">모델</div>
+      <input class="pick-name" id="agentModel" placeholder="비우면 CLI 기본 (예: opus)" autocomplete="off" spellcheck="false" />
+    </div>
+    <div class="pick-f">
+      <label class="rchk" title="실제 CLI 실행 (기본=드라이런)"><input type="checkbox" id="agentReal" /> real</label>
+      <span class="shint" style="flex:1">worktree 로 격리해 띄웁니다 — 나란히 비교하고 승자만 머지</span>
+      <button class="go" id="agentGo">에이전트 추가</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="fpickModal">
   <div class="pick">
     <div class="pick-h"><span class="t">파일 보기</span><button class="x" id="fpClose" title="닫기">×</button></div>
@@ -626,7 +673,24 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     else if (!$('reqAgent').options.length){ var o=document.createElement('option'); o.value='claude-code'; o.textContent='claude-code'; $('reqAgent').appendChild(o); }
   }
 
-  // ── 트리 렌더: Machine ▸ Repo ▸ Goal ▸ Task ▸ Run ──
+  // ── 표시 이름 (v6.0 T4) ──
+  // ① 역할 이름(run.title) ② 프로젝트 아래 root 세션 = main(내 손 터미널)
+  // ③ Sessions 버킷은 지금까지처럼 태스크 이름 ④ 그 외는 프로바이더 이름.
+  function runLabel(runId){
+    var r=runById[runId]; if(!r) return 'r'+runId;
+    if (r.title) return r.title;
+    var task=taskById[r.taskId]; var rp=task&&repoById[task.repoId];
+    if (rp && rp.kind==='sessions') return (task&&task.title)||('session r'+runId);
+    if (r.agent==='session') return 'main';
+    return r.agent||('r'+runId);
+  }
+  // 트리 행은 역할 옆에 모델까지 — 스펙의 "구현 · opus" 모양.
+  function runTreeName(runId){
+    var r=runById[runId]; var nm=runLabel(runId);
+    return (r && r.model) ? (nm+' · '+r.model) : nm;
+  }
+
+  // ── 트리 렌더: Sessions ▸ (프로젝트=Repo 섹션 ▸ Goal 띠 ▸ 작업=Task ▸ 세션=Run) ──
   function renderTree(){
     var el = $('tree');
     var repos = fleet.repos||[], tasks = fleet.tasks||[], groups = fleet.groups||[], runs = fleet.runs||[];
@@ -659,12 +723,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     html += '<div class="tree-sep"></div>';
     html += '<div class="lbl"><span>Projects</span></div>';
     if (!realRepos.length){ html += '<div class="tnode empty">등록된 repo 가 없습니다 — 보드에서 추가하세요.</div>'; }
+    // 프로젝트(repo) 하나 = 섹션 하나. 그 안에 작업(task) 들이 있고, 작업 아래에 세션(run) 이 달린다.
     realRepos.forEach(function(repo){
       var rk = 'repo'+repo.id;
       var rTasks = (tasksByRepo[repo.id]||[]).filter(function(t){ return t.status!=='closed'; });
       var runCount = rTasks.reduce(function(n,t){ return n+((runsByTask[t.id]||[]).length); }, 0);
       html += '<div class="tnode repo" data-fold="'+rk+'"><span class="car">'+(isFold(rk)?'▸':'▾')+'</span>'
-        + '<span class="n">'+esc(repo.name)+'</span><span class="meta">'+runCount+' run'+(runCount===1?'':'s')+'</span></div>';
+        + '<span class="n" title="'+esc(repo.path||repo.name)+'">'+esc(repo.name)+'</span>'
+        + '<button class="tact" data-newwork="'+repo.id+'" title="새 작업 — 작업을 만들고 repo 체크아웃에서 main 터미널을 엽니다">＋ 새 작업</button>'
+        + '<span class="meta">'+runCount+' run'+(runCount===1?'':'s')+'</span></div>';
       if (isFold(rk)) return;
       // goal(group) 로 묶기
       var byGroup = {}, ungrouped = [];
@@ -680,20 +747,28 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     });
     el.innerHTML = html;
   }
+  // 작업(task) 한 줄 + 그 아래 세션(run) 들. 이름은 작업이 갖고, run 은 역할로 읽힌다.
   function taskHTML(t, rns){
     var tk='task'+t.id;
     var s = '<div class="tnode task" data-fold="'+tk+'"><span class="car">'+(rns.length?(isFold(tk)?'▸':'▾'):' ')+'</span>'
-      + '<span class="n">'+esc(t.title)+'</span></div>';
+      + '<span class="n" title="'+esc(t.title)+'">'+esc(t.title)+'</span>'
+      + '<button class="tact" data-newagent="'+t.id+'" title="에이전트 추가 — 이 작업 아래에 역할 세션 하나(worktree 격리)">＋ 에이전트</button></div>';
     if (!isFold(tk)) rns.sort(function(a,b){return a.id-b.id;}).forEach(function(r){
       var open = tabs[r.id] ? ' open' : '';
       var act=latestActivity(r.id);
-      s += '<div class="tnode run'+open+'" data-run="'+r.id+'"><span class="st '+esc(r.status)+'"></span>'
-        + '<span class="n">r'+r.id+' · '+esc(r.status)+'</span>'+(act?'<span class="ract">'+esc(act)+'</span>':'')+'</div>';
+      s += '<div class="tnode run'+open+'" data-run="'+r.id+'" title="r'+r.id+' · '+esc(r.status)+'"><span class="st '+esc(r.status)+'"></span>'
+        + '<span class="n">'+esc(runTreeName(r.id))+'</span>'+(act?'<span class="ract">'+esc(act)+'</span>':'')
+        + '<span class="meta">r'+r.id+'</span></div>';
     });
     return s;
   }
   $('tree').addEventListener('click', function(e){
     if (e.target.closest('[data-newsession]')){ openSession(); return; }
+    // 노드 액션은 접기(data-fold)·열기(data-run) 보다 먼저 가로챈다 — 같은 행 안에 있으므로.
+    var nw = e.target.closest('[data-newwork]');
+    if (nw){ e.stopPropagation(); openNewWork(+nw.dataset.newwork); return; }
+    var na = e.target.closest('[data-newagent]');
+    if (na){ e.stopPropagation(); openAddAgent(+na.dataset.newagent); return; }
     var del = e.target.closest('[data-delsession]');
     if (del){ e.stopPropagation(); deleteSession(+del.dataset.delsession); return; }
     var run = e.target.closest('[data-run]');
@@ -737,12 +812,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function focusRun(){ return focusedRunId(); }   // 기존 호출부(steer/review) 호환
   function copyInto(dst,src){ Object.keys(dst).forEach(function(k){delete dst[k];}); Object.keys(src).forEach(function(k){dst[k]=src[k];}); }
 
-  function tabName(runId){
-    var r=runById[runId]; if(!r) return 'r'+runId;
-    var task=taskById[r.taskId]; var rp=task&&repoById[task.repoId];
-    if (rp && rp.kind==='sessions') return (task&&task.title)||('session r'+runId);
-    return 'r'+runId;
-  }
+  // 탭 라벨 = 역할 하나(작업 이름은 트리가 이미 보여준다).
+  function tabName(runId){ return runLabel(runId); }
 
   function ensureTab(runId){
     if (tabs[runId]) return tabs[runId];
@@ -1174,11 +1245,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var val=input.value.trim();
       var span=document.createElement('span'); span.className='nm'; span.textContent=(commit&&val)?val:t.name;
       input.replaceWith(span);
-      if(commit && val && val!==t.name) renameTask(r.taskId, val);
+      // 세션 버킷 탭은 지금까지처럼 태스크(=세션) 이름을, 그 외 run 은 역할 이름을 바꾼다.
+      if(commit && val && val!==t.name){ if(runIsSession(runId)) renameTask(r.taskId, val); else renameRun(runId, val); }
     }
     input.addEventListener('keydown', function(e){ e.stopPropagation(); if(e.key==='Enter'){ e.preventDefault(); finish(true); } else if(e.key==='Escape'){ finish(false); } });
     input.addEventListener('blur', function(){ finish(true); });
     input.addEventListener('click', function(e){ e.stopPropagation(); });
+  }
+  // run 역할 이름(v6.0 T4) — PATCH /api/runs/:id { title }
+  async function renameRun(runId, title){
+    try{
+      var res=await fetch('/api/runs/'+runId,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({title:title})});
+      if(res.ok){ if(runById[runId]) runById[runId].title=title; toast('이름 변경 · '+title); await hydrate(); }
+      else { var j=await res.json().catch(function(){return{};}); toast('이름 변경 실패: '+(j.error||res.status)); }
+    }catch(e){ toast('이름 변경 실패: '+e); }
   }
   async function renameTask(taskId, title){
     try{
@@ -1483,6 +1563,80 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   });
   $('pickName').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); $('pickGo').click(); } });
   $('sessionBtn').addEventListener('click', openSession);
+
+  // ── v6.0 Part T — 새 작업(＋ 새 작업) / 에이전트 추가(＋ 에이전트) ──
+  // 작업 = task(이름이 사는 곳), 그 아래 세션 = run. 작업을 만들면 repo 체크아웃에
+  // main 터미널(root 세션)이 바로 열리고, 에이전트는 그 작업 아래에 worktree 로 붙는다.
+  var workRepoId=null, agentTaskId=null, agentProvId='';
+  function openNewWork(repoId){
+    var rp=repoById[repoId]; if(!rp){ toast('프로젝트를 찾을 수 없습니다'); return; }
+    workRepoId=repoId;
+    $('workRepoName').textContent=rp.name+(rp.path?(' · '+rp.path):'');
+    $('workName').value=''; $('workModal').classList.add('on');
+    setTimeout(function(){ try{ $('workName').focus(); }catch(e){} }, 30);
+  }
+  function closeNewWork(){ $('workModal').classList.remove('on'); }
+  var creatingWork=false;
+  async function createWork(){
+    if(creatingWork || workRepoId==null) return;
+    var title=$('workName').value.trim();
+    if(!title){ toast('작업 이름을 적어주세요'); $('workName').focus(); return; }
+    creatingWork=true; $('workGo').disabled=true;
+    try{
+      var res=await fetch('/api/workbench',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({repoId:workRepoId, title:title, root:true})});
+      var j=await res.json().catch(function(){return{};});
+      if(res.ok && j.runId){ closeNewWork(); await hydrate(); openRunPane(j.runId); toast('작업 · '+title+' — main 터미널 열림'); }
+      else toast('작업 생성 실패: '+(j.detail||j.error||res.status));
+    }catch(e){ toast('작업 생성 실패: '+e); }
+    finally{ creatingWork=false; $('workGo').disabled=false; }
+  }
+  function openAddAgent(taskId){
+    var t=taskById[taskId]; if(!t){ toast('작업을 찾을 수 없습니다'); return; }
+    agentTaskId=taskId;
+    var rp=repoById[t.repoId];
+    $('agentWorkName').textContent=(rp?rp.name+' ▸ ':'')+t.title;
+    $('agentRole').value='';
+    var provs=(fleet.providers||[]).slice();
+    if(!provs.length) provs=[{id:'claude-code',label:'claude-code'}];
+    if(!agentProvId || !provs.some(function(p){ return p.id===agentProvId; })) agentProvId=provs[0].id;
+    $('agentProv').innerHTML=provs.map(function(p){
+      return '<button type="button" class="mode'+(p.id===agentProvId?' on':'')+'" data-prov="'+esc(p.id)+'">'+esc(p.label||p.id)+'</button>';
+    }).join('');
+    $('agentModal').classList.add('on');
+    setTimeout(function(){ try{ $('agentRole').focus(); }catch(e){} }, 30);
+  }
+  function closeAddAgent(){ $('agentModal').classList.remove('on'); }
+  var addingAgent=false;
+  async function addAgent(){
+    if(addingAgent || agentTaskId==null) return;
+    addingAgent=true; $('agentGo').disabled=true;
+    try{
+      var role=$('agentRole').value.trim();
+      var res=await fetch('/api/tasks/'+agentTaskId+'/run',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({agent:agentProvId, count:1, real:$('agentReal').checked, model:$('agentModel').value.trim(), title:role})});
+      var j=await res.json().catch(function(){return{};});
+      var ids=(j&&j.runs||[]).map(function(x){ return x.id; });
+      if(res.ok && ids.length){ closeAddAgent(); await hydrate(); openRunPane(ids[0]); toast('에이전트 추가 · '+(role||agentProvId)); }
+      else toast('에이전트 추가 실패: '+(j.detail||j.error||res.status));
+    }catch(e){ toast('에이전트 추가 실패: '+e); }
+    finally{ addingAgent=false; $('agentGo').disabled=false; }
+  }
+  $('workClose').addEventListener('click', closeNewWork);
+  $('workModal').addEventListener('click', function(e){ if(e.target===this) closeNewWork(); });
+  $('workGo').addEventListener('click', createWork);
+  $('workName').addEventListener('keydown', function(e){ e.stopPropagation(); if(e.key==='Enter' && !e.isComposing){ e.preventDefault(); createWork(); } });
+  $('agentClose').addEventListener('click', closeAddAgent);
+  $('agentModal').addEventListener('click', function(e){ if(e.target===this) closeAddAgent(); });
+  $('agentGo').addEventListener('click', addAgent);
+  $('agentProv').addEventListener('click', function(e){
+    var b=e.target.closest('[data-prov]'); if(!b) return;
+    agentProvId=b.getAttribute('data-prov');
+    Array.prototype.forEach.call(this.querySelectorAll('.mode'), function(x){ x.classList.toggle('on', x.getAttribute('data-prov')===agentProvId); });
+  });
+  Array.prototype.forEach.call([$('agentRole'),$('agentModel')], function(el){
+    el.addEventListener('keydown', function(e){ e.stopPropagation(); if(e.key==='Enter' && !e.isComposing){ e.preventDefault(); addAgent(); } });
+  });
 
   // ── 파일 피커(뷰어로 열기) — 폴더=이동, 파일=뷰어 ──
   var fpDirCur = '';

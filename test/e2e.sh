@@ -251,6 +251,18 @@ case "$CKPT" in *'function startRename'*'function renameTask'*"'/api/tasks/'"*) 
 case "$CKPT" in *'id="pickName"'*'title:nm'*) : ;; *) fail "cockpit session-name input missing";; esac
 pass "cockpit tabs + split-tree panes + session naming/rename"
 
+# v6.0 Part T — 작업 트리(Sessions 섹션이 먼저, 그 다음 프로젝트 섹션 ▸ 작업 ▸ 세션) + 생성 어포던스.
+# 파일 순서 그대로 매칭: Sessions 마크업이 repo 섹션의 ＋새 작업 보다 앞에 있어야 한다.
+case "$CKPT" in *'>Sessions<'*'data-newwork='*'data-newagent='*) : ;; *) fail "cockpit work tree order/affordances missing (Sessions → repo ＋새 작업 → work ＋에이전트)";; esac
+case "$CKPT" in *'>＋ 새 작업</button>'*'>＋ 에이전트</button>'*) : ;; *) fail "cockpit tree create affordances (＋ 새 작업 / ＋ 에이전트) missing";; esac
+case "$CKPT" in *'id="workModal"'*'id="workName"'*'id="agentModal"'*'id="agentRole"'*'id="agentProv"'*'id="agentModel"'*) : ;; *) fail "cockpit new-work / add-agent sheets missing";; esac
+case "$CKPT" in *'function runLabel'*'function renameRun'*'function openNewWork'*'function openAddAgent'*) : ;; *) fail "cockpit work-tree logic (runLabel/renameRun/openNewWork/openAddAgent) missing";; esac
+# 이름 규칙: 프로젝트 아래 root 세션은 main, 역할은 run.title, 그 외는 프로바이더 이름
+case "$CKPT" in *"r.agent==='session') return 'main'"*) : ;; *) fail "cockpit root-session tab/tree name should fall back to main";; esac
+# 새 작업 = /api/workbench root:true · 에이전트 = /api/tasks/:id/run count:1 + title
+case "$CKPT" in *"'/api/workbench'"*'root:true'*"'/api/tasks/'+agentTaskId+'/run'"*'count:1'*) : ;; *) fail "cockpit work/agent creation should reuse the existing endpoints";; esac
+pass "v6.0 T1–T4 cockpit: Sessions→project▸work▸session tree + ＋새 작업/＋에이전트 sheets + run role naming"
+
 # 마지막 세션 자동 기억/복원: 첫 hydrate 뒤 restoreSession, render 말미 persistSession (파일 순서대로 매칭).
 case "$CKPT" in *'restoreSession();'*'persistSession();'*"'coxpit.session'"*'function persistSession'*'function restoreSession'*) : ;; *) fail "cockpit last-session persist/restore missing or unwired";; esac
 pass "cockpit remembers + auto-restores the last open session tabs (localStorage snapshot, dead runs pruned)"
@@ -456,6 +468,20 @@ node -e '
 ' "$BHFILE" "$WORK/board-client.js" || fail "could not extract board client script"
 node --check "$WORK/board-client.js" || fail "board client JS has a syntax error (board would blank)"
 pass "served board client JS parses (node --check)"
+
+# 코크핏도 같은 덫에 걸린다 — 한 줄 문법 오류면 터미널 셸 전체가 빈 화면이 된다.
+CKFILE="$WORK/cockpit.html"
+printf '%s' "$CKPT" > "$CKFILE"
+node -e '
+  const fs=require("fs");
+  const html=fs.readFileSync(process.argv[1],"utf8");
+  const m=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(x=>x[1]);
+  const js=m[m.length-1];
+  if(!js||js.length<1000){console.error("cockpit script extract failed");process.exit(2);}
+  fs.writeFileSync(process.argv[2],js);
+' "$CKFILE" "$WORK/cockpit-client.js" || fail "could not extract cockpit client script"
+node --check "$WORK/cockpit-client.js" || fail "cockpit client JS has a syntax error (cockpit would blank)"
+pass "served cockpit client JS parses (node --check)"
 
 # machine probe
 curl -sf -X POST "$B/api/machines/local/probe" | grep -q '"ready":true' || fail "local probe not ready (git/tmux required)"
@@ -832,6 +858,61 @@ curl -s -X POST "$B/api/session" -H 'content-type: application/json' -d '{"machi
 curl -s -X POST "$B/api/runs/$FSRUN/cleanup" | grep -q '"ok":true' || fail "free session cleanup"
 [ -f "$SESSDIR/keep.txt" ] || fail "free session close destroyed the folder"
 pass "free session: arbitrary folder, isolated from projects (sessions bucket), close preserves folder"
+
+# v6.0 Part T — Project ▸ Work ▸ Session 이 데이터로 그대로 선다.
+# ① 새 작업 = /api/workbench root:true → repo 아래 task + root 세션 run(agent='session')
+NW=$(curl -sf -X POST "$B/api/workbench" -H 'content-type: application/json' -d '{"repoId":1,"title":"기능 업데이트 6.0","root":true}')
+NWTASK=$(echo "$NW" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).taskId))')
+NWRUN=$(echo "$NW" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+[ -n "$NWTASK" ] && [ -n "$NWRUN" ] || fail "new work did not return task/run: $NW"
+curl -s "$B/api/fleet?view=all" | NWTASK="$NWTASK" NWRUN="$NWRUN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b), tid=Number(process.env.NWTASK), rid=Number(process.env.NWRUN);
+  const t=(j.tasks||[]).find(x=>x.id===tid);
+  if(!t) throw new Error("work missing from fleet");
+  if(t.title!=="기능 업데이트 6.0") throw new Error("work title: "+t.title);
+  const repo=(j.repos||[]).find(x=>x.id===t.repoId);
+  if(!repo || repo.kind==="sessions") throw new Error("a work must sit under a real repo section, got "+JSON.stringify(repo));
+  const r=(j.runs||[]).find(x=>x.id===rid);
+  if(!r) throw new Error("root run missing from fleet");
+  if(r.taskId!==tid) throw new Error("root run is not under the work");
+  if(r.agent!=="session") throw new Error("root run agent should be session, got "+r.agent);
+  if(r.branch!=="") throw new Error("root run must have no branch, got "+r.branch);
+  console.log("work tree ok");
+})' || fail "new work not visible as repo▸work▸session in /api/fleet"
+
+# ② 에이전트 추가 = /api/tasks/:id/run { count:1, title } → 만들어진 run 이 역할 이름을 갖는다
+AG=$(curl -sf -X POST "$B/api/tasks/$NWTASK/run" -H 'content-type: application/json' -d '{"agent":"claude-code","count":1,"title":"구현","model":"opus"}')
+AGRUN=$(echo "$AG" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runs[0].id))')
+[ -n "$AGRUN" ] || fail "add agent did not return a run: $AG"
+curl -s "$B/api/fleet?view=all" | AGRUN="$AGRUN" NWTASK="$NWTASK" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b), rid=Number(process.env.AGRUN);
+  const r=(j.runs||[]).find(x=>x.id===rid);
+  if(!r) throw new Error("agent run missing from fleet");
+  if(r.taskId!==Number(process.env.NWTASK)) throw new Error("agent run is not under the work");
+  if(r.title!=="구현") throw new Error("agent run title: "+JSON.stringify(r.title));
+  if(r.model!=="opus") throw new Error("agent run model: "+JSON.stringify(r.model));
+  console.log("role title ok");
+})' || fail "run role title not carried into /api/fleet"
+
+# ③ 역할 이름 변경 = PATCH /api/runs/:id { title } (빈값·과길이는 400, 없는 run 은 404)
+RNR=$(curl -s -X PATCH "$B/api/runs/$AGRUN" -H 'content-type: application/json' -d '{"title":"기타"}')
+case "$RNR" in *'"title":"기타"'*) : ;; *) fail "run rename PATCH failed: $RNR";; esac
+RNG=$(curl -s "$B/api/runs/$AGRUN")
+case "$RNG" in *'"title":"기타"'*) : ;; *) fail "run rename not persisted";; esac
+expect_code 400 -X PATCH "$B/api/runs/$AGRUN" -H 'content-type: application/json' -d '{"title":"   "}'
+LONGT=$(node -e 'console.log("가".repeat(61))')
+expect_code 400 -X PATCH "$B/api/runs/$AGRUN" -H 'content-type: application/json' -d "{\"title\":\"$LONGT\"}"
+expect_code 404 -X PATCH "$B/api/runs/999999" -H 'content-type: application/json' -d '{"title":"x"}'
+# 이 작업이 남긴 worktree·브랜치는 여기서 정리(뒤 테스트의 브랜치 검사를 깨끗하게)
+for i in $(seq 1 40); do
+  AS=$(curl -s "$B/api/runs/$AGRUN" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$AS" ] && break; sleep 0.5
+done
+curl -s -X POST "$B/api/tasks/$NWTASK/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+[ -f "$REPO/README.md" ] && [ -d "$REPO/.git" ] || fail "closing the work destroyed the repo checkout"
+pass "v6.0 Part T: work(root:true) under a repo + agent run carries a role title + PATCH run rename (400/404 guarded)"
 
 # task/session rename — PATCH /api/tasks/:id { title }
 RNT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d '{"repoId":1,"title":"before","prompt":"x"}')
