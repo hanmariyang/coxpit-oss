@@ -85,6 +85,9 @@ export const agentRuns = sqliteTable('agent_runs', {
   title: text('title').notNull().default(''), // v6.0 — 작업 안에서의 역할 이름(예: 구현·기타). 빈값 = 프로바이더 이름/main 으로 표시
   worktreePath: text('worktree_path').notNull().default(''),
   branch: text('branch').notNull().default(''),
+  // v6.0 Part P — 격리 없이 repo 체크아웃에서 그대로 도는 에이전트(worktree·브랜치 없음).
+  // 결과물은 루트 세션 마커와 같다(worktree_path=repo.path, branch=''); 이 플래그는 "그렇게 띄워라"는 의도다.
+  inPlace: integer('in_place', { mode: 'boolean' }).notNull().default(false),
   tmuxWindow: text('tmux_window').notNull().default(''),
   status: text('status').notNull().default('pending'), // pending | running | waiting | done | error
   sessionId: text('session_id').notNull().default(''), // 에이전트 세션(steer 용 --resume 키)

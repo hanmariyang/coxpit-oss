@@ -114,4 +114,5 @@ export async function ensureSchema(): Promise<void> {
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN verify_output TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE repos ADD COLUMN kind TEXT NOT NULL DEFAULT 'git'"); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN title TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
+  try { await client.execute('ALTER TABLE agent_runs ADD COLUMN in_place INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
 }

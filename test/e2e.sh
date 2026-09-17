@@ -263,6 +263,17 @@ case "$CKPT" in *"r.agent==='session') return 'main'"*) : ;; *) fail "cockpit ro
 case "$CKPT" in *"'/api/workbench'"*'root:true'*"'/api/tasks/'+agentTaskId+'/run'"*'count:1'*) : ;; *) fail "cockpit work/agent creation should reuse the existing endpoints";; esac
 pass "v6.0 T1–T4 cockpit: Sessions→project▸work▸session tree + ＋새 작업/＋에이전트 sheets + run role naming"
 
+# v6.0 Part P — 격리는 선택이다. 시트에 둘 곳 세그(worktree 기본 │ in-place) + 대가를 말하는 한 줄.
+# 파일 순서대로: 세그 → 정직한 한 줄 → 인라인 에러 자리.
+case "$CKPT" in *'id="agentPlace"'*'data-place="worktree"'*'data-place="inplace"'*) : ;; *) fail "cockpit add-agent place chooser (worktree│in-place) missing";; esac
+case "$CKPT" in *'sheet-tradeoff'*'in-place = 체크아웃 공유, 순차 · worktree = 병렬, 나중에 머지'*) : ;; *) fail "cockpit place chooser must state the tradeoff in one honest line (P4)";; esac
+case "$CKPT" in *'id="agentErr"'*'function agentErr'*'res.status===409'*) : ;; *) fail "cockpit IN_PLACE_BUSY 409 should surface inline in the sheet, not as a vanishing toast";; esac
+# 기본은 worktree(지금까지의 손버릇 그대로), 발사는 inPlace 를 실어 보낸다
+case "$CKPT" in *"agentPlace='worktree'"*"inPlace:(agentPlace==='inplace')"*) : ;; *) fail "cockpit add-agent should default to worktree and post inPlace";; esac
+# in-place 는 브랜치가 없으니 브랜치 칩도 없다 — 트리는 in-place 라고만 적고, 머지 버튼은 왜 꺼졌는지 말한다
+case "$CKPT" in *"' · in-place'"*"noIso ? 'in-place'"*) : ;; *) fail "cockpit in-place marker (tree meta + compare merge label) missing";; esac
+pass "v6.0 P4 cockpit: place chooser (worktree default │ in-place) + honest tradeoff line + inline 409 + in-place marker"
+
 # 마지막 세션 자동 기억/복원: 첫 hydrate 뒤 restoreSession, render 말미 persistSession (파일 순서대로 매칭).
 case "$CKPT" in *'restoreSession();'*'persistSession();'*"'coxpit.session'"*'function persistSession'*'function restoreSession'*) : ;; *) fail "cockpit last-session persist/restore missing or unwired";; esac
 pass "cockpit remembers + auto-restores the last open session tabs (localStorage snapshot, dead runs pruned)"
@@ -913,6 +924,79 @@ done
 curl -s -X POST "$B/api/tasks/$NWTASK/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 [ -f "$REPO/README.md" ] && [ -d "$REPO/.git" ] || fail "closing the work destroyed the repo checkout"
 pass "v6.0 Part T: work(root:true) under a repo + agent run carries a role title + PATCH run rename (400/404 guarded)"
+
+# v6.0 Part P — 격리는 선택이다. in-place run = worktree 도 브랜치도 없이 repo 체크아웃에서 그대로.
+# 남는 자국은 **루트 세션 마커 그대로**(branch='' · worktreePath=repo.path) — 새 개념이 아니다.
+# 전용 fixture repo 를 쓴다: in-place 는 체크아웃에 직접 쓰므로 다른 테스트의 repo 를 더럽히면 안 된다.
+IPREPO="$WORK/repo-inplace"
+mkdir -p "$IPREPO"; git -C "$IPREPO" init -q -b main
+printf 'seed\n' > "$IPREPO/README.md"; git -C "$IPREPO" add -A
+git -C "$IPREPO" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
+IPR=$(curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$IPREPO\"}")
+IPRID=$(echo "$IPR" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).repo.id))')
+IPT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$IPRID,\"title\":\"in-place 작업\",\"prompt\":\"do work\"}")
+IPTID=$(echo "$IPT" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).task.id))')
+# ① in-place 발사 → ② 곧바로 두 번째 in-place. 두 요청을 **한 curl 안에서**(--next) 붙여 쏜다 —
+# 드라이런은 1초 안에 정착하므로, 별도 프로세스로 쏘면 "살아있는 동안"이라는 전제가 흔들린다.
+IPPAIR=$(curl -s -w '\nHTTP%{http_code}\n' -X POST "$B/api/tasks/$IPTID/run" -H 'content-type: application/json' \
+  -d '{"agent":"claude-code","count":1,"title":"구현","inPlace":true}' \
+  --next -s -w '\nHTTP%{http_code}\n' -X POST "$B/api/tasks/$IPTID/run" -H 'content-type: application/json' \
+  -d '{"count":1,"inPlace":true}')
+case "$IPPAIR" in *'HTTP202'*'IN_PLACE_BUSY'*'HTTP409'*) : ;; *) fail "a second in-place agent on a live checkout must be refused 409 IN_PLACE_BUSY: $IPPAIR";; esac
+case "$IPPAIR" in *'steer it, or launch in a worktree'*) : ;; *) fail "IN_PLACE_BUSY must say what to do instead: $IPPAIR";; esac
+# ③ 한 체크아웃 = 한 에이전트. 팬아웃은 말이 안 되므로 살아있든 아니든 400.
+IPFAN=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/tasks/$IPTID/run" -H 'content-type: application/json' -d '{"count":2,"inPlace":true}')
+[ "$IPFAN" = "400" ] || fail "in-place fan-out (count>1) should 400, got $IPFAN"
+# ④ worktree run 은 영향 없음 — 같은 repo 에서도 자기 브랜치를 받는다
+IPW=$(curl -sf -X POST "$B/api/tasks/$IPTID/run" -H 'content-type: application/json' -d '{"count":1,"title":"기타"}')
+IPRUN=$(printf '%s' "$IPPAIR" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b.split("\n")[0]).runs[0].id))')
+IPWRUN=$(echo "$IPW" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runs[0].id))')
+[ -n "$IPRUN" ] || fail "in-place launch did not return a run: $IPPAIR"
+[ -n "$IPWRUN" ] || fail "worktree run alongside an in-place run was refused: $IPW"
+for r in "$IPRUN" "$IPWRUN"; do
+  IPS=''
+  for i in $(seq 1 60); do
+    IPS=$(curl -s "$B/api/runs/$r" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+    [ -n "$IPS" ] && break; sleep 0.5
+  done
+  [ -n "$IPS" ] || fail "run r$r did not settle"
+done
+# 마커 검증: in-place 는 브랜치 없음 + worktreePath = 체크아웃 · worktree run 은 지금까지 그대로
+curl -s "$B/api/fleet?view=all" | IPRUN="$IPRUN" IPWRUN="$IPWRUN" IPREPO="$IPREPO" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b), find=(id)=>(j.runs||[]).find(x=>x.id===Number(id));
+  const ip=find(process.env.IPRUN), wt=find(process.env.IPWRUN);
+  if(!ip||!wt) throw new Error("runs missing from fleet");
+  if(ip.inPlace!==true) throw new Error("in-place run should carry inPlace=true");
+  if(ip.branch!=="") throw new Error("in-place run must have no branch, got "+JSON.stringify(ip.branch));
+  if(ip.worktreePath!==process.env.IPREPO) throw new Error("in-place worktreePath should be the checkout, got "+ip.worktreePath);
+  if(wt.inPlace!==false) throw new Error("worktree run should not be in-place");
+  if(wt.branch!=="coxpit/r"+wt.id) throw new Error("worktree run lost its branch: "+wt.branch);
+  if(wt.worktreePath===process.env.IPREPO) throw new Error("worktree run must not live in the checkout");
+  console.log("in-place marker ok");
+})' || fail "in-place / worktree markers wrong in /api/fleet"
+[ ! -d "$WORK/.coxpit-worktrees/r$IPRUN" ] || fail "in-place run must not create a worktree dir"
+[ -z "$(git -C "$IPREPO" branch --list "coxpit/r$IPRUN")" ] || fail "in-place run must not create a branch"
+[ -d "$WORK/.coxpit-worktrees/r$IPWRUN" ] || fail "the worktree run lost its isolated worktree"
+# 에이전트의 편집은 체크아웃에 바로 있다 — main 터미널에서 그대로 보이는 그 파일이다
+[ -f "$IPREPO/COXPIT_DRYRUN.txt" ] || fail "in-place agent edits should land in the checkout"
+# diff 는 체크아웃의 커밋 안 한 변경(정직하게) · merge 는 마커 때문에 자동 거부
+curl -s "$B/api/runs/$IPRUN/diff" | grep -q 'COXPIT_DRYRUN' || fail "in-place diff should show the checkout's uncommitted changes"
+expect_code 409 -X POST "$B/api/runs/$IPRUN/merge"
+# 닫아도 체크아웃은 남는다(격리 worktree 가 아니니 지울 것이 없다)
+curl -s -X POST "$B/api/tasks/$IPTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+[ -f "$IPREPO/README.md" ] && [ -d "$IPREPO/.git" ] || fail "closing an in-place work destroyed the repo checkout"
+# 정착한 뒤에는 그 체크아웃이 비므로 다음 in-place 는 다시 허용된다(가드는 '지금 일하는 중'만 막는다)
+IPT2=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$IPRID,\"title\":\"in-place 다음\",\"prompt\":\"more\"}")
+IPT2ID=$(echo "$IPT2" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).task.id))')
+curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/tasks/$IPT2ID/run" -H 'content-type: application/json' -d '{"count":1,"inPlace":true}' | grep -q 202 || fail "in-place should be allowed again once the checkout is free"
+IPR2=$(curl -s "$B/api/tasks/$IPT2ID" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runs[0].id))')
+for i in $(seq 1 60); do
+  IPS2=$(curl -s "$B/api/runs/$IPR2" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$IPS2" ] && break; sleep 0.5
+done
+curl -s -X POST "$B/api/tasks/$IPT2ID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+pass "v6.0 Part P: in-place run = root-session marker (no worktree/branch, edits in the checkout) · second live in-place 409 · count>1 400 · worktree run unaffected"
 
 # task/session rename — PATCH /api/tasks/:id { title }
 RNT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d '{"repoId":1,"title":"before","prompt":"x"}')

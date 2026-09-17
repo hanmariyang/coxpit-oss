@@ -223,6 +223,35 @@ export function isRunLive(runId: number): boolean {
   return liveChildren.has(runId) || adoptedRuns.has(runId);
 }
 
+/**
+ * 발사 창 — launchRun 이 착수했지만 아직 자식 프로세스가 안 생긴 구간.
+ * launchRun 의 첫 문장이라 요청 핸들러가 응답을 돌려주기 **전에** 동기적으로 들어간다.
+ * 메모리에만 있어 데몬이 죽으면 같이 사라진다(= 재시작 후 유령이 체크아웃을 물고 있는 일이 없다).
+ */
+const launching = new Set<number>();
+
+/**
+ * v6.0 P3 — 이 repo 체크아웃에서 지금 일하고 있는 in-place **에이전트** run 이 있으면 그 id.
+ * 한 체크아웃에 에이전트 둘은 서로의 편집을 덮어쓴다 → 발사 전에 이걸로 막는다(409).
+ *
+ * 살아있음 = 자식 보유/재-adopt(isRunLive) **또는** 발사 창(launching). 후자가 없으면
+ * 연달아 들어온 두 요청이 둘 다 통과한다 — launchRun 은 fire-and-forget 이라
+ * 두 번째 검사 시점엔 첫 run 의 자식이 아직 안 생겼기 때문.
+ * 손 터미널(agent='session'·'workbench')은 세지 않는다 — 사람이 자기 체크아웃에
+ * 터미널을 몇 개 열든 그건 사람의 선택이다(D3).
+ */
+export async function liveInPlaceRun(repoId: number): Promise<number | null> {
+  const repoTasks = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.repoId, repoId));
+  if (!repoTasks.length) return null;
+  const ids = repoTasks.map((t) => t.id);
+  const rs = (await db.select().from(agentRuns).where(inArray(agentRuns.taskId, ids)))
+    .filter((r) => r.inPlace && r.agent !== 'session' && r.agent !== 'workbench');
+  for (const r of rs) {
+    if (isRunLive(r.id) || launching.has(r.id)) return r.id;
+  }
+  return null;
+}
+
 /** 에이전트 프롬프트에 붙는 능력 고지 — 독립 하위작업을 병렬 서브런으로 뺄 수 있다.
  * 파일 기반: 기본 권한(claude acceptEdits · codex workspace-write)이 네트워크를 막아도
  * 파일 쓰기는 되므로, spawn 요청을 워크트리의 .coxpit/spawn.json 으로 받는다. */
@@ -371,6 +400,7 @@ interface RunContext {
   real: boolean;
   agent: string;
   model: string;
+  inPlace: boolean;   // v6.0 P1 — 격리 worktree 없이 repo 체크아웃에서 그대로 돈다
 }
 
 async function loadContext(runId: number): Promise<RunContext | null> {
@@ -416,6 +446,7 @@ async function loadContext(runId: number): Promise<RunContext | null> {
     real: config.agent.real,
     agent: run.agent,
     model: run.model,
+    inPlace: run.inPlace,
   };
 }
 
@@ -423,30 +454,41 @@ async function loadContext(runId: number): Promise<RunContext | null> {
  * 한 AgentRun 실행: worktree 생성 → tmux 창(best-effort) → 에이전트 spawn →
  * stdout 라인 파싱하며 이벤트 적재 → 종료 시 files_changed 집계 + status 전이.
  * fire-and-forget. 실패는 status='error' 로 봉인.
+ *
+ * v6.0 P1 — in-place run 은 1) 을 통째로 건너뛴다: worktree 도 브랜치도 만들지 않고
+ * repo 체크아웃(ctx.repoPath)에서 그대로 돈다. 남는 자국은 **루트 세션 마커 그대로**
+ * (branch='' · worktreePath=repo.path) 라 merge/PR/sync/cleanup 은 이미 있는 판정이
+ * 알아서 비껴간다 — 새 개념이 아니라 이미 있던 표식의 재사용이다.
  */
 export async function launchRun(runId: number, real?: boolean): Promise<void> {
+  // 발사 창 진입 — 이 한 줄은 호출 즉시(첫 await 전에) 실행되므로, 뒤이어 들어온
+  // in-place 요청이 아직 자식이 없는 이 run 을 "없는 것"으로 볼 수 없다(P3 가드).
+  launching.add(runId);
   const ctx = await loadContext(runId);
-  if (!ctx) return;
+  if (!ctx) { launching.delete(runId); return; }
   const useReal = real ?? ctx.real;
 
-  const branch = `coxpit/r${runId}`;
+  const inPlace = ctx.inPlace;
+  const branch = inPlace ? '' : `coxpit/r${runId}`;
   const wtParent = ppath.join(ppath.dirname(ctx.repoPath), '.coxpit-worktrees');
-  const wtPath = ppath.join(wtParent, `r${runId}`);
+  const wtPath = inPlace ? ctx.repoPath : ppath.join(wtParent, `r${runId}`);
   const session = `coxpit-r${runId}`;
 
   try {
     await setRun(runId, { status: 'preparing', branch, worktreePath: wtPath, tmuxWindow: session, startedAt: new Date() });
 
-    // 1) worktree 생성(격리 브랜치)
-    const prep = await runShellOn(
-      ctx.machine,
-      `mkdir -p ${shq(wtParent)} && git -C ${shq(ctx.repoPath)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(ctx.baseBranch)}`,
-      20000,
-    );
-    if (!prep.ok) {
-      await recordEvent(runId, 'error', (prep.stderr || prep.stdout).trim().slice(0, 500));
-      await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'worktree add failed' });
-      return;
+    // 1) worktree 생성(격리 브랜치) — in-place 는 건너뛴다(격리가 없는 것이 요점).
+    if (!inPlace) {
+      const prep = await runShellOn(
+        ctx.machine,
+        `mkdir -p ${shq(wtParent)} && git -C ${shq(ctx.repoPath)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(ctx.baseBranch)}`,
+        20000,
+      );
+      if (!prep.ok) {
+        await recordEvent(runId, 'error', (prep.stderr || prep.stdout).trim().slice(0, 500));
+        await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'worktree add failed' });
+        return;
+      }
     }
 
     // 2) tmux 창(사람이 attach 해 개입할 수 있게) — best-effort. 동명 잔재는 선제 정리('=' 정확 일치).
@@ -456,7 +498,7 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
       `export LANG=${shq(config.lang)}; tmux kill-session -t ${shq('=' + session)} 2>/dev/null; tmux new-session -d${runEnv} -s ${shq(session)} -c ${shq(wtPath)} 2>/dev/null || true`, 8000);
 
     await setRun(runId, { status: 'running' });
-    await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, real: useReal }));
+    await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, real: useReal, ...(inPlace ? { inPlace: true } : {}) }));
 
     // 3) 에이전트 spawn(스트리밍)
     // 원격은 ssh 채널이 죽어도 프로세스가 남을 수 있어 pid 파일을 남긴다(stop 시 원격 kill).
@@ -490,6 +532,8 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
   } catch (e) {
     await recordEvent(runId, 'error', String(e).slice(0, 500));
     await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'orchestrator error' });
+  } finally {
+    launching.delete(runId);   // 발사 창 해제 — 여기까지 오면 살아있음 판정은 liveChildren 이 이어받는다
   }
 }
 
