@@ -1245,6 +1245,17 @@ case "$CKPT" in *'class="tkeys"'*'data-k="left"'*'data-k="right"'*'data-k="cd"'*
 case "$BOARD_HTML" in *'.cockpit-link{display:inline-flex'*) : ;; *) fail "board should show Cockpit link on mobile";; esac
 pass "cockpit mobile fixes: full nav keys + touch input bar (no clip) + board→Cockpit link"
 
+# v5.28 D-io: the mobile single-line input drops newlines → a paste handler must bracketed-paste
+# multi-line clipboard content (200~/201~) WITHOUT auto-submitting (human presses Enter), CRLF-normalized.
+# (case-glob, not `printf | grep -q`: -q closes the pipe early and SIGPIPEs printf on a 200KB var.)
+case "$CKPT" in
+  *"addEventListener('paste'"*'clipboardData'*'200~'*'201~'*'여러 줄 붙여넣음'*) : ;;
+  *) fail "cockpit v5.28 D-io: mobile bracketed multi-line paste handler missing";;
+esac
+# no auto-submit: the bracketed send must NOT be followed by a carriage return
+case "$CKPT" in *"201~'+'"*) fail "cockpit D-io: multi-line paste must not auto-submit (no CR after 201~)";; *) : ;; esac
+pass "cockpit v5.28 D-io: mobile multi-line paste = bracketed (200~/201~), CRLF-normalized, no auto-submit"
+
 # mobile app-lock: viewport zoom lock + overscroll-behavior; icon-only header (labels hidden); smaller fonts
 case "$CKPT" in *'user-scalable=no'*'overscroll-behavior:none'*) : ;; *) fail "cockpit mobile app-lock (viewport + overscroll) missing";; esac
 case "$CKPT" in *'.b-txt{display:none}'*'class="b-txt"'*) : ;; *) fail "cockpit mobile icon-only (b-txt hide) missing";; esac

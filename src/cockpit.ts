@@ -2065,6 +2065,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function termSendLine(){ var inp=$('termInput'); var v=inp.value; if(!v){ termSendRaw('\\r'); return; } termSendRaw(v+'\\r'); inp.value=''; inp.focus(); }
   $('termSend').addEventListener('click', termSendLine);
   $('termInput').addEventListener('keydown', function(e){ if(e.isComposing) return; if(e.key==='Enter'){ e.preventDefault(); termSendLine(); } });
+  // 멀티라인 붙여넣기(D-io) — 한 줄 <input> 은 개행을 삼킨다. 개행이 있으면 기본동작을 막고
+  // bracketed paste(\\x1b[200~ ... \\x1b[201~)로 통째 보낸다. 자동 제출은 없다 — 사람이 ⏎ 로 보낸다
+  // (붙여넣기는 에이전트 입력칸에 텍스트를 넣는 제스처지 제출이 아니다; 데스크톱·C3 주입과 같은 규율).
+  $('termInput').addEventListener('paste', function(e){
+    var cd = e.clipboardData || window.clipboardData; if(!cd) return;
+    var text = cd.getData('text'); if(!text) return;
+    if(/[\\r\\n]/.test(text)){
+      e.preventDefault();
+      var norm = text.replace(/\\r\\n/g,'\\n').replace(/\\r/g,'\\n');  // CRLF/CR → LF
+      termSendRaw('\\x1b[200~'+norm+'\\x1b[201~');                     // 붙여넣기만 bracketed, 제출 안 함
+      toast('여러 줄 붙여넣음 — ⏎ 로 전송');
+    }
+    // 한 줄 붙여넣기는 그대로 input 으로(동작 변화 없음)
+  });
   var TKEYS={ esc:'\\x1b', tab:'\\t', enter:'\\r', cc:'\\x03', cd:'\\x04', cr:'\\x12', cu:'\\x15',
     up:'\\x1b[A', down:'\\x1b[B', right:'\\x1b[C', left:'\\x1b[D', pgup:'\\x1b[5~', pgdn:'\\x1b[6~',
     copymode:'\\x02[' };   // Ctrl-b [ = tmux copy-mode 진입(위 내용 스크롤; esc/q 로 나감)
