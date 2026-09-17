@@ -23,6 +23,7 @@ import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
 import { openTerm } from './term';
+import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach } from './agentstate';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
@@ -1655,10 +1656,12 @@ export async function buildServer(): Promise<FastifyInstance> {
       return;
     }
     liveTerminals++;   // pty 압력 지표(/api/health) — close 에서 정확히 1회 감소
+    agentAttach(id);   // 에이전트 상태 추적 시작(refcount — 같은 run 에 여러 클라이언트가 붙어도 tracker 는 하나)
     let closed = false;
     // 백프레셔 — WS 송신 버퍼가 차면 pty 를 잠시 멈춰 폭주 방지
     let paused = false;
     term.onData((d) => {
+      agentFeed(id, d);
       try {
         socket.send(JSON.stringify({ t: 'o', d }));
         if (!paused && socket.bufferedAmount > 800_000) { paused = true; try { term.pause(); } catch { /* n/a */ } }
@@ -1669,16 +1672,16 @@ export async function buildServer(): Promise<FastifyInstance> {
     }, 200);
     const keepalive = setInterval(() => { try { socket.ping(); } catch { /* closed */ } }, 30_000);
 
-    term.onExit(() => { try { socket.send(JSON.stringify({ t: 'exit' })); socket.close(); } catch { /* closed */ } });
+    term.onExit(() => { agentExit(id); try { socket.send(JSON.stringify({ t: 'exit' })); socket.close(); } catch { /* closed */ } });
     socket.on('message', (raw: Buffer) => {
       try {
         const m = JSON.parse(raw.toString()) as { t?: string; d?: string; cols?: number; rows?: number };
-        if (m.t === 'i' && typeof m.d === 'string') term.write(m.d);
+        if (m.t === 'i' && typeof m.d === 'string') { agentInput(id); term.write(m.d); }
         else if (m.t === 'r' && m.cols && m.rows) term.resize(Math.max(20, Math.min(500, m.cols)), Math.max(5, Math.min(200, m.rows)));
       } catch { /* ignore */ }
     });
     socket.on('close', () => {
-      if (!closed) { closed = true; liveTerminals = Math.max(0, liveTerminals - 1); }
+      if (!closed) { closed = true; liveTerminals = Math.max(0, liveTerminals - 1); agentDetach(id); }
       clearInterval(drain); clearInterval(keepalive);
       try { term.kill(); } catch { /* gone */ }
     });
