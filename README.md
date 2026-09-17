@@ -106,7 +106,7 @@ Runs land in the project like any board-launched run (isolated worktree + branch
 | `COXPIT_CODEX_BIN` | `codex` | Codex CLI command (optional second provider) |
 | `COXPIT_CODEX_SANDBOX` | `workspace-write` | Codex sandbox policy (`danger-full-access` for full autonomy) |
 | `COXPIT_AGENT_ORCH` | on | `0` disables agent self-orchestration (the `.coxpit/spawn.json` protocol + prompt note) |
-| `COXPIT_WEBHOOK_URL` | — | POSTs `{event:"run.settled",run:{...}}` when a run finishes — wire it to Telegram, Slack, anything |
+| `COXPIT_WEBHOOK_URL` | — | POSTs `{event:"run.settled",run:{...}}` when a run finishes, and `{event:"agentstate",runId,state}` when an attached terminal's agent starts waiting on you or exits (state only, never terminal output; max once per run per minute) — wire it to Telegram, Slack, anything |
 | `COXPIT_PUBLIC_URL` | — | if set, the webhook payload adds `url: <base>/?run=<id>` — tap it on your phone and the board opens that run |
 
 Most of these can also be changed from the in-app **Settings** view (gear, left rail) — port, bind host, access key, agent defaults and notification URLs — persisted to `~/.coxpit/settings.json`. Precedence is **explicit env > `settings.json` > default**, so anything pinned by an env var shows as locked in the UI. Port and host changes apply on the next daemon restart.
