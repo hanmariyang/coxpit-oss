@@ -314,9 +314,12 @@ destination: adding a second agent to a work *is* the fleet.
 - [ ] **Part P — in-place agent sessions**: isolation becomes a per-session choice
       (in-place = sequential collaboration in the checkout, worktree = parallel attempts);
       reuses the root-session marker; one live in-place agent per repo, honestly enforced.
-- [ ] **Part W — WORK.md**: one shared context file per work (data-dir canonical, cockpit-
-      edited, injected into every launch/steer under the work) — closes the context silo
-      between isolated runs.
+- [x] **Part W — WORK.md** *(shipped on main, unreleased — r55)*: one shared context file per
+      work (data-dir canonical, cockpit-edited, injected into every launch/steer under the
+      work) — closes the context silo between isolated runs. An isolated run branches from the
+      past; the decisions written here travel to every session under the work. W4 (harvesting
+      lines a live run appends in its own worktree) stays **deferred** — the spec already calls
+      it optional, and curated injection carries the context on its own.
 - [ ] **Part S — Scratch & promotion**: ideas graduate — register the folder as a repo, or
       re-parent the work to an existing project.
 - [ ] **Part B — the board recedes**: cockpit is the only home; the board keeps working as

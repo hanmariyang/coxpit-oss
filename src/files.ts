@@ -28,6 +28,12 @@ function startDir(root: string): string {
   return (HOME === root || HOME.startsWith(root + '/')) ? HOME : root;
 }
 
+// 어떤 절대경로가 지금의 뷰어 루트 안인가 — 호출자가 "평소 파일 뷰어로 열면 되는지"를
+// 미리 물어보는 창구(v6.0 W2: WORK.md 는 ~/.coxpit 아래라 기본 루트(홈) 안이다).
+export function withinFilesRoot(p: string): boolean {
+  return withinRoot(presolve(p), currentRoot());
+}
+
 export type FileKind = 'md' | 'html' | 'pdf' | 'image' | 'text' | 'binary';
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico', '.avif']);

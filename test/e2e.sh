@@ -274,6 +274,17 @@ case "$CKPT" in *"agentPlace='worktree'"*"inPlace:(agentPlace==='inplace')"*) : 
 case "$CKPT" in *"' · in-place'"*"noIso ? 'in-place'"*) : ;; *) fail "cockpit in-place marker (tree meta + compare merge label) missing";; esac
 pass "v6.0 P4 cockpit: place chooser (worktree default │ in-place) + honest tradeoff line + inline 409 + in-place marker"
 
+# v6.0 Part W — WORK.md 는 작업의 공유 컨텍스트다. 작업 행에서 열고, 저장은 **다음 발사·steer** 부터 닿는다.
+# 파일 순서대로: 작업 행 어포던스(약속 문구 포함) → 클릭 배선 → 뷰어 배관 → 여는 함수.
+case "$CKPT" in *'data-workmd='*'다음 발사·steer 부터'*'▤ WORK.md</button>'*) : ;; *) fail "cockpit work node needs a WORK.md affordance saying saves reach the NEXT launch/steer";; esac
+case "$CKPT" in *'[data-workmd]'*'openWorkDoc(+wm.dataset.workmd)'*) : ;; *) fail "cockpit WORK.md affordance is not wired";; esac
+# 이모지 금지 — 스펙의 📝 는 약칭이고, 코크핏은 모노 글리프로 그린다
+case "$CKPT" in *'📝'*) fail "the cockpit forbids emoji — WORK.md gets a mono glyph";; *) : ;; esac
+# 새 파일 창구를 만들지 않는다: 기본은 기존 /api/fs 뷰어, md 도 편집 가능해진다(WORK.md 가 사는 곳)
+case "$CKPT" in *"'/api/fs/read?path='"*"d.kind==='md' && d.editable"*) : ;; *) fail "md viewer panes must keep reading via /api/fs and offer 편집";; esac
+case "$CKPT" in *"'/api/tasks/'+taskId+'/work'"*'ensureViewer(j.path'*'edit:true'*) : ;; *) fail "WORK.md must open in the existing file-viewer pane in edit mode";; esac
+pass "v6.0 W2 cockpit: WORK.md on the work node (mono ▤) → existing viewer pane in edit mode + the next-launch/steer promise"
+
 # 마지막 세션 자동 기억/복원: 첫 hydrate 뒤 restoreSession, render 말미 persistSession (파일 순서대로 매칭).
 case "$CKPT" in *'restoreSession();'*'persistSession();'*"'coxpit.session'"*'function persistSession'*'function restoreSession'*) : ;; *) fail "cockpit last-session persist/restore missing or unwired";; esac
 pass "cockpit remembers + auto-restores the last open session tabs (localStorage snapshot, dead runs pruned)"
@@ -1099,8 +1110,57 @@ done
 WT=$(curl -s "$B/api/runs/1" | grep -oE '"worktreePath":"[^"]+"' | sed 's/.*:"//;s/"//')
 grep -q 'DESIGN CONTEXT' "$WT/AGENT_ARGS.txt" && grep -q 'nav.bar' "$WT/AGENT_ARGS.txt" && grep -q 'user words' "$WT/AGENT_ARGS.txt" \
   || fail "prompt injection missing"
+# v6.0 W3 — WORK.md 없는 작업은 **블록 자체가 없다**. 없음은 깔끔해야지, 빈 블록이 흘러선 안 된다.
+AA1=$(cat "$WT/AGENT_ARGS.txt")
+case "$AA1" in *'WORK CONTEXT'*) fail "a task with no WORK.md must not get a WORK CONTEXT block (absence is clean, not an empty block)";; *) : ;; esac
 curl -s -X POST "$B/api/tasks/1/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
-pass "design context injected into agent argv"
+pass "design context injected into agent argv (and no WORK CONTEXT block without a WORK.md)"
+
+# v6.0 Part W — 격리된 run 은 과거에서 갈라져 나오지만, WORK.md 에 적힌 결정은 이 작업의 모든 세션을 따라간다.
+# 정본은 git 트리 밖(데몬 데이터 디렉터리)에 산다 — 어떤 worktree 의 diff 에도 뜨지 않는다.
+# (W4 harvest — 살아있는 run 이 적은 줄을 watcher 가 모아오는 일 — 은 이번 단계 범위 밖이다.)
+WDATA="$(dirname "$DB")/work"
+WKT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d '{"repoId":1,"title":"work ctx","prompt":"second words"}')
+WKTID=$(echo "$WKT" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).task.id))')
+[ -n "$WKTID" ] || fail "work-context task not created: $WKT"
+# ① 처음 열면 빈 파일이 생긴다 — 뷰어가 "없는 파일"에 걸려 넘어지지 않도록. 빈 파일은 주입되지 않는다.
+WMK=$(curl -sf -X POST "$B/api/tasks/$WKTID/work")
+# ⚠️ 이 스위트의 데이터 디렉터리는 mktemp(홈 밖)이라 기본 뷰어 루트가 못 덮는다 → 여기서 도는 것은
+# **대체 경로**다(어포던스가 깨지지 않는다는 바로 그 경우). 평소 배치(~/.coxpit ⊂ 홈)의 일반 경로는
+# 아래 COXPIT_FILES_ROOT 절에서 /api/fs 창구로 따로 증명한다.
+case "$WMK" in *'"inRoot":false'*) : ;; *) fail "the suite's temp data dir should fall outside the viewer root (fallback path): $WMK";; esac
+WPATH="$WDATA/$WKTID.md"
+[ -f "$WPATH" ] || fail "POST work should create the canonical file at $WPATH"
+# ② 쓰기·읽기 — 뷰어 루트가 좁혀졌을 때 쓰는 전용 창구로 한 번 왕복(같은 페인, 같은 렌더러)
+curl -sf -X PUT "$B/api/tasks/$WKTID/work" -H 'content-type: application/json' \
+  -d '{"content":"# 결정\n- 토큰만 쓴다 (새 hex 금지)\n"}' >/dev/null || fail "PUT work doc failed"
+WGET=$(curl -s "$B/api/tasks/$WKTID/work")
+case "$WGET" in *'"kind":"md"'*'"editable":true'*'새 hex 금지'*) : ;; *) fail "GET work doc should return an editable md body: $WGET";; esac
+# ③ 다음 발사의 프롬프트에 실린다 — 요청 문장은 그대로 앞서고, 결정이 뒤에 붙는다
+WRUN=$(curl -sf -X POST "$B/api/tasks/$WKTID/run" -H 'content-type: application/json' -d '{"count":1,"real":true}')
+WRID=$(echo "$WRUN" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runs[0].id))')
+[ -n "$WRID" ] || fail "work-context run not created: $WRUN"
+for i in $(seq 1 40); do
+  WS=$(curl -s "$B/api/runs/$WRID" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$WS" ] && break; sleep 0.5
+done
+WWT=$(curl -s "$B/api/runs/$WRID" | grep -oE '"worktreePath":"[^"]+"' | sed 's/.*:"//;s/"//')
+[ -n "$WWT" ] || fail "work-context run has no worktree"
+grep -q 'WORK CONTEXT' "$WWT/AGENT_ARGS.txt" || fail "WORK.md was not injected into the launched prompt"
+grep -q 'decisions recorded here bind you' "$WWT/AGENT_ARGS.txt" || fail "WORK CONTEXT header line missing"
+grep -q '새 hex 금지' "$WWT/AGENT_ARGS.txt" || fail "the work doc's own text is missing from the prompt"
+grep -q 'second words' "$WWT/AGENT_ARGS.txt" || fail "the task's own prompt should still lead the launch"
+# ④ 그런데 그 파일은 어떤 git status 에도 없다 — 정본은 데이터 디렉터리에 산다(diff 오염 0)
+WGS=$(git -C "$WWT" status --porcelain)
+case "$WGS" in *WORK.md*) fail "WORK.md leaked into the run worktree's git status: $WGS";; *) : ;; esac
+WGS2=$(git -C "$REPO" status --porcelain)
+case "$WGS2" in *WORK.md*) fail "WORK.md leaked into the repo checkout's git status: $WGS2";; *) : ;; esac
+[ -f "$WPATH" ] || fail "the canonical work doc must be the data-dir file"
+# ⑤ 작업이 닫히면 공유 컨텍스트도 같이 사라진다(작업의 수명을 산다)
+curl -s -X POST "$B/api/tasks/$WKTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+[ ! -f "$WPATH" ] || fail "closing the work should remove its WORK.md"
+expect_code 404 -X POST "$B/api/tasks/999999/work"
+pass "v6.0 Part W: WORK.md (data-dir canonical, never in a git status) rides the next launch; removed with the task"
 
 # plan fan-out (mock planner): 목표 1 → 태스크 2 자동 생성·발사
 PLAN=$(curl -sf -X POST "$B/api/plan" -H 'content-type: application/json' -d '{"repoId":1,"goal":"improve the docs","real":false}')
@@ -1656,6 +1716,26 @@ for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; slee
 FRR=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=/etc/hosts")
 case "$FRR" in *'"kind":"text"'*) : ;; *) fail "COXPIT_FILES_ROOT=/ should allow reading /etc/hosts: $FRR";; esac
 pass "COXPIT_FILES_ROOT widens the file-viewer root (/ opens the whole filesystem)"
+
+# v6.0 W2 — 루트가 데이터 디렉터리를 품는 평소 배치(~/.coxpit ⊂ 홈)에서는 WORK.md 를
+# **기존 파일 뷰어 창구**가 그대로 읽고 쓴다: 새 파일 표면을 만들지 않았다는 증거.
+curl -s -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$REPO\"}" >/dev/null || true
+FRRID=$(curl -s "$B/api/fleet?view=all" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const r=(JSON.parse(b).repos||[]).find(x=>x.kind!=="sessions"); console.log(r?r.id:"");
+})')
+[ -n "$FRRID" ] || fail "no repo registered for the wide-root work doc test"
+FRT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$FRRID,\"title\":\"root-wide\",\"prompt\":\"x\"}")
+FRTID=$(echo "$FRT" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).task.id))')
+[ -n "$FRTID" ] || fail "task for the wide-root work doc not created: $FRT"
+FRW=$(curl -sf -X POST "$B/api/tasks/$FRTID/work")
+case "$FRW" in *'"inRoot":true'*) : ;; *) fail "a root that contains the data dir must make the work doc reachable by the file viewer: $FRW";; esac
+FRP="$(dirname "$DB")/work/$FRTID.md"
+curl -sf -X POST "$B/api/fs/write" -H 'content-type: application/json' \
+  -d "{\"path\":\"$FRP\",\"content\":\"# 결정\\n- 뷰어가 그대로 쓴다\\n\"}" >/dev/null || fail "the generic viewer write should reach the work doc"
+FRR2=$(curl -s -G "$B/api/fs/read" --data-urlencode "path=$FRP")
+case "$FRR2" in *'"kind":"md"'*'"editable":true'*'뷰어가 그대로 쓴다'*) : ;; *) fail "the generic viewer read should return the work doc: $FRR2";; esac
+pass "v6.0 W2: with the data dir inside the viewer root, WORK.md is read/written by the existing /api/fs pane (no new file surface)"
 
 # 디자인 래칫: 하드코딩 hex 색이 늘면 실패 — 맥락 없는 구현(플릿 run 포함)이 토큰 대신
 # 새로 그리는 사고를 결정적으로 잡는다. 정당하게 늘 때(=DESIGN.md 토큰 확장)는 같은 커밋에서
