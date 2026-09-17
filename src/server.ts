@@ -21,7 +21,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates } from './agentstate';
 import { addSink, removeSink, broadcast } from './hub';
@@ -514,6 +514,17 @@ export async function buildServer(): Promise<FastifyInstance> {
       ? b.runIds.map((n) => Number(n)).filter((n) => Number.isInteger(n))
       : undefined;
     return pruneWorktrees(runIds);
+  });
+
+  // v6.0 T6 — 고아 tmux 세션(위 worktree 회수와 같은 유지보수 가족). DB 에 run 기록이 없는 `coxpit-r*` 만 목록에 든다.
+  // 살아 있는 run 의 세션은 애초에 나오지 않고, 빈 셸이 아닌 것은 idle:false 로 표시만 된다.
+  app.get('/api/tmux/orphans', async () => ({ sessions: await listOrphanTmux() }));
+
+  // 선택 종료 — 이름 배열만 받는다. 서버가 고아 목록을 다시 떠서 그 안의 것만, '=' 정확 일치로 죽인다.
+  app.post('/api/tmux/orphans/kill', async (req, reply) => {
+    const b = (req.body ?? {}) as { sessions?: unknown };
+    if (!Array.isArray(b.sessions)) return reply.code(400).send({ error: 'sessions must be an array of session names' });
+    return killTmuxSessions(b.sessions.map((s) => String(s)));
   });
 
   // ─── 머신 레지스트리 ────────────────────────────────────────────

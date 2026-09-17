@@ -34,6 +34,9 @@ expect_code(){
 cleanup(){
   [ -n "${DPID:-}" ] && kill "$DPID" 2>/dev/null || true
   [ -n "${HPID:-}" ] && kill "$HPID" 2>/dev/null || true
+  # T6 수거 테스트가 지어낸 고아 tmux 이름 — 중간에 죽어도 개발 기계에 남기지 않는다('=' 정확 일치)
+  tmux kill-session -t '=coxpit-r98765' 2>/dev/null || true
+  tmux kill-session -t '=coxpit-r987654' 2>/dev/null || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -318,6 +321,26 @@ case "$BOARD_HTML" in *'id="archive"'*'gband-open'*'async function openRoom'*) :
 expect_code 200 "$B/?view=archive"
 expect_code 200 "$B/?view=goals"
 pass "v6.0 Part B: ⌘K reaches Board/Archive/Workrooms (board's own setView via ?view=) — header toggle + every board view intact"
+
+# v6.0 T6 — 어질러지는 자리에서 치운다. 프로젝트 노드의 등록 해제·묵은 작업 정리 + 고아 터미널 수거.
+# 파일 순서대로: 행 스타일 → 레일의 ↻ 링크 → 세 판 → repo 행 어포던스 → 로직.
+case "$CKPT" in *'.scrub-row .swarn{'*'.scrub-row.risky .snm{'*) : ;; *) fail "cockpit T6 hygiene row styles (.swarn flag / .risky row) missing";; esac
+# 수거는 보드의 Reclaim 과 같은 유지보수 가족 — 코크핏엔 아이콘 스프라이트가 없으니 모노 ↻ 로 선다
+case "$CKPT" in *'id="reapBtn"'*'↻ 고아 터미널'*) : ;; *) fail "cockpit orphan-tmux reaper link (mono ↻ on the Workspace label) missing";; esac
+# 정리 판: 정착한 작업만 · worktree 는 걷히고 repo 체크아웃은 남는다 · 미머지는 미리 체크하지 않는다
+case "$CKPT" in *'id="tidyModal"'*'묵은 작업 정리'*'터미널이 살아 있는 작업은 목록에 없습니다'*'repo 체크아웃과 그 파일은 그대로'*'미머지 표시가 붙은 것은 미리 체크하지 않습니다'*'id="tidyList"'*'id="tidyGo"'*) : ;; *) fail "cockpit stale-work cleanup sheet must state what it closes, what survives on disk, and that risky rows are not preselected";; esac
+# 등록 해제 판: 등록만 뺀다 — 디스크의 폴더는 그대로, 다시 등록은 클릭 한 번 + 열린 작업의 close 가드 합산
+case "$CKPT" in *'id="unregModal"'*'목록에서만 뺍니다 — 디스크의 폴더와 파일은 손대지 않습니다'*'다시 등록하는 데는 클릭 한 번'*'id="unregRisk"'*'id="unregGo"'*) : ;; *) fail "cockpit unregister sheet must say registration-only (folder untouched, one click to re-register) and aggregate the close risk";; esac
+# 수거 판: 살아 있는 run 의 세션은 오르지도 않고, 돌고 있는 것은 표시만 한다
+case "$CKPT" in *'id="reapModal"'*'살아 있는 run 의 세션은 여기 오르지 않습니다'*'표시만 하고 절대 미리 고르지 않습니다'*'id="reapList"'*'id="reapGo"'*) : ;; *) fail "cockpit orphan-reaper panel must exclude live runs and never preselect a busy pane";; esac
+case "$CKPT" in *'data-tidy='*'>정리…</button>'*'data-unreg='*'>등록 해제</button>'*) : ;; *) fail "project node needs both hygiene affordances (묵은 작업 정리… / 등록 해제)";; esac
+# 기존 창구 재사용 — 진짜 새 서버 표면은 고아 tmux 둘뿐이다
+case "$CKPT" in *"'/api/tasks/'+taskId+'/close'"*"'/api/repos/'+unregRepoId,{method:'DELETE'}"*"'/api/tmux/orphans'"*"'/api/tmux/orphans/kill'"*) : ;; *) fail "T6 must reuse close/repo-delete and add only the two orphan endpoints";; esac
+# 409 는 작업 수만큼 창을 띄우지 않는다 — 표는 한 번, 확인도 한 번("그래도 닫기")
+case "$CKPT" in *'function closeRiskOf'*'그래도 닫기 ('*'r.status===409'*) : ;; *) fail "close-risk must be aggregated once (table + one 그래도 닫기), never N dialogs";; esac
+# 빈 셸만 미리 체크 — 보여주지 않은 것을 지우는 판은 빗자루가 아니라 함정이다
+case "$CKPT" in *'if(x.idle) reapSel[x.name]=true;'*) : ;; *) fail "the reaper must preselect idle shells only";; esac
+pass "v6.0 T6 cockpit: 등록 해제 (folder preserved · close-risk aggregated) · 묵은 작업 정리 (one table, one pass) · orphan-tmux reaper (idle preselected, busy flagged)"
 
 # 마지막 세션 자동 기억/복원: 첫 hydrate 뒤 restoreSession, render 말미 persistSession (파일 순서대로 매칭).
 case "$CKPT" in *'restoreSession();'*'persistSession();'*"'coxpit.session'"*'function persistSession'*'function restoreSession'*) : ;; *) fail "cockpit last-session persist/restore missing or unwired";; esac
@@ -2090,6 +2113,71 @@ case "$HK" in *detail*) fail "agentstate webhook must never carry a detail field
 case "$HK" in *tail*) fail "agentstate webhook must never carry terminal tail text: $HK";; *) : ;; esac
 curl -s -X POST "$B/api/runs/$WHRUN/cleanup" >/dev/null
 pass "agentstate webhook: fires on the exited transition, state only (no detail/tail), 60s per-run cooldown"
+
+# v6.0 T6 — 고아 tmux 수거. 목록은 서버가 판정한다: **DB 에 기록이 없는 coxpit-r* 만**.
+# 빈 데몬에서도 모양은 서야 하고(200 + sessions[]), 아는 run 의 세션은 이름을 직접 건네도 죽지 않는다.
+ORPH0=$(curl -sf "$B/api/tmux/orphans") || fail "GET /api/tmux/orphans failed"
+case "$ORPH0" in *'"sessions"'*) : ;; *) fail "orphans payload must be { sessions: [...] }: $ORPH0";; esac
+expect_code 400 -X POST "$B/api/tmux/orphans/kill" -H 'content-type: application/json' -d '{"sessions":"coxpit-r98765"}'
+expect_code 400 -X POST "$B/api/tmux/orphans/kill" -H 'content-type: application/json' -d '{}'
+
+# 아는 run 하나(세션 API 가 진짜 tmux 를 띄운다) + 지어낸 고아 둘(접두사 겹침: r98765 ⊂ r987654).
+# 페인 명령을 못박아 분류를 결정적으로 만든다: 빈 셸(sh) = idle · 뭔가 도는 것(sleep) = 표시 대상.
+ODIR="$WORK/orphan-known"; mkdir -p "$ODIR"
+OKS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$ODIR\",\"title\":\"known\"}")
+OKRUN=$(echo "$OKS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+tmux kill-session -t '=coxpit-r98765' 2>/dev/null || true
+tmux kill-session -t '=coxpit-r987654' 2>/dev/null || true
+tmux new-session -d -s coxpit-r98765 -c "$WORK" 'sh' || fail "could not fabricate an idle orphan tmux session"
+tmux new-session -d -s coxpit-r987654 -c "$WORK" 'sleep 600' || fail "could not fabricate the busy prefix-twin orphan session"
+
+# 모양 { sessions:[{name,runId,command,idle}] } + "아는 run 은 고아가 아니다" 를 한 번에 본다
+curl -s "$B/api/tmux/orphans" | KNOWN_RUN="$OKRUN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const ss=JSON.parse(b).sessions;
+  if(!Array.isArray(ss)) throw new Error("sessions must be an array: "+b);
+  const fake=ss.find(x=>x.name==="coxpit-r98765");
+  if(!fake) throw new Error("the fabricated orphan is not listed: "+b);
+  for (const k of ["name","runId","command","idle"]) if(!(k in fake)) throw new Error("orphan entry missing "+k);
+  if(typeof fake.runId!=="number"||typeof fake.idle!=="boolean"||typeof fake.command!=="string") throw new Error("orphan field types wrong: "+JSON.stringify(fake));
+  if(fake.runId!==98765) throw new Error("runId must be read from the session name: "+JSON.stringify(fake));
+  if(fake.idle!==true) throw new Error("a bare shell pane must classify as idle: "+JSON.stringify(fake));
+  const twin=ss.find(x=>x.name==="coxpit-r987654");
+  if(!twin) throw new Error("the prefix-twin orphan is not listed: "+b);
+  // 빈 셸 이상이 돌고 있으면 표시만 한다 — 명령을 실어 보내되 절대 미리 고를 수 없게 idle:false
+  if(twin.idle!==false) throw new Error("a pane running more than an idle shell must be flagged: "+JSON.stringify(twin));
+  if(!twin.command || twin.command==="sh") throw new Error("the flag must carry the pane command: "+JSON.stringify(twin));
+  if(ss.some(x=>x.name==="coxpit-r"+process.env.KNOWN_RUN)) throw new Error("a known run session must never be offered as an orphan: "+b);
+  console.log("orphan listing ok");
+})' || fail "orphan listing wrong in GET /api/tmux/orphans"
+
+# 죽이기는 '=' 정확 일치 — coxpit-r98765 를 죽여도 coxpit-r987654 는 살아 있어야 한다(전에 이걸로 물렸다)
+OKILL=$(curl -sf -X POST "$B/api/tmux/orphans/kill" -H 'content-type: application/json' -d '{"sessions":["coxpit-r98765"]}')
+case "$OKILL" in *'"count":1'*) : ;; *) fail "reaper should report one kill: $OKILL";; esac
+if tmux has-session -t '=coxpit-r98765' 2>/dev/null; then fail "the selected orphan survived the reaper"; fi
+tmux has-session -t '=coxpit-r987654' 2>/dev/null || fail "exact match broken: coxpit-r98765 took its prefix twin coxpit-r987654 down with it"
+
+# 아는 run 의 이름을 직접 건네도 서버가 고아 목록을 다시 떠서 거른다 — 살아 있는 터미널은 죽지 않는다
+OSKIP=$(curl -sf -X POST "$B/api/tmux/orphans/kill" -H 'content-type: application/json' -d "{\"sessions\":[\"coxpit-r$OKRUN\"]}")
+case "$OSKIP" in *'"count":0'*) : ;; *) fail "a live run's session must never be killed: $OSKIP";; esac
+tmux has-session -t "=coxpit-r$OKRUN" 2>/dev/null || fail "the reaper killed a live run's terminal"
+# 표시된(돌고 있는) 세션도 사람이 직접 고르면 죽는다 — 규칙은 "미리 고르지 않는다"이지 "못 죽인다"가 아니다
+OBUSY=$(curl -sf -X POST "$B/api/tmux/orphans/kill" -H 'content-type: application/json' -d '{"sessions":["coxpit-r987654"]}')
+case "$OBUSY" in *'"count":1'*) : ;; *) fail "a flagged orphan must still be killable when explicitly chosen: $OBUSY";; esac
+curl -s -X DELETE "$B/api/runs/$OKRUN" >/dev/null
+pass "v6.0 T6 reaper: { sessions:[{name,runId,command,idle}] } · busy panes flagged not preselected · known runs never listed/killed · exact '=' match · non-array 400"
+
+# repo 등록 해제는 그대로 열려 있다(라우트는 아무것도 사라지지 않았다) — 열린 작업이 없으면 200.
+UREPO="$WORK/unreg-repo"; mkdir -p "$UREPO"
+git -C "$UREPO" init -q -b main
+printf 'x\n' > "$UREPO/README.md"; git -C "$UREPO" add -A
+git -C "$UREPO" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
+UREG=$(curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$UREPO\"}")
+UREGID=$(echo "$UREG" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).repo.id))')
+curl -sf -X DELETE "$B/api/repos/$UREGID" | grep -q '"ok":true' || fail "repo unregister (DELETE /api/repos/:id) broke"
+[ -f "$UREPO/README.md" ] || fail "unregister must never touch the folder on disk"
+expect_code 404 -X DELETE "$B/api/repos/$UREGID"
+pass "v6.0 T6: unregister = registration only (DELETE /api/repos/:id still works, folder on disk intact, second delete 404)"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

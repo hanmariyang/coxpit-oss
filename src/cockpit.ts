@@ -346,6 +346,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .scrub-fold{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;font-size:11.5px;color:var(--muted);cursor:pointer}
   .scrub-fold:hover{background:var(--surface2)}
   .scrub-fold .sage{font-size:10.5px;color:var(--faint)}
+  /* v6.0 T6 — 같은 줄 모양을 프로젝트 정리·고아 터미널 판에서도 그대로 쓴다(새 컴포넌트 없음).
+     경고는 색이 아니라 말로 먼저 하고, 색은 이미 있는 주의색 하나만 빌린다 */
+  .scrub-row .swarn{flex:none;font-size:10.5px;color:var(--blocked)}
+  .scrub-row.risky .snm{color:var(--muted)}
+  /* 시트 뼈대(.pick) 바로 밑에 놓인 이유 줄도 같은 좌우 여백을 갖는다 */
+  .pick > .sheet-err{padding:2px 15px 10px}
   .pick-row.on{background:var(--surface2);color:var(--ink)}
   .pick-row.on .ic{color:var(--brand)}
 
@@ -481,7 +487,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <div class="scrim" id="scrim"></div>
 <div class="layout" id="layout">
   <aside class="rail" id="rail">
-    <div class="lbl"><span>Workspace</span><span id="machName" style="color:var(--faint)">local</span></div>
+    <div class="lbl"><span>Workspace</span><span class="lacts"><span class="lnk" id="reapBtn" title="고아 터미널 — run 기록이 없는 coxpit-r* tmux 세션을 찾아 정리합니다(유지보수: 보드의 Reclaim 과 같은 가족)">↻ 고아 터미널</span><span id="machName" style="color:var(--faint)">local</span></span></div>
     <div id="tree"></div>
     <div class="railfoot">클릭한 run·세션은 <b>탭</b>으로 열립니다 · split 으로 페인을 나란히 배치</div>
   </aside>
@@ -656,6 +662,46 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     <div class="pick-f">
       <span id="promoWarn" style="flex:1;font-size:11px;color:var(--blocked);line-height:1.45;white-space:normal" hidden></span>
       <button class="go" id="promoGo">등록하고 옮기기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="tidyModal">
+  <div class="pick" style="width:min(560px,92vw)">
+    <div class="pick-h"><span class="t">묵은 작업 정리</span><button class="x" id="tidyClose" title="닫기">×</button></div>
+    <div class="pick-path" id="tidyRepoName">…</div>
+    <div class="sheet-note">더 돌고 있지 않은(정착한) 작업만 올라옵니다 — <b>터미널이 살아 있는 작업은 목록에 없습니다</b>. 닫으면 그 작업의 <b>run worktree 가 제거</b>되고, <b>repo 체크아웃과 그 파일은 그대로</b>입니다. <b>미머지 표시가 붙은 것은 미리 체크하지 않습니다</b>.</div>
+    <div class="pick-list" id="tidyList"></div>
+    <div class="sheet-err" id="tidyErr" hidden></div>
+    <div class="pick-f">
+      <span id="tidyHint" style="flex:1;font-size:11px;color:var(--faint)">…</span>
+      <button class="go" id="tidyGo">선택 닫기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="unregModal">
+  <div class="pick" style="width:min(520px,92vw)">
+    <div class="pick-h"><span class="t">등록 해제</span><button class="x" id="unregClose" title="닫기">×</button></div>
+    <div class="pick-path" id="unregPath">…</div>
+    <div class="sheet-note"><b>목록에서만 뺍니다 — 디스크의 폴더와 파일은 손대지 않습니다.</b> 다시 등록하는 데는 클릭 한 번이면 됩니다(같은 경로를 그대로 고르면 됩니다). 지워지는 것은 coxpit 의 등록 기록뿐입니다.</div>
+    <div class="sheet-body"><div class="sheet-tradeoff" id="unregRisk">…</div></div>
+    <div class="sheet-err" id="unregErr" hidden></div>
+    <div class="pick-f">
+      <span style="flex:1;font-size:11px;color:var(--faint)">폴더는 그대로 · 다시 등록하면 그만입니다</span>
+      <button class="go" id="unregGo">등록 해제</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="reapModal">
+  <div class="pick" style="width:min(560px,92vw)">
+    <div class="pick-h"><span class="t">↻ 고아 터미널</span><button class="x" id="reapClose" title="닫기">×</button></div>
+    <div class="sheet-note">run 기록이 사라졌는데 남아 있는 <b>coxpit-r* tmux 세션</b>들입니다 — <b>살아 있는 run 의 세션은 여기 오르지 않습니다</b>. 빈 셸만 미리 체크했고, <b>무언가 돌고 있는 세션은 표시만 하고 절대 미리 고르지 않습니다</b>. 종료되는 것은 터미널뿐, 폴더·파일은 그대로입니다.</div>
+    <div class="pick-list" id="reapList"></div>
+    <div class="pick-f">
+      <span id="reapHint" style="flex:1;font-size:11px;color:var(--faint)">…</span>
+      <button class="go" id="reapGo">선택 종료</button>
     </div>
   </div>
 </div>
@@ -988,9 +1034,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var rk = 'repo'+repo.id;
       var rTasks = (tasksByRepo[repo.id]||[]).filter(function(t){ return t.status!=='closed'; });
       var runCount = rTasks.reduce(function(n,t){ return n+((runsByTask[t.id]||[]).length); }, 0);
+      // 프로젝트 행의 어포던스 셋: 만들기 하나(＋ 새 작업) + 치우기 둘(v6.0 T6).
+      // 치우는 둘은 **디스크의 파일을 건드리지 않는다** — 하나는 작업을 닫고, 하나는 등록만 뺀다.
       html += '<div class="tnode repo" data-fold="'+rk+'"><span class="car">'+(isFold(rk)?'▸':'▾')+'</span>'
         + '<span class="n" title="'+esc(repo.path||repo.name)+'">'+esc(repo.name)+'</span>'
         + '<button class="tact" data-newwork="'+repo.id+'" title="새 작업 — 작업을 만들고 repo 체크아웃에서 main 터미널을 엽니다">＋ 새 작업</button>'
+        + '<button class="tact" data-tidy="'+repo.id+'" title="묵은 작업 정리 — 더 안 도는(정착한) 작업들을 한 번에 닫습니다. 미머지 산출물은 표로 한 번에 보여줍니다">정리…</button>'
+        + '<button class="tact" data-unreg="'+repo.id+'" title="등록 해제 — 목록에서만 뺍니다. 디스크의 폴더는 그대로이고, 다시 등록하는 데 클릭 한 번입니다">등록 해제</button>'
         + '<span class="meta">'+runCount+' run'+(runCount===1?'':'s')+'</span></div>';
       if (isFold(rk)) return;
       // goal(group) 로 묶기
@@ -1035,6 +1085,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     // 노드 액션은 접기(data-fold)·열기(data-run) 보다 먼저 가로챈다 — 같은 행 안에 있으므로.
     var nw = e.target.closest('[data-newwork]');
     if (nw){ e.stopPropagation(); openNewWork(+nw.dataset.newwork); return; }
+    var td = e.target.closest('[data-tidy]');
+    if (td){ e.stopPropagation(); openTidy(+td.dataset.tidy); return; }
+    var ur = e.target.closest('[data-unreg]');
+    if (ur){ e.stopPropagation(); openUnreg(+ur.dataset.unreg); return; }
     var na = e.target.closest('[data-newagent]');
     if (na){ e.stopPropagation(); openAddAgent(+na.dataset.newagent); return; }
     var wm = e.target.closest('[data-workmd]');
@@ -1989,6 +2043,209 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var row=e.target.closest('[data-promorepo]'); if(!row) return;
     promoRepoId=+row.dataset.promorepo; renderPromoRepos(); promoErr(''); paintPromoWarn();
   });
+
+  // ── v6.0 T6 — 프로젝트 쪽 정리(그리고 고아 터미널) ──
+  // Scratch 가 S1b 로 치워지듯, 프로젝트도 **어질러지는 자리에서** 치워져야 한다. 셋 다 이미 있는
+  // 길만 지난다: 등록 해제=DELETE /api/repos/:id · 묵은 작업 정리=POST /api/tasks/:id/close ·
+  // 고아 터미널=/api/tmux/orphans. 규칙 하나는 셋이 공유한다 —
+  // **살아 있는 것도, 디스크의 폴더도, 놀라서 사라지는 일은 없다.**
+  var LIVE_RUN = { running:true, preparing:true, pending:true, open:true };
+  function taskRuns(taskId){ return (fleet.runs||[]).filter(function(r){ return r.taskId===taskId; }); }
+  function taskSettled(taskId){ return !taskRuns(taskId).some(function(r){ return LIVE_RUN[r.status]===true; }); }
+  function repoOpenTasks(repoId){ return (fleet.tasks||[]).filter(function(t){ return t.repoId===repoId && t.status!=='closed'; }); }
+  // v4.1 close 가드(taskCloseRisk)의 클라이언트 쪽 읽기 — 신호는 **이미 들고 있는 fleet** 것만 쓴다
+  // (정착 + 바뀐 파일 있음 + export·pr 로 빠져나간 적 없음). 최종 판정은 언제나 서버다:
+  // 닫기가 409 로 막으면 서버가 준 목록을 그대로, 한 번에 보여준다.
+  function closeRiskOf(taskId){
+    var out=[];
+    taskRuns(taskId).forEach(function(r){
+      if (['done','failed','stopped'].indexOf(r.status)<0) return;
+      if (!(r.filesChanged>0)) return;
+      if ((r.events||[]).some(function(e){ return e.kind==='export'||e.kind==='pr'; })) return;
+      out.push({ runId:r.id, filesChanged:r.filesChanged });
+    });
+    return out;
+  }
+  function riskText(list){
+    return list.map(function(x){ return 'r'+x.runId+'·'+x.filesChanged+'파일'; }).join(' ');
+  }
+
+  // ── 묵은 작업 정리 — 표 하나, 닫기 한 번 ──
+  var tidyRepoId=null, tidySel={}, tidyForce=null, tidying=false;
+  function tidyErr(msg){ var el=$('tidyErr'); if(!msg){ el.hidden=true; el.textContent=''; return; } el.textContent=msg; el.hidden=false; }
+  function tidyRows(){
+    return repoOpenTasks(tidyRepoId).filter(function(t){ return taskSettled(t.id); }).map(function(t){
+      var risk=closeRiskOf(t.id);
+      return { id:t.id, title:t.title||('task #'+t.id), runN:taskRuns(t.id).length, risk:risk };
+    }).sort(function(a,b){ return b.id-a.id; });
+  }
+  function tidyCount(){ var n=0; Object.keys(tidySel).forEach(function(k){ if(tidySel[k]) n++; }); return n; }
+  function tidyRowHTML(x){
+    return '<label class="scrub-row'+(x.risk.length?' risky':'')+'" title="'+esc(x.title)+'"><input type="checkbox" data-tidychk="'+x.id+'"'+(tidySel[x.id]?' checked':'')+' />'
+      + '<span class="snm">'+esc(x.title)+'</span>'
+      + (x.risk.length ? '<span class="swarn">미머지 '+esc(riskText(x.risk))+'</span>' : '')
+      + '<span class="sage">#'+x.id+' · run '+x.runN+'</span></label>';
+  }
+  function renderTidy(){
+    var rows=tidyRows();
+    $('tidyList').innerHTML = rows.length ? rows.map(tidyRowHTML).join('')
+      : '<div class="pick-row" style="cursor:default;color:var(--faint)">정리할 묵은 작업이 없습니다 — 남은 작업은 아직 돌고 있습니다</div>';
+    var n=tidyCount(), riskN=0;
+    rows.forEach(function(x){ if(x.risk.length && tidySel[x.id]) riskN++; });
+    $('tidyHint').textContent = rows.length
+      ? (n+'개 선택 · 정착한 작업 '+rows.length+'개'+(riskN?(' · 그중 미머지 '+riskN+'개'):''))
+      : '';
+    // 409 를 한 번 받았으면 버튼은 "그래도 닫기" 로 바뀐다 — 확인 창이 작업 수만큼 뜨는 일은 없다.
+    if (tidyForce && tidyForce.length){ $('tidyGo').textContent='그래도 닫기 ('+tidyForce.length+')'; $('tidyGo').disabled=false; }
+    else { $('tidyGo').textContent='선택 닫기'; $('tidyGo').disabled=n===0; }
+  }
+  function openTidy(repoId){
+    var rp=repoById[repoId]; if(!rp){ toast('프로젝트를 찾을 수 없습니다'); return; }
+    tidyRepoId=repoId; tidySel={}; tidyForce=null; tidyErr('');
+    $('tidyRepoName').textContent=(rp.name||'')+' — '+(rp.path||'');
+    // 미리 체크하는 것은 **위험 표시가 없는 것만**(S1b 와 같은 규칙: 안 보이는 위험을 대신 삼키지 않는다)
+    tidyRows().forEach(function(x){ if(!x.risk.length) tidySel[x.id]=true; });
+    renderTidy(); $('tidyModal').classList.add('on');
+  }
+  function closeTidy(){ $('tidyModal').classList.remove('on'); }
+  async function closeTaskReq(taskId, force){
+    var res=await fetch('/api/tasks/'+taskId+'/close',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify(force?{force:true}:{})});
+    var j=await res.json().catch(function(){return{};});
+    return { ok:res.ok, status:res.status, atRisk:j.atRisk||[], detail:j.detail||j.error||('HTTP '+res.status) };
+  }
+  async function runTidy(){
+    if (tidying || tidyRepoId==null) return;
+    var force=!!(tidyForce && tidyForce.length);
+    var ids = force ? tidyForce.slice() : Object.keys(tidySel).filter(function(k){ return tidySel[k]; }).map(Number);
+    if (!ids.length){ toast('선택한 작업이 없습니다'); return; }
+    tidying=true; $('tidyGo').disabled=true; tidyErr('');
+    var okN=0, blocked=[], bad='';
+    for (var i=0;i<ids.length;i++){
+      var r=await closeTaskReq(ids[i], force);
+      if (r.ok){ okN++; delete tidySel[ids[i]]; }
+      else if (r.status===409){ blocked.push({ id:ids[i], atRisk:r.atRisk }); }
+      else if (!bad){ bad=r.detail; }
+    }
+    tidying=false; tidyForce=null;
+    await hydrate();
+    if (blocked.length){
+      // 서버 가드가 막은 것들 — 한 판에 모아 한 번만 묻는다(v4.1 그룹 닫기와 같은 규칙).
+      tidyForce = blocked.map(function(b){ return b.id; });
+      blocked.forEach(function(b){ tidySel[b.id]=true; });
+      var lines = blocked.map(function(b){
+        var t=taskById[b.id];
+        return ((t&&t.title)||('#'+b.id))+' — '+(riskText(b.atRisk||[])||'미머지 산출물');
+      }).join(' · ');
+      tidyErr('아직 살릴 곳이 없는 산출물이 있습니다(머지도 export 도 PR 도 아님): '+lines
+        + ' · 그래도 닫으면 그 변경은 worktree 와 함께 사라집니다.');
+    }
+    if (okN || bad) toast('작업 '+okN+'개 닫음'+(bad?(' · 실패: '+bad):'')+(blocked.length?(' · 확인 필요 '+blocked.length+'개'):''));
+    if (tidyRows().length || blocked.length) renderTidy(); else closeTidy();
+  }
+  $('tidyClose').addEventListener('click', closeTidy);
+  $('tidyModal').addEventListener('click', function(e){ if(e.target===this) closeTidy(); });
+  $('tidyGo').addEventListener('click', runTidy);
+  $('tidyList').addEventListener('change', function(e){
+    var c=e.target.closest('[data-tidychk]'); if(!c) return;
+    tidySel[+c.dataset.tidychk]=c.checked; tidyForce=null; tidyErr(''); renderTidy();
+  });
+
+  // ── 등록 해제 — 목록에서만 뺀다. 디스크는 건드리지 않는다 ──
+  var unregRepoId=null, unregging=false;
+  function unregErr(msg){ var el=$('unregErr'); if(!msg){ el.hidden=true; el.textContent=''; return; } el.textContent=msg; el.hidden=false; }
+  function openUnreg(repoId){
+    var rp=repoById[repoId]; if(!rp){ toast('프로젝트를 찾을 수 없습니다'); return; }
+    unregRepoId=repoId; unregErr('');
+    $('unregPath').textContent=(rp.name||'')+' — '+(rp.path||'');
+    // 열린 작업의 close 가드를 여기서 미리 합산해 보여준다 — 거절당하고 나서야 아는 일이 없게.
+    var open=repoOpenTasks(repoId), riskN=0;
+    open.forEach(function(t){ if(closeRiskOf(t.id).length) riskN++; });
+    $('unregRisk').textContent = open.length
+      ? ('열린 작업 '+open.length+'개'+(riskN?(' · 그중 미머지 산출물 '+riskN+'개'):'')+' — 열린 작업이 남아 있으면 해제는 거절됩니다. 「정리…」로 먼저 닫으세요.')
+      : '열린 작업 없음 — 바로 해제됩니다.';
+    $('unregModal').classList.add('on');
+  }
+  function closeUnreg(){ $('unregModal').classList.remove('on'); }
+  async function doUnreg(){
+    if (unregging || unregRepoId==null) return;
+    unregging=true; $('unregGo').disabled=true; unregErr('');
+    try{
+      var res=await fetch('/api/repos/'+unregRepoId,{method:'DELETE'});
+      var j=await res.json().catch(function(){return{};});
+      if (!res.ok){
+        unregErr('해제 실패: '+(j.detail||j.error||('HTTP '+res.status))+(res.status===409?' — 「정리…」로 먼저 닫으세요.':''));
+        return;
+      }
+      closeUnreg(); await hydrate();
+      toast('등록 해제됨 · 폴더와 파일은 그대로입니다');
+    }catch(e){ unregErr('해제 실패: '+e); }
+    finally{ unregging=false; $('unregGo').disabled=false; }
+  }
+  $('unregClose').addEventListener('click', closeUnreg);
+  $('unregModal').addEventListener('click', function(e){ if(e.target===this) closeUnreg(); });
+  $('unregGo').addEventListener('click', doUnreg);
+
+  // ── 고아 터미널(↻ — 보드의 Reclaim worktrees 와 같은 유지보수 가족) ──
+  // 2026-09-17 에 손으로 13개를 걷어낸 그 일. 목록은 서버가 판정한다(DB 에 run 이 없는 coxpit-r* 만).
+  // 빈 셸만 미리 체크하고, 무언가 돌고 있는 세션은 **표시만** 한다 — 지우는 판이 보여주지 않은 것을
+  // 지우는 순간 그건 빗자루가 아니라 함정이 된다.
+  var reapRows=[], reapSel={}, reaping=false;
+  function reapRowHTML(x){
+    return '<label class="scrub-row'+(x.idle?'':' risky')+'" title="'+esc(x.name)+'"><input type="checkbox" data-reapchk="'+esc(x.name)+'"'+(reapSel[x.name]?' checked':'')+' />'
+      + '<span class="snm">'+esc(x.name)+'</span>'
+      + (x.idle ? '<span class="slive dead">빈 셸</span>' : '<span class="swarn">돌고 있음: '+esc(x.command||'?')+'</span>')
+      + '<span class="sage">r'+x.runId+' · run 기록 없음</span></label>';
+  }
+  function reapCount(){ var n=0; Object.keys(reapSel).forEach(function(k){ if(reapSel[k]) n++; }); return n; }
+  function renderReap(){
+    $('reapList').innerHTML = reapRows.length ? reapRows.map(reapRowHTML).join('')
+      : '<div class="pick-row" style="cursor:default;color:var(--faint)">고아 터미널이 없습니다 — 남은 tmux 세션은 모두 아는 run 의 것입니다</div>';
+    var n=reapCount(), busy=0;
+    reapRows.forEach(function(x){ if(!x.idle) busy++; });
+    $('reapHint').textContent = reapRows.length
+      ? (n+'개 선택 · 고아 '+reapRows.length+'개'+(busy?(' · 돌고 있는 '+busy+'개는 미선택'):''))
+      : '';
+    $('reapGo').disabled = n===0;
+  }
+  async function loadReap(){
+    $('reapList').innerHTML='<div class="pick-row" style="cursor:default;color:var(--faint)">tmux 세션을 읽는 중…</div>';
+    $('reapHint').textContent=''; $('reapGo').disabled=true;
+    reapRows=[]; reapSel={};
+    try{
+      var res=await fetch('/api/tmux/orphans');
+      var j=await res.json();
+      reapRows=j.sessions||[];
+      reapRows.forEach(function(x){ if(x.idle) reapSel[x.name]=true; });   // 빈 셸만 미리 체크
+    }catch(e){ reapRows=[]; }
+    renderReap();
+  }
+  function openReap(){ $('reapModal').classList.add('on'); loadReap(); }
+  function closeReap(){ $('reapModal').classList.remove('on'); }
+  async function runReap(){
+    if (reaping) return;
+    var names=Object.keys(reapSel).filter(function(k){ return reapSel[k]; });
+    if (!names.length){ toast('선택한 세션이 없습니다'); return; }
+    reaping=true; $('reapGo').disabled=true;
+    try{
+      var res=await fetch('/api/tmux/orphans/kill',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({sessions:names})});
+      var j=await res.json().catch(function(){return{};});
+      if (!res.ok){ toast('종료 실패: '+(j.detail||j.error||('HTTP '+res.status))); }
+      else { toast('고아 터미널 '+(j.count||0)+'개 종료됨'+((j.skipped&&j.skipped.length)?(' · 건너뜀 '+j.skipped.length+'개'):'')); }
+    }catch(e){ toast('종료 실패: '+e); }
+    finally{ reaping=false; }
+    await loadReap();
+  }
+  $('reapBtn').addEventListener('click', openReap);
+  $('reapClose').addEventListener('click', closeReap);
+  $('reapModal').addEventListener('click', function(e){ if(e.target===this) closeReap(); });
+  $('reapGo').addEventListener('click', runReap);
+  $('reapList').addEventListener('change', function(e){
+    var c=e.target.closest('[data-reapchk]'); if(!c) return;
+    reapSel[c.dataset.reapchk]=c.checked; renderReap();
+  });
+
   function openSession(){ $('pickModal').classList.add('on'); $('pickName').value=''; browseTo(''); }
   function closePicker(){ $('pickModal').classList.remove('on'); }
   async function browseTo(p){
