@@ -196,7 +196,12 @@ no username) with first-run setup — and it only engages **when exposed** (loca
 zero-friction). Signed session cookie, rate-limit, anti-claim. Lucide icon system
 (inlined, ISC) replaces system emoji across the board + login.
 
-### v5.0 — the console redesign *(planned — approved 시안, spec TBD)*
+### v5.0 — the console redesign *(parked — superseded by v6.0's terminal-first direction)*
+
+> Status note (2026-09-17): usage moved to the terminal cockpit, and the v5.16–v5.27 line
+> shipped there instead. Parts of this plan landed in the cockpit in different form (the ⌘K
+> palette, keyboard-first navigation); the board-centric remainder is parked. The successor
+> frame is [v6.0 — the terminal-first console](../design/v6.0-terminal-first-console.md).
 The milestone theme: **the left rail stops being a permanent compose form and becomes a
 navigator; launching becomes a focused action.** Approved direction (Direction A) —
 mockup lives with the maintainer; a `design/v5.0-*.md` spec will precede implementation.
@@ -291,6 +296,31 @@ what works, no stub state; PokeTokenBar — ambient glance).
 - [ ] Part B — stale-process guard (what's actually running on this port/path)
 - [ ] Part C — quick actions + safe context injection (start/resume, quick replies)
 - [ ] Part D — input/output ergonomics (multi-line paste, mobile input, clickable paths/diffs)
+
+Relationship to v6.0: Part A phases 1–2 (detection + transport) are tree-independent and may
+ship first; the surface phase (Agents rail, tab dots) lands on the v6.0 work tree, grouped by
+Project ▸ Work.
+
+## v6.0 — the terminal-first console *(spec ready — [design/v6.0-terminal-first-console.md](../design/v6.0-terminal-first-console.md))*
+
+The identity release. The cockpit becomes the console, organized as **Project ▸ Work ▸
+Session** (Repo ▸ Task ▸ Run — the model coxpit already has, finally surfaced as the way you
+organize terminals); the board recedes to a review-and-records room. The fleet stops being a
+destination: adding a second agent to a work *is* the fleet.
+
+- [ ] **Part T — the work tree**: Scratch (공용, today's flat sessions) → Project ▸ Work ▸
+      Session; 새 작업 opens a `main` hand terminal at the checkout; ＋에이전트 adds a named
+      role session (`구현 · opus`); `agent_runs.title`.
+- [ ] **Part P — in-place agent sessions**: isolation becomes a per-session choice
+      (in-place = sequential collaboration in the checkout, worktree = parallel attempts);
+      reuses the root-session marker; one live in-place agent per repo, honestly enforced.
+- [ ] **Part W — WORK.md**: one shared context file per work (data-dir canonical, cockpit-
+      edited, injected into every launch/steer under the work) — closes the context silo
+      between isolated runs.
+- [ ] **Part S — Scratch & promotion**: ideas graduate — register the folder as a repo, or
+      re-parent the work to an existing project.
+- [ ] **Part B — the board recedes**: cockpit is the only home; the board keeps working as
+      the reading room (growth freeze, ⌘K entries); nothing removed.
 
 ## Non-goals
 
