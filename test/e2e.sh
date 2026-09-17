@@ -1511,5 +1511,63 @@ kill "$DPID" 2>/dev/null || true; sleep 0.3
 node --import tsx "$ROOT/test/pty-fd.mjs"
 pass "pty master fd leak regression (spawnPty wrapper, darwin)"
 
+# v5.28 A2 — 에이전트 상태 감지(unit, pty 불필요). 통조림 tail 로 분류기와 tracker 수명만 본다.
+# 정직성 규칙: waiting 은 패턴 적중이 있을 때만, 없으면 idle. 그리고 타이머를 남기지 않는다.
+cat > "$WORK/agentstate.test.ts" <<EOF
+import { attach, feed, input, detach, classifyIdle, getAgentState, _stats } from '$ROOT/src/agentstate.ts';
+const ESC = String.fromCharCode(27);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const PERM = [
+  'Edit file src/app.ts',
+  '',
+  'Do you want to proceed?',
+  ' 1. Yes',
+  ' 2. No, and tell Claude what to do differently',
+].join('\n');
+
+// 1) claude 승인 프롬프트 → waiting
+if (classifyIdle(PERM) !== 'waiting') throw new Error('permission tail: ' + classifyIdle(PERM));
+// 2) 셸 프롬프트 → idle (패턴 없음 = 추측하지 않는다)
+const SHELL = 'mini repo % ls\nREADME.md  src\nmini repo % ';
+if (classifyIdle(SHELL) !== 'idle') throw new Error('shell tail: ' + classifyIdle(SHELL));
+// 3) 'esc to interrupt' 가 더 최근이면 아직 working (위에 남은 옛 프롬프트에 속지 않는다)
+const BUSY = PERM + '\nYes\n' + 'Crunching... (12s . esc to interrupt)';
+if (classifyIdle(BUSY) !== 'working') throw new Error('busy tail: ' + classifyIdle(BUSY));
+// 4) ANSI 이스케이프가 섞인 같은 프롬프트 → 여전히 waiting (분류 시점에 소독)
+const ANSI = ESC + ']0;claude' + String.fromCharCode(7) + ESC + '[2J' + ESC + '[H'
+  + ESC + '[1mDo you' + ESC + '[0m want to proceed' + ESC + '[K?\n'
+  + ESC + '[3;1H' + ESC + '[36m 1.' + ESC + '[0m Yes\n 2. No';
+if (ANSI.indexOf(ESC) < 0) throw new Error('fixture lost its escapes');
+if (classifyIdle(ANSI) !== 'waiting') throw new Error('ansi tail: ' + classifyIdle(ANSI));
+
+async function main() {
+  // 5) 정지 후 waiting → 사람이 입력하면 즉시 해제
+  attach(1);
+  feed(1, PERM);
+  if (getAgentState(1)?.state !== 'working') throw new Error('feed should mark working');
+  await sleep(900);
+  const w = getAgentState(1);
+  if (w?.state !== 'waiting') throw new Error('quiescent permission tail should be waiting: ' + JSON.stringify(w));
+  input(1);
+  const c = getAgentState(1);
+  if (c?.state !== 'working') throw new Error('input must clear waiting: ' + JSON.stringify(c));
+  // 6) attach 2 + detach 1 은 상태 유지, 두 번째 detach 에서 tracker/타이머가 비어야 한다
+  attach(1);
+  detach(1);
+  if (!getAgentState(1)) throw new Error('second client still attached — state must survive');
+  detach(1);
+  if (getAgentState(1)) throw new Error('state must be dropped after the last detach');
+  const st = _stats();
+  if (st.trackers !== 0 || st.timers !== 0) throw new Error('tracker/timer leak: ' + JSON.stringify(st));
+}
+main().then(
+  () => console.log('AGENTSTATE_OK'),
+  (e) => { console.error(String(e)); process.exit(1); },
+);
+EOF
+AS_OUT=$(node --import tsx "$WORK/agentstate.test.ts" 2>&1) || fail "agent state detection: $AS_OUT"
+case "$AS_OUT" in *AGENTSTATE_OK*) : ;; *) fail "agent state detection: $AS_OUT";; esac
+pass "agent state: waiting only on a pattern hit (ANSI-safe), input clears it, no tracker/timer leak"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
