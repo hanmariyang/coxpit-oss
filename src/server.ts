@@ -23,7 +23,8 @@ import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getRunPwd, getSessionChat } from './orchestrator';
 import { openTerm } from './term';
-import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates } from './agentstate';
+import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates, spottedPorts } from './agentstate';
+import { scanListeners, scanPort, killPid, dropCache as dropListenerCache } from './procscan';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
@@ -1267,6 +1268,75 @@ export async function buildServer(): Promise<FastifyInstance> {
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     return await getRunPwd(id);
+  });
+
+  // ─── 무엇이 듣고 있나 (v5.28 B) — 증거만 보이고, 판정하지 않는다 ──────────────
+  // 이 페인 체크아웃이 남긴 LISTEN 소켓 + 언제부터 떠 있는지(etime). stale 판정은 없다.
+  // pwd 는 §D-fix 의 getRunPwd(페인이 지금 서 있는 폴더) 를 그대로 쓰고, 못 알아내면
+  // worktree 로 물러선다 — 그러면 underPane 은 그 기준으로 읽힌다(기준을 응답에 같이 싣는다).
+  app.get('/api/runs/:id/listeners', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    const run = rr[0];
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    const mr = await db.select().from(machines).where(eq(machines.id, run.machineId)).limit(1);
+    const m = mr[0];
+    if (!m) return reply.code(404).send({ error: 'machine gone' });
+    const live = await getRunPwd(id);
+    const pwd = live.pwd || run.worktreePath || '';
+    const res = await scanListeners(m, { pwd });
+    // 수동 포착 — Part A 가 이미 모으고 있는 꼬리를 한 번 훑을 뿐(탭을 더 달지 않는다).
+    return { ...res, machine: m.slug, pwd, spotted: spottedPorts(id) };
+  });
+
+  // 머신 + 포트 겨냥 조회 — "8210 은 누가 물고 있나". 어디서 왔든 그대로 보여준다.
+  // 주의: 파라미터 이름은 위의 `/api/machines/:slug` 와 같은 자리라 `:slug` 로 맞춘다(라우터 충돌 회피).
+  //    값은 slug 또는 숫자 id 둘 다 받는다.
+  const findMachine = async (key: string) => {
+    const bySlug = await db.select().from(machines).where(eq(machines.slug, key)).limit(1);
+    if (bySlug[0]) return bySlug[0];
+    const n = Number(key);
+    if (!Number.isInteger(n)) return null;
+    const byId = await db.select().from(machines).where(eq(machines.id, n)).limit(1);
+    return byId[0] ?? null;
+  };
+
+  app.get('/api/machines/:slug/port/:port', async (req, reply) => {
+    const { slug, port } = req.params as { slug: string; port: string };
+    const m = await findMachine(slug);
+    if (!m) return reply.code(404).send({ error: 'machine not found' });
+    const p = Number(port);
+    if (!Number.isInteger(p) || p < 1 || p > 65535) return reply.code(400).send({ error: 'port must be 1..65535' });
+    const res = await scanPort(m, p);
+    return { ...res, machine: m.slug, port: p };
+  });
+
+  // 정확히 그 pid 하나만, 이 머신에서만. 가드는 **서버 쪽**이다(클라이언트를 믿지 않는다):
+  //   ① pid 1 거부 ② 데몬 자신 거부(로컬) ③ **지금 다시 훑은 목록에 없으면 거부**.
+  //   ③ 이 있어서 이건 "임의 pid kill 엔드포인트"가 아니다 — 사람이 본 그 행만 죽는다.
+  // "포트 위 전부 죽이기" 같은 편의는 두지 않는다(무관한 프로세스를 같이 데려간다).
+  app.post('/api/machines/:slug/kill', async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    const m = await findMachine(slug);
+    if (!m) return reply.code(404).send({ error: 'machine not found' });
+    const b = (req.body ?? {}) as { pid?: unknown };
+    const pid = Math.floor(Number(b.pid));
+    if (!Number.isInteger(pid) || pid <= 0) return reply.code(400).send({ error: 'pid must be a positive integer' });
+    if (pid === 1) return reply.code(403).send({ error: 'refused: pid 1 is init' });
+    const isLocal = m.kind === 'local' || (m.address ?? '') === '';
+    if (isLocal && pid === process.pid) return reply.code(403).send({ error: 'refused: that is the coxpit daemon itself' });
+    // 지금 다시 훑는다 — 목록에 없는 pid 는 사람이 본 적 없는 pid 다.
+    dropListenerCache(m.slug);
+    const fresh = await scanListeners(m);
+    const row = fresh.listeners.find((l) => l.pid === pid);
+    if (!row) {
+      return reply.code(409).send({
+        error: 'refused: that pid is not listening on this machine right now',
+        detail: fresh.note || 're-scan found no such listener — nothing was signalled',
+      });
+    }
+    const r = await killPid(m, pid);
+    return reply.code(r.ok ? 200 : 409).send({ ...r, pid, port: row.port, machine: m.slug });
   });
 
   // 수동 재검증 — repo.verifyCmd 를 이 run 의 worktree 에서 다시 실행(정착 자동검증과 동일 경로).

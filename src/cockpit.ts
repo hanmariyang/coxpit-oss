@@ -326,6 +326,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .zoom:hover{color:var(--brand)}
   .leaf-h .pact{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .pact:hover{color:var(--brand)}
+  /* 글리프가 아니라 낱말인 페인 액션(:ports) — 같은 ghost 톤, 글자만 작다 */
+  .leaf-h .pact.ptxt{font-size:10px;letter-spacing:.02em}
   .leaf-h .bsel{display:none;color:var(--faint);border:none;background:none;cursor:pointer;font-size:11px;padding:0 2px}
   body.bcastmode .leaf-h .bsel{display:inline-block}   /* 브로드캐스트 모드에서만 대상 선택 토글 노출 */
   .leaf-h .bsel.on{color:var(--open)}
@@ -365,6 +367,23 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
      경고는 색이 아니라 말로 먼저 하고, 색은 이미 있는 주의색 하나만 빌린다 */
   .scrub-row .swarn{flex:none;font-size:10.5px;color:var(--blocked)}
   .scrub-row.risky .snm{color:var(--muted)}
+  /* ── v5.28 B — 리스너 판(:ports). 같은 줄 모양(.scrub-row 계열)을 한 번 더 쓴다.
+     판정하지 않는 판이라 색이 거의 없다: 포트만 브랜드, "여기서 실행" 표식은 T6b 의 미머지와
+     같은 주의색 하나(새 색 없음), 나머지는 전부 --faint/--muted 다. */
+  .port-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:7px;font-size:12.5px;color:var(--muted)}
+  .port-row:hover{background:var(--surface2)}
+  .port-row .pp{flex:none;font-family:var(--mono);color:var(--brand);min-width:56px}
+  .port-row .pc{flex:1;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .port-row .pt{flex:none;font-size:10.5px;color:var(--faint)}
+  .port-row .swarn{flex:none;font-size:10.5px;color:var(--blocked)}
+  .port-row .pkill{flex:none;font-family:var(--mono);font-size:10.5px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:7px;padding:3px 8px;cursor:pointer}
+  .port-row .pkill:hover{color:var(--failed);border-color:var(--line-hi)}
+  .port-ask{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line)}
+  .port-ask .pick-name{flex:0 0 150px}
+  .port-spot{display:flex;align-items:center;gap:6px;flex:1;overflow:hidden;white-space:nowrap}
+  .port-spot .plbl{font-size:10px;color:var(--faint)}
+  .port-spot button{font-family:var(--mono);font-size:10.5px;color:var(--brand);background:none;border:1px solid var(--line);border-radius:999px;padding:2px 8px;cursor:pointer}
+  .port-spot button:hover{border-color:var(--line-hi);background:var(--surface2)}
   /* 시트 뼈대(.pick) 바로 밑에 놓인 이유 줄도 같은 좌우 여백을 갖는다 */
   .pick > .sheet-err{padding:2px 15px 10px}
   .pick-row.on{background:var(--surface2);color:var(--ink)}
@@ -735,6 +754,25 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     <div class="pick-f">
       <span id="wtHint" style="flex:1;font-size:11px;color:var(--faint)">…</span>
       <button class="go" id="wtGo">선택 회수</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="portsModal">
+  <div class="pick" style="width:min(600px,92vw)">
+    <div class="pick-h"><span class="t">:ports — 무엇이 듣고 있나</span><button class="x" id="portsClose" title="닫기">×</button></div>
+    <div class="pick-path" id="portsWhere">…</div>
+    <div class="sheet-note">지금 <b>LISTEN 중인 것</b>과 <b>언제부터 떠 있는지</b>만 보여줍니다 — <b>낡았는지는 판단하지 않습니다</b>. "3시간 전 시작"과 "2분 전 수정"을 나란히 보고 정하는 것은 사람입니다. <b>옛 프로세스일 수 있어요.</b> 종료는 <b>고른 pid 하나에만</b>, 이 머신에서만 갑니다.</div>
+    <div class="port-ask">
+      <input class="pick-name" id="portQ" placeholder="포트 번호 (예: 8210)" autocomplete="off" inputmode="numeric" spellcheck="false" />
+      <button class="home" id="portGo">조회</button>
+      <span class="port-spot" id="portSpot"></span>
+    </div>
+    <div class="pick-list" id="portsList"></div>
+    <div class="sheet-err" id="portsErr" hidden></div>
+    <div class="pick-f">
+      <span id="portsHint" style="flex:1;font-size:11px;color:var(--faint)">…</span>
+      <button class="home" id="portsRescan" title="다시 훑기">↻ 다시 훑기</button>
     </div>
   </div>
 </div>
@@ -1540,6 +1578,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
             + '<button class="bsel'+(bcastSel[node.tab]?' on':'')+'" data-bcast="'+node.tab+'" title="브로드캐스트 대상 토글">'+(bcastSel[node.tab]?'◉':'◯')+'</button>'
             + (runIsSession(node.tab)?'':'<button class="pact" data-diff="'+node.id+'" title="이 run 의 diff (Review)">⧉</button>')
             + '<button class="pact" data-hist="'+node.id+'" title="이 run 히스토리 (대화·터미널)">↺</button>'
+            + '<button class="pact ptxt" data-ports="'+node.id+'" title="이 체크아웃이 남긴 것이 아직 듣고 있나 (LISTEN · 언제부터)">:ports</button>'
             + '<button class="lock" data-lock="'+node.id+'" title="이 페인에 시크릿/비밀번호 전송(터미널에 안 찍힘)">⊟</button>'
             + zoomBtn + '<button class="x" title="이 페인 닫기(탭은 유지)">×</button>')
         : '<span class="nm" style="color:var(--faint)">빈 페인</span><button class="x" title="이 페인 닫기">×</button>';
@@ -1784,6 +1823,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (diffBtn){ e.stopPropagation(); var dl=findLeaf(diffBtn.getAttribute('data-diff')); if(dl&&dl.tab!=null) openReviewForRun(dl.tab); return; }
     var histBtn=e.target.closest('[data-hist]');
     if (histBtn){ e.stopPropagation(); var hl=findLeaf(histBtn.getAttribute('data-hist')); if(hl&&hl.tab!=null){ setLeafFocus(hl.id); openHistory(); } return; }
+    var portsBtn=e.target.closest('[data-ports]');
+    if (portsBtn){ e.stopPropagation(); var pl=findLeaf(portsBtn.getAttribute('data-ports')); if(pl&&pl.tab!=null) openPorts(pl.tab); return; }
     var lockBtn=e.target.closest('[data-lock]');
     if (lockBtn){ e.stopPropagation(); startSecretSend(lockBtn.getAttribute('data-lock'), lockBtn); return; }
     var leaf=e.target.closest('[data-leaf]'); if(!leaf) return;
@@ -1885,6 +1926,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       {k:'cmd', label:'뷰어 / 히스토리', run:openHistory},
       {k:'cmd', label:'Review 열기 (비교·머지)', run:showReview},
       {k:'cmd', label:'시크릿 (env 주입)', run:openSecrets},
+      // 페인의 :ports 와 같은 판, 다른 입구 — 여기선 포트를 사람이 부른다(v5.28 B1)
+      {k:'cmd', label:'포트에 뭐가 떠 있나… (:ports)', hint:'포트 번호로 조회', run:openPortQuery},
       // 보드는 읽는 방이다 — ⌘K 한 번이면 닿지만, 현관은 아니다(v6.0 Part B).
       // 뷰 전환은 보드가 이미 가진 setView 를 /?view= 딥링크로 깨울 뿐, 새 길을 내지 않는다.
       {k:'board', label:'Board — 보드 (리뷰·기록실)', hint:'/', run:function(){ gotoBoard(''); }},
@@ -2466,6 +2509,124 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('wtList').addEventListener('change', function(e){
     var c=e.target.closest('[data-wtchk]'); if(!c) return;
     wtSel[+c.dataset.wtchk]=c.checked; renderWt();
+  });
+
+  // ── :ports — 무엇이 듣고 있고, 언제부터인가 (v5.28 B) ──
+  // DeskBox 의 stale-build 덫을 coxpit 이 정직하게 할 수 있는 만큼만 한다: **사실을 보이고 판정하지 않는다.**
+  // "낡음" 배지는 없다. 포트 · 명령 · 언제부터(etime) · 이 체크아웃 아래인가(underPane) 를 나란히 놓고,
+  // 그 옆에 **정확히 그 pid 하나**를 끄는 버튼을 둔다. 결론은 사람이 낸다.
+  // 입구는 둘(페인의 :ports · ⌘K 의 "포트에 뭐가 떠 있나…")이고, 판은 하나다.
+  var portsRun = null;        // 페인에서 열었으면 runId, 포트 조회로 열었으면 null
+  var portsMachine = 'local';
+  var portsRows = [], portsSpot = [], portsBusy = false;
+
+  function portRowHTML(x){
+    return '<div class="port-row" data-pid="'+x.pid+'" title="'+esc(x.args||x.command||'')+'">'
+      + '<span class="pp">:'+esc(x.port)+'</span>'
+      + '<span class="pc">'+esc(x.command||'?')+'</span>'
+      + '<span class="pt">· started '+esc(x.etime||'?')+' · pid '+esc(x.pid)+'</span>'
+      // T6b 의 미머지와 같은 대접 — 모노 글리프 + 낱말. 새 색은 없다.
+      + (x.underPane ? '<span class="swarn">⌖ 여기서 실행</span>' : '')
+      + '<button class="pkill" data-kill="'+x.pid+'" title="pid '+esc(x.pid)+' 하나만 종료합니다 (TERM → 잠깐 → KILL)">[종료]</button>'
+      + '</div>';
+  }
+  function renderPorts(note){
+    $('portsList').innerHTML = portsRows.length
+      ? portsRows.map(portRowHTML).join('')
+      : '<div class="pick-row" style="cursor:default;color:var(--faint)">여기서 LISTEN 중인 것이 없습니다</div>';
+    // 수동 포착 — Part A 가 이미 모으고 있는 꼬리에서 주운 포트만. 없으면 칸도 안 뜬다(지어내지 않는다).
+    $('portSpot').innerHTML = portsSpot.length
+      ? ('<span class="plbl">터미널에서 본 포트</span>' + portsSpot.map(function(p){
+          return '<button type="button" data-spot="'+esc(p)+'">:'+esc(p)+'</button>'; }).join(''))
+      : '';
+    var err=$('portsErr');
+    if (note){ err.textContent=note; err.hidden=false; } else { err.textContent=''; err.hidden=true; }
+    $('portsHint').textContent = portsRows.length
+      ? (portsRows.length+'개 LISTEN · 종료는 고른 pid 하나에만 갑니다')
+      : '';
+  }
+  function portsLoading(){
+    $('portsList').innerHTML='<div class="pick-row" style="cursor:default;color:var(--faint)">LISTEN 소켓을 훑는 중…</div>';
+    $('portsHint').textContent=''; $('portsErr').hidden=true;
+  }
+  // 페인 입구 — 이 체크아웃이 남긴 것. 기준 폴더는 서버가 페인의 살아있는 pwd 로 잡는다(§D-fix).
+  async function scanPortsForRun(){
+    portsLoading();
+    try{
+      var res=await fetch('/api/runs/'+portsRun+'/listeners');
+      var j=await res.json().catch(function(){return{};});
+      if(!res.ok){ portsRows=[]; portsSpot=[]; renderPorts(j.error||('HTTP '+res.status)); return; }
+      portsRows=j.listeners||[]; portsSpot=j.spotted||[]; portsMachine=j.machine||portsMachine;
+      $('portsWhere').textContent = (j.pwd||'(폴더 미상)')+'  ·  '+portsMachine;
+      renderPorts(j.note||'');
+    }catch(e){ portsRows=[]; portsSpot=[]; renderPorts(String(e)); }
+  }
+  // 포트 입구 — "8210 은 누가 물고 있나". 어디서 왔든 그대로 보여준다.
+  async function scanPortsForPort(port){
+    var p=Math.floor(Number(port));
+    if(!(p>=1&&p<=65535)){ toast('포트는 1~65535 사이 숫자입니다'); return; }
+    portsLoading();
+    try{
+      var res=await fetch('/api/machines/'+encodeURIComponent(portsMachine)+'/port/'+p);
+      var j=await res.json().catch(function(){return{};});
+      if(!res.ok){ portsRows=[]; renderPorts(j.error||('HTTP '+res.status)); return; }
+      portsRows=j.listeners||[];
+      $('portsWhere').textContent = ':'+p+'  ·  '+portsMachine;
+      renderPorts(j.note||'');
+    }catch(e){ portsRows=[]; renderPorts(String(e)); }
+  }
+  function portsRescan(){ if(portsRun!=null) scanPortsForRun(); else { var v=$('portQ').value.trim(); if(v) scanPortsForPort(v); } }
+  function openPortsModal(){ $('portsModal').classList.add('on'); }
+  function closePorts(){ $('portsModal').classList.remove('on'); }
+  function openPorts(runId){
+    portsRun=runId; portsRows=[]; portsSpot=[];
+    var r=runById[runId]; portsMachine=machineSlug();
+    $('portQ').value='';
+    $('portsWhere').textContent = r ? runLabel(runId) : '…';
+    openPortsModal(); scanPortsForRun();
+  }
+  function openPortQuery(){
+    portsRun=null; portsRows=[]; portsSpot=[]; portsMachine=machineSlug();
+    $('portQ').value=''; $('portsWhere').textContent='포트 번호를 넣으세요  ·  '+portsMachine;
+    $('portsList').innerHTML='<div class="pick-row" style="cursor:default;color:var(--faint)">포트를 넣고 조회하면 그 포트를 물고 있는 프로세스를 보여줍니다</div>';
+    $('portsHint').textContent=''; $('portsErr').hidden=true; $('portSpot').innerHTML='';
+    openPortsModal(); setTimeout(function(){ try{ $('portQ').focus(); }catch(e){} }, 30);
+  }
+  // 종료 — 사람이 찍은 그 행의 pid 하나. 서버가 다시 훑어 목록에 없으면 거부하므로
+  // 여기서 보내는 것은 "내가 방금 본 행"뿐이다. 포트 위 전부 죽이기 같은 편의는 없다.
+  async function killListener(pid){
+    if (portsBusy) return;
+    var row=null; portsRows.forEach(function(x){ if(String(x.pid)===String(pid)) row=x; });
+    if(!row){ toast('목록에 없는 pid 입니다 — 다시 훑어 주세요'); return; }
+    if(!confirm('pid '+pid+' 를 종료할까요?\\n:'+row.port+' · '+(row.command||'?')+' · started '+(row.etime||'?')
+      +'\\n\\nTERM 을 먼저 보내고, 안 죽으면 KILL 합니다. 이 pid 하나에만 갑니다.')) return;
+    portsBusy=true;
+    try{
+      var res=await fetch('/api/machines/'+encodeURIComponent(row.machineId||portsMachine)+'/kill',
+        {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pid:Number(pid)})});
+      var j=await res.json().catch(function(){return{};});
+      if(!res.ok) toast('종료 실패: '+(j.detail||j.error||('HTTP '+res.status)));
+      else toast('pid '+pid+' 종료됨 ('+(j.signal||'TERM')+')');
+    }catch(e){ toast('종료 실패: '+e); }
+    finally{ portsBusy=false; }
+    // 다시 훑는다 — 행이 사라지거나, 무언가가 되살렸다면 그대로 남아 있을 것이다.
+    var wasPort=(portsRun==null);
+    await (wasPort ? scanPortsForPort($('portQ').value.trim()||row.port) : scanPortsForRun());
+    var still=false; portsRows.forEach(function(x){ if(String(x.pid)===String(pid)) still=true; });
+    if(still) toast('아직 살아 있습니다 — 무언가가 다시 띄웠을 수 있어요');
+  }
+  $('portsClose').addEventListener('click', closePorts);
+  $('portsModal').addEventListener('click', function(e){ if(e.target===this) closePorts(); });
+  $('portsRescan').addEventListener('click', portsRescan);
+  $('portGo').addEventListener('click', function(){ var v=$('portQ').value.trim(); if(v){ portsRun=null; scanPortsForPort(v); } });
+  $('portQ').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); var v=this.value.trim(); if(v){ portsRun=null; scanPortsForPort(v); } } });
+  $('portSpot').addEventListener('click', function(e){
+    var b=e.target.closest('[data-spot]'); if(!b) return;
+    $('portQ').value=b.dataset.spot; portsRun=null; scanPortsForPort(b.dataset.spot);
+  });
+  $('portsList').addEventListener('click', function(e){
+    var k=e.target.closest('[data-kill]'); if(!k) return;
+    killListener(k.dataset.kill);
   });
 
   function openSession(){ $('pickModal').classList.add('on'); $('pickName').value=''; browseTo(''); }

@@ -34,6 +34,8 @@ expect_code(){
 cleanup(){
   [ -n "${DPID:-}" ] && kill "$DPID" 2>/dev/null || true
   [ -n "${HPID:-}" ] && kill "$HPID" 2>/dev/null || true
+  # v5.28 B 의 일회용 리스너 — 중간에 죽어도 포트를 물고 남지 않게
+  [ -n "${TPID:-}" ] && kill "$TPID" 2>/dev/null || true
   # T6 수거 테스트가 지어낸 고아 tmux 이름 — 중간에 죽어도 개발 기계에 남기지 않는다('=' 정확 일치)
   tmux kill-session -t '=coxpit-r98765' 2>/dev/null || true
   tmux kill-session -t '=coxpit-r987654' 2>/dev/null || true
@@ -2196,6 +2198,30 @@ case "$CKPT" in *"$AT_FILTER"*) : ;; *) fail "coxpit.pingOn transition filter (w
 case "$CKPT" in *'raiseAttention(runId, prev, state)'*) : ;; *) fail "paintAgentState must raise attention using the PREVIOUS state (a transition, not a repaint)";; esac
 pass "cockpit v5.28 A5: attention popover (sound · notify · transitions), opt-in, focused tab never pings itself"
 
+# v5.28 B3 — 리스너 판. **사실만 보이고 판정하지 않는다**: stale 배지도, 자동 종료도 없다.
+# 파일 순서대로 본다: 페인 액션 스타일 → 행 스타일 → 판 마크업 → 페인 입구 → ⌘K 입구 → 판 로직.
+case "$CKPT" in *'.leaf-h .pact.ptxt{'*'.port-row .swarn{'*'.port-row .pkill{'*) : ;; *) fail "listener panel styles (:ports pane action + row + kill control) missing";; esac
+case "$CKPT" in *'id="portsModal"'*'id="portsWhere"'*'id="portQ"'*'id="portSpot"'*'id="portsList"'*) : ;; *) fail "listener panel markup (pane/machine line + port field + spotted chips + rows) missing";; esac
+# 판정하지 않는다는 규칙은 카피에도 있다 — 질문으로만 나오고, 판결로는 나오지 않는다
+case "$CKPT" in *'낡았는지는 판단하지 않습니다'*'옛 프로세스일 수 있어요'*) : ;; *) fail "the panel must say it shows facts, not a verdict (never a STALE badge)";; esac
+# 페인 입구(:ports) — 헤더 액션 + 그 클릭 배선
+case "$CKPT" in *'data-ports="'*':ports</button>'*) : ;; *) fail "per-leaf :ports affordance missing from the pane header";; esac
+case "$CKPT" in *"e.target.closest('[data-ports]')"*'openPorts(pl.tab)'*) : ;; *) fail ":ports must open the listener panel for that pane's run";; esac
+# ⌘K 입구 — 같은 판, 포트를 사람이 부른다
+case "$CKPT" in *'포트에 뭐가 떠 있나'*'run:openPortQuery'*) : ;; *) fail "⌘K 'what's on a port…' command missing";; esac
+# 행 = :PORT · command · started <etime> · [여기서 실행] · [종료]
+B_ROW="'<span class=\"pp\">:'+esc(x.port)+'</span>'"
+case "$CKPT" in *'function portRowHTML'*"$B_ROW"*'· started '*) : ;; *) fail "a listener row must read :PORT · command · started <etime>";; esac
+case "$CKPT" in *'<span class="swarn">⌖ 여기서 실행</span>'*) : ;; *) fail "the underPane marker must be a mono glyph + word in the existing caution token (T6b 미머지 treatment)";; esac
+case "$CKPT" in *'data-kill="'*'[종료]</button>'*) : ;; *) fail "each row needs its own exact-pid [종료] control";; esac
+# 수동 포착은 Part A 의 꼬리를 **재사용**한다 — 탭을 하나 더 달지 않는다(서버가 spotted 로 준다)
+case "$CKPT" in *'data-spot='*"fetch('/api/runs/'+portsRun+'/listeners')"*'j.spotted||[]'*) : ;; *) fail "passive port spotting must reuse the Part A tail (server-side spotted list), offered as one-click targets";; esac
+case "$CKPT" in *"'/api/machines/'+encodeURIComponent(portsMachine)+'/port/'"*) : ;; *) fail "the by-port entry must hit GET /api/machines/:id/port/:port";; esac
+# 종료는 사람이 찍은 행 하나 → kill 엔드포인트 → **다시 훑기**(사라졌는지, 되살아났는지)
+B_KILL="'/api/machines/'+encodeURIComponent(row.machineId||portsMachine)+'/kill'"
+case "$CKPT" in *'function killListener'*"$B_KILL"*'아직 살아 있습니다'*) : ;; *) fail "[종료] must post the pid to the kill endpoint and re-scan (never a kill-all-on-port)";; esac
+pass "cockpit v5.28 B3: :ports leaf affordance + ⌘K port query → one listener panel (evidence rows, underPane marker, exact-pid [종료], tail-reused port spotting)"
+
 # v5.28 A5 서버 절반 — 웹훅. 코크핏이 닫혀 있을 때 유일하게 남는 신호다.
 # 실제로 터미널을 붙이고 tmux 세션을 죽여 onExit → 'exited' 전이를 만든 뒤, 리스너가 받은 본문을 본다.
 # 계약: 상태만 실린다(엔드포인트는 신뢰 경계 밖이라 detail·꼬리 발췌는 절대 안 된다).
@@ -2315,6 +2341,86 @@ curl -sf -X DELETE "$B/api/repos/$UREGID" | grep -q '"ok":true' || fail "repo un
 [ -f "$UREPO/README.md" ] || fail "unregister must never touch the folder on disk"
 expect_code 404 -X DELETE "$B/api/repos/$UREGID"
 pass "v6.0 T6: unregister = registration only (DELETE /api/repos/:id still works, folder on disk intact, second delete 404)"
+
+# v5.28 B2 — 리스너 조사기. 값은 기계마다 다르니 **모양과 정직함**만 못박는다:
+# 200 + 배열 + (있다면) 각 항목의 키. lsof 가 없는 기계면 깨끗한 빈 결과 + note 여야 하고,
+# 어떤 경우에도 500 으로 터지지 않는다(조사기가 터지면 조사할 수 없다).
+PSD="$WORK/ports-sess"; mkdir -p "$PSD"
+PSS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$PSD\",\"title\":\"ports\"}")
+PSRUN=$(echo "$PSS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+PL=$(curl -sf "$B/api/runs/$PSRUN/listeners") || fail "GET /api/runs/:id/listeners failed"
+echo "$PL" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b);
+  if(!Array.isArray(j.listeners)) throw new Error("listeners must be an array: "+b);
+  if(typeof j.note!=="string") throw new Error("note must always be a string (the honest-empty reason): "+b);
+  if(typeof j.machine!=="string"||typeof j.pwd!=="string") throw new Error("the payload must say which machine/folder it answered for: "+b);
+  if(!Array.isArray(j.spotted)) throw new Error("spotted (ports seen in the Part A tail) must be an array: "+b);
+  for(const p of j.spotted) if(!Number.isInteger(p)) throw new Error("a spotted port must be a number, never invented text: "+b);
+  for(const it of j.listeners){
+    for(const k of ["pid","port","etime","underPane","command","args","machineId"]) if(!(k in it)) throw new Error("listener missing "+k+": "+JSON.stringify(it));
+    if(typeof it.pid!=="number"||typeof it.port!=="number") throw new Error("pid/port must be numbers: "+JSON.stringify(it));
+    if(typeof it.etime!=="string"||typeof it.underPane!=="boolean") throw new Error("etime must be a string and underPane a boolean: "+JSON.stringify(it));
+    // 전체 argv 는 절대 표면에 오르지 않는다 — exec + 첫 인자까지만(시크릿 방어)
+    if(it.args.trim().split(/\s+/).filter(Boolean).length>2) throw new Error("args must be clipped to exec + first arg: "+JSON.stringify(it));
+  }
+  console.log("listener shape ok ("+j.listeners.length+")");
+})' || fail "listener payload shape wrong: $PL"
+expect_code 404 "$B/api/runs/999999/listeners"
+pass "v5.28 B2: GET /api/runs/:id/listeners returns facts (pid·port·etime·underPane, args clipped) + honest note; unknown run 404s"
+
+# 포트 겨냥 조회 — 같은 항목 모양. 비어 있어도 200(그 포트를 아무도 안 물고 있을 뿐이다).
+PP=$(curl -sf "$B/api/machines/local/port/$PORT") || fail "GET /api/machines/:id/port/:port failed"
+echo "$PP" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b);
+  if(!Array.isArray(j.listeners)) throw new Error("listeners must be an array: "+b);
+  if(typeof j.note!=="string"||typeof j.port!=="number") throw new Error("the payload must carry the port it answered for + a note: "+b);
+  for(const it of j.listeners){
+    for(const k of ["pid","port","etime","underPane","command","args","machineId"]) if(!(k in it)) throw new Error("listener missing "+k+": "+JSON.stringify(it));
+  }
+  console.log("port scan shape ok ("+j.listeners.length+")");
+})' || fail "port scan payload shape wrong: $PP"
+expect_code 400 "$B/api/machines/local/port/99999"
+expect_code 404 "$B/api/machines/no-such-machine/port/80"
+pass "v5.28 B2: GET /api/machines/:id/port/:port answers for one port (same item shape, empty is fine, bad port 400, unknown machine 404)"
+
+# 종료 가드는 **서버 쪽**이다. 셋 다 거절이어야 한다: pid 1 · 데몬 자신 · 지금 목록에 없는 pid.
+# ("포트 위 전부 죽이기" 같은 편의 엔드포인트는 아예 없다 — 무관한 프로세스를 데려간다.)
+expect_code 403 -X POST "$B/api/machines/local/kill" -H 'content-type: application/json' -d '{"pid":1}'
+expect_code 403 -X POST "$B/api/machines/local/kill" -H 'content-type: application/json' -d "{\"pid\":$DPID}"
+expect_code 409 -X POST "$B/api/machines/local/kill" -H 'content-type: application/json' -d '{"pid":4000000}'
+expect_code 400 -X POST "$B/api/machines/local/kill" -H 'content-type: application/json' -d '{"pid":"nope"}'
+expect_code 404 -X POST "$B/api/machines/no-such-machine/kill" -H 'content-type: application/json' -d '{"pid":4000000}'
+curl -sf "$B/api/health" >/dev/null || fail "a refused kill must never touch the daemon"
+pass "v5.28 B2: kill guards refuse pid 1, the daemon's own pid, and any pid absent from a fresh scan (no arbitrary-pid kill)"
+
+# 내가 띄운 일회용 리스너 하나로 한 바퀴 — lsof 가 없는 기계(최소 리눅스)면 조용히 건너뛴다.
+TPORT=$((PORT+7))
+node -e 'require("http").createServer((q,s)=>s.end("x")).listen(Number(process.argv[1]),"127.0.0.1")' "$TPORT" &
+TPID=$!
+for i in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$TPORT/" && break; sleep 0.25; done
+TSCAN=$(curl -sf "$B/api/machines/local/port/$TPORT" || true)
+TFOUND=$(echo "$TSCAN" | TPID="$TPID" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  let j={}; try{ j=JSON.parse(b); }catch{ return console.log("0"); }
+  const hit=(j.listeners||[]).find(x=>String(x.pid)===String(process.env.TPID));
+  if(!hit) return console.log("0");
+  if(!hit.etime) return console.log("noetime");
+  console.log("1");
+})')
+if [ "$TFOUND" = "1" ]; then
+  TK=$(curl -s -X POST "$B/api/machines/local/kill" -H 'content-type: application/json' -d "{\"pid\":$TPID}")
+  case "$TK" in *'"gone":true'*) : ;; *) fail "an explicitly chosen listener should die: $TK";; esac
+  TAFTER=$(curl -sf "$B/api/machines/local/port/$TPORT" || true)
+  case "$TAFTER" in *"\"pid\":$TPID"*) fail "the killed listener is still listed after a re-scan: $TAFTER";; *) : ;; esac
+  pass "v5.28 B2: a listed listener is killable by exact pid (TERM→KILL) and the re-scan shows it gone"
+else
+  case "$TFOUND" in noetime) fail "a listed listener must carry etime — 'since when' is the whole answer";; esac
+  pass "v5.28 B2: kill round-trip skipped (no lsof on this machine) — the scan stayed an honest empty"
+fi
+kill "$TPID" 2>/dev/null || true
+curl -s -X POST "$B/api/runs/$PSRUN/cleanup" >/dev/null
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

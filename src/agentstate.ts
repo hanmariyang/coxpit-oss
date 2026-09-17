@@ -22,7 +22,7 @@ const HOOK_COOLDOWN_MS = 60_000;  // run 하나가 웹훅을 때릴 수 있는 �
 
 interface Pattern { id: string; re: RegExp }
 
-// ⚠️ 휴리스틱이고 provider TUI 화면에 종속적이다. "에이전트의 의도"를 안다고 주장하지 않는다 —
+// [!] 휴리스틱이고 provider TUI 화면에 종속적이다. "에이전트의 의도"를 안다고 주장하지 않는다 —
 // 말하는 것은 "화면에 입력/승인 프롬프트가 떠 있다" 하나뿐이다. CLI 가 화면을 바꾸면 이 표만
 // 고치고, provider 를 늘리는 일은 행을 늘리는 일이다. 확신이 없으면 넣지 않는다:
 // 빗나간 idle 은 받아들일 수 있고, 지어낸 waiting 은 받아들일 수 없다.
@@ -90,13 +90,38 @@ interface Tracker {
   lastByteAt: number;
   timer: ReturnType<typeof setTimeout> | null;  // tracker 당 정확히 하나
   lastHookAt: number;                          // 웹훅 쿨다운 — tracker 와 함께 살고 함께 죽는다
+  spotted: Set<number>;                        // B3 수동 포트 감지 — 출력에서 본 LISTEN 포트(감지만, 행동 없음)
+}
+
+// B3: 출력에서 "listening on :PORT" / "http(s)://host:PORT" 만 보수적으로 집는다.
+// A2 와 같은 규율 — 못 맞히면 빈손이고, 포트를 지어내지 않는다. 1..65535 만 인정.
+const PORT_PATTERNS: RegExp[] = [
+  /\blisten(?:ing)?\b[^0-9]{0,20}:(\d{2,5})\b/gi,   // "Listening on :3000", "listening at port 8080" 근처의 :NNNN
+  /\bhttps?:\/\/[a-z0-9.\-]+:(\d{2,5})\b/gi,          // http://localhost:3000
+  /\b(?:0\.0\.0\.0|127\.0\.0\.1|localhost)\b[^0-9]{0,4}:(\d{2,5})\b/gi,
+];
+
+function spotPorts(t: Tracker, chunk: string): void {
+  for (const re of PORT_PATTERNS) {
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(chunk))) {
+      const p = Number(m[1]);
+      if (p >= 1 && p <= 65535) t.spotted.add(p);
+    }
+  }
+  // 무한정 쌓지 않는다 — 최근 것 위주로 상한
+  if (t.spotted.size > 24) {
+    const keep = [...t.spotted].slice(-24);
+    t.spotted = new Set(keep);
+  }
 }
 
 /**
  * 주의 환기의 서버 쪽 절반(spec v5.28 A5) — 코크핏이 아예 닫혀 있을 때 유일하게 남는 신호다.
  * orchestrator 의 notifySettle 과 같은 모양으로 POST 하고, 실패는 무해하게 삼킨다.
  *
- * ⚠️ **상태만 보낸다.** detail 도, tail 조각도 절대 태우지 않는다 — 터미널 출력은 시크릿을
+ * [!] **상태만 보낸다.** detail 도, tail 조각도 절대 태우지 않는다 — 터미널 출력은 시크릿을
  * 그대로 뱉을 수 있고 웹훅 엔드포인트는 coxpit 의 신뢰 경계 **밖**이다(꼬리는 인증된 /ws 허브에만).
  */
 async function postHook(runId: number, state: AgentState): Promise<void> {
@@ -173,7 +198,7 @@ function onQuiet(runId: number): void {
 export function attach(runId: number): void {
   const cur = trackers.get(runId);
   if (cur) { cur.refs++; return; }
-  trackers.set(runId, { refs: 1, state: 'unknown', since: Date.now(), tail: '', lastByteAt: 0, timer: null, lastHookAt: 0 });
+  trackers.set(runId, { refs: 1, state: 'unknown', since: Date.now(), tail: '', lastByteAt: 0, timer: null, lastHookAt: 0, spotted: new Set() });
 }
 
 /** 출력 청크 — tail 에 붙이고 시각을 찍고 working. 미러 중복이 들어와도 해롭지 않다. */
@@ -183,8 +208,15 @@ export function feed(runId: number, chunk: string): void {
   t.tail += chunk;
   if (t.tail.length > TAIL_MAX) t.tail = t.tail.slice(t.tail.length - TAIL_MAX);
   t.lastByteAt = Date.now();
+  spotPorts(t, chunk);   // B3 수동 포트 감지 — 감지만, 행동 없음
   setState(runId, t, 'working');
   arm(runId, t, ACTIVE_MS);
+}
+
+/** B3: 이 run 의 출력에서 감지한 LISTEN 포트 목록(감지만; 코크핏이 원클릭 대상으로 제안). */
+export function spottedPorts(runId: number): number[] {
+  const t = trackers.get(runId);
+  return t ? [...t.spotted] : [];
 }
 
 /**
