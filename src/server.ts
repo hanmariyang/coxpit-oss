@@ -23,7 +23,7 @@ import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
 import { openTerm } from './term';
-import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach } from './agentstate';
+import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates } from './agentstate';
 import { addSink, removeSink, broadcast } from './hub';
 import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
@@ -377,6 +377,9 @@ export async function buildServer(): Promise<FastifyInstance> {
         return { ...r, events: (byRun.get(r.id) ?? []).slice(-EVENT_CAP), noop: sig.noop, noopReason: sig.reason };
       }),
       counts: { activeTasks: activeTasks.length, closedTasks: closedCount },
+      // 지금 터미널이 붙어 있는 run 의 에이전트 상태(runId → {state,detail,ts}).
+      // 하이드레이션용 — 새로 뜬 코크핏이 다음 agentstate 델타를 기다리지 않게. 붙어 있는 동안만 존재한다.
+      agentStates: allAgentStates(),
       // 보드 헤더 "어느 데몬에 붙어 있나" 표시용 (인증 뒤라 dbPath 노출 가능)
       // authOpen = 비밀번호 미설정 → Funnel(공개) 가드가 켜져야 함(원격접근 카드용)
       daemon: {

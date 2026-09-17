@@ -1774,7 +1774,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var ws = new WebSocket(proto+'://'+location.host+'/ws');
     ws.onopen = function(){ $('ws').classList.add('on'); $('wstext').textContent='live'; };
     ws.onclose = function(){ $('ws').classList.remove('on'); $('wstext').textContent='reconnecting'; setTimeout(wsConnect, 1500); };
-    ws.onmessage = function(){ /* 델타는 종류가 많아 단순히 전체 리하이드레이트(디바운스) */ scheduleHydrate(); };
+    /* 델타는 종류가 많아 단순히 전체 리하이드레이트(디바운스).
+       단 agentstate 는 초당 여러 번 올 수 있어 리하이드레이트를 걸지 않는다 — 칠하는 일은 phase 3. */
+    ws.onmessage = function(m){ var ev=null; try{ ev = JSON.parse(m.data); }catch(e){} if (ev && ev.type==='agentstate') return; scheduleHydrate(); };
   }
   var hydT=null;
   function scheduleHydrate(){ if (hydT) return; hydT = setTimeout(function(){ hydT=null; hydrate(); }, 400); }

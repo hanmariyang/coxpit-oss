@@ -1569,5 +1569,90 @@ AS_OUT=$(node --import tsx "$WORK/agentstate.test.ts" 2>&1) || fail "agent state
 case "$AS_OUT" in *AGENTSTATE_OK*) : ;; *) fail "agent state detection: $AS_OUT";; esac
 pass "agent state: waiting only on a pattern hit (ANSI-safe), input clears it, no tracker/timer leak"
 
+# v5.28 A3 (phase 2) — transport. unit 이 아니라 데몬에 붙여서 계약을 본다:
+# 맵에는 **터미널이 붙어 있는 run 만** 있고, 마지막 detach 에서 빠진다. detail 은 아직 빈 문자열이다
+# (꼬리 발췌는 소독 규칙이 생기는 phase 3 전에는 허브에 태우지 않는다).
+kill "$DPID" 2>/dev/null || true; sleep 0.5
+rm -f "$DB"*; rm -f "$AUTHDIR/auth.json" 2>/dev/null || true
+COXPIT_AUTH_DISABLED=1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" \
+  node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
+DPID=$!
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+# 붙일 세션 하나 + 절대 붙지 않을 세션 하나(= 맵에 없어야 하는 대조군)
+ASDIR="$WORK/as-attached"; mkdir -p "$ASDIR"
+ANDIR="$WORK/as-never"; mkdir -p "$ANDIR"
+ASS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$ASDIR\",\"title\":\"attached\"}")
+ASRUN=$(echo "$ASS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
+ANS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$ANDIR\",\"title\":\"never attached\"}")
+ANRUN=$(echo "$ANS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
+cat > "$WORK/agentstate.transport.mjs" <<'EOF'
+// /ws/term 에 실제로 붙어서 허브 델타와 /api/fleet 의 agentStates 를 함께 본다.
+const B = process.argv[2];
+const RID = String(process.argv[3]);
+const OTHER = String(process.argv[4]);
+const WSB = B.replace(/^http/, 'ws');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fleet = async () => await (await fetch(B + '/api/fleet?view=all')).json();
+const die = (m) => { console.error(m); process.exit(1); };
+const opened = (ws, what) => new Promise((res, rej) => {
+  ws.addEventListener('open', () => res());
+  ws.addEventListener('error', () => rej(new Error(what + ' ws failed to open')));
+});
+
+// 1) 허브를 먼저 연다 — attach 가 만드는 첫 전이를 놓치지 않도록.
+const hub = new WebSocket(WSB + '/ws');
+const seen = [];
+hub.addEventListener('message', (e) => { try { seen.push(JSON.parse(e.data)); } catch { /* not json */ } });
+await opened(hub, 'hub');
+
+// 2) 터미널 attach — tmux 가 pane 을 다시 그리며 바이트가 흐른다(감지기의 먹이).
+const term = new WebSocket(WSB + '/ws/term/' + RID + '?cols=80&rows=24');
+let out = 0;
+term.addEventListener('message', (e) => {
+  try { const m = JSON.parse(e.data); if (m.t === 'o') out++; else if (m.t === 'err') die('term: ' + m.d); }
+  catch { /* not json */ }
+});
+await opened(term, 'term');
+for (let i = 0; i < 40 && out === 0; i++) await sleep(250);
+if (out === 0) die('no terminal output in 10s — nothing to feed the detector');
+await sleep(2000);   // ACTIVE_MS/FLAP_MS 를 지나 분류가 안정될 때까지
+
+// 3) /api/fleet 의 agentStates 모양 + 붙지 않은 run 은 없다
+const f = await fleet();
+const as = f.agentStates;
+if (!as || typeof as !== 'object') die('fleet has no agentStates map: ' + JSON.stringify(as));
+const me = as[RID];
+if (!me) die('attached run missing from agentStates: ' + JSON.stringify(as));
+if (!['working', 'idle', 'waiting'].includes(me.state)) die('implausible state: ' + JSON.stringify(me));
+if (me.detail !== '') die('detail must be the empty string in phase 2: ' + JSON.stringify(me));
+if (!(typeof me.ts === 'number' && me.ts > 0)) die('ts must be a timestamp: ' + JSON.stringify(me));
+if (as[OTHER]) die('a run that never attached a terminal must not appear: ' + JSON.stringify(as));
+
+// 4) 허브에 agentstate 델타가 실제로 흘렀고, 꼬리 발췌를 태우지 않았다
+const deltas = seen.filter((m) => m && m.type === 'agentstate' && String(m.runId) === RID);
+if (!deltas.length) die('no agentstate delta on the hub: ' + JSON.stringify(seen.slice(-5)));
+if (deltas.some((d) => d.detail !== '')) die('hub delta carried a detail excerpt: ' + JSON.stringify(deltas));
+
+// 5) 마지막 detach → 맵에서 빠진다(추적기도 같이 사라진다)
+term.close();
+let gone = false;
+for (let i = 0; i < 40 && !gone; i++) { await sleep(250); gone = !(await fleet()).agentStates[RID]; }
+if (!gone) die('detach must drop the run from agentStates');
+hub.close();
+console.log('TRANSPORT_OK');
+EOF
+TR_OUT=$(node "$WORK/agentstate.transport.mjs" "$B" "$ASRUN" "$ANRUN" 2>&1) || fail "agentstate transport: $TR_OUT"
+case "$TR_OUT" in *TRANSPORT_OK*) : ;; *) fail "agentstate transport: $TR_OUT";; esac
+curl -s -X POST "$B/api/runs/$ASRUN/cleanup" >/dev/null
+curl -s -X POST "$B/api/runs/$ANRUN/cleanup" >/dev/null
+pass "agentstate transport: hub delta (detail empty) + /api/fleet agentStates (attached only, cleared on detach)"
+
+# 클라이언트는 이 단계에서 한 줄만 바뀐다 — agentstate 델타로 전체 리하이드레이트를 걸지 않는다.
+# (칠하는 일은 phase 3. 보드는 이미 type 별로 분기해 모르는 종류를 흘려보내므로 손대지 않았다.)
+ASMARK="ev.type==='agentstate'"
+case "$CKPT" in *'function wsConnect'*"$ASMARK"*'function scheduleHydrate'*) : ;; *) fail "cockpit /ws handler should skip rehydrate on agentstate";; esac
+case "$CKPT" in *'coxpit · cockpit'*'workspace'*) : ;; *) fail "cockpit shell markers lost";; esac
+pass "cockpit /ws: agentstate deltas skip the rehydrate (no UI change in phase 2)"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
