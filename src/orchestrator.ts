@@ -2143,3 +2143,78 @@ export async function pruneWorktrees(runIds?: number[]): Promise<{
 
   return { removed, count: removed.length };
 }
+
+// ── 고아 tmux 세션 수거(reaper) ─────────────────────────────────
+// run 을 지워도 tmux 세션은 남는다(데몬 재시작·DB 초기화·수동 삭제). 2026-09-17 에 손으로
+// 13개를 걷어낸 그 일을 제품의 동작으로 만든다. 규칙 셋만 지키면 안전하다:
+//   ① DB 에 **없는** run id 의 `coxpit-r<N>` 만 후보다(살아 있는 run 의 세션은 목록에 아예 안 든다)
+//   ② 페인이 빈 셸 이상을 돌리고 있으면 **표시만** 하고 절대 미리 고르지 않는다
+//   ③ 죽일 때도 '=' 정확 일치 — coxpit-r5 가 coxpit-r50 을 물면 안 된다(전에 물었다)
+
+/** tmux 이름에서 run id 를 읽는 유일한 형태. 숫자가 아니면 우리 것으로 치지 않는다. */
+const ORPHAN_SESSION_RE = /^coxpit-r(\d+)$/;
+/** "빈 셸" 로 볼 pane_current_command 들 — 이 밖이면 뭔가 돌고 있는 것으로 본다. */
+const IDLE_SHELLS = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'login', '-sh', '-bash', '-zsh']);
+const LOCAL_MACHINE: MachineTarget = { slug: 'local', kind: 'local', address: '', sshUser: '' };
+
+export interface OrphanTmuxSession {
+  name: string;      // coxpit-r<N>
+  runId: number;     // 이름에서 읽은 id (DB 에는 없다 — 그래서 고아다)
+  command: string;   // 페인에서 지금 돌고 있는 것(빈 셸이면 셸 이름)
+  idle: boolean;     // 모든 페인이 빈 셸인가 = 미리 체크해도 되는가
+}
+
+/**
+ * 로컬 머신의 고아 tmux 세션 목록. `tmux list-panes -a` 한 번으로 세션별 페인 명령까지 읽고,
+ * DB 에 run 레코드가 있는 이름은 전부 빼고 돌려준다(= 살아 있는 세션은 절대 제안되지 않는다).
+ * tmux 서버가 안 떠 있으면 빈 배열.
+ */
+export async function listOrphanTmux(): Promise<OrphanTmuxSession[]> {
+  const r = await runShellOn(
+    LOCAL_MACHINE,
+    `tmux list-panes -a -F '#{session_name}\t#{pane_current_command}' 2>/dev/null || true`,
+    8000,
+  ).catch(() => ({ stdout: '' as string }));
+
+  const panes = new Map<string, string[]>();
+  for (const line of String(r.stdout || '').split('\n')) {
+    const [name, cmd] = line.split('\t');
+    if (!name || !ORPHAN_SESSION_RE.test(name)) continue;
+    const arr = panes.get(name) ?? [];
+    arr.push((cmd ?? '').trim());
+    panes.set(name, arr);
+  }
+  if (!panes.size) return [];
+
+  const known = new Set((await db.select().from(agentRuns)).map((x) => x.id));
+  const out: OrphanTmuxSession[] = [];
+  for (const [name, cmds] of panes) {
+    const runId = Number(ORPHAN_SESSION_RE.exec(name)![1]);
+    if (known.has(runId)) continue;            // 기록이 있는 run = 고아가 아니다
+    const busy = cmds.find((c) => c && !IDLE_SHELLS.has(c));
+    out.push({ name, runId, command: busy || cmds[0] || '', idle: !busy });
+  }
+  out.sort((a, b) => a.runId - b.runId);
+  return out;
+}
+
+/**
+ * 선택한 고아 세션 종료. 클라이언트가 보낸 이름을 믿지 않고 **지금 다시 고아 목록을 떠서**
+ * 그 안에 있는 것만 죽인다(그 사이 run 이 생겼거나 이름이 지어졌으면 건너뛴다).
+ * 타깃은 언제나 '=' 정확 일치.
+ */
+export async function killTmuxSessions(names: string[]): Promise<{
+  killed: string[]; skipped: Array<{ name: string; reason: string }>; count: number;
+}> {
+  const allowed = new Set((await listOrphanTmux()).map((o) => o.name));
+  const killed: string[] = [];
+  const skipped: Array<{ name: string; reason: string }> = [];
+  for (const raw of names) {
+    const name = String(raw).trim();
+    if (!allowed.has(name)) { skipped.push({ name, reason: 'not an orphan session (live run, or already gone)' }); continue; }
+    await runShellOn(LOCAL_MACHINE, `tmux kill-session -t ${shq('=' + name)} 2>/dev/null || true`, 8000)
+      .catch(() => { /* best-effort — 이미 사라졌을 수 있다 */ });
+    killed.push(name);
+  }
+  return { killed, skipped, count: killed.length };
+}
