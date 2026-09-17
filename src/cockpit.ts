@@ -99,6 +99,24 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .st.done{background:var(--done)} .st.blocked{background:var(--blocked)} .st.failed,.st.error{background:var(--failed)}
   .st.merged{background:var(--merged)} .st.open{background:var(--open)} .st.stopped{background:var(--stopped)}
   .st.preparing,.st.pending,.st.starting{background:var(--blocked)}
+  /* ── 에이전트 상태 점 (v5.28 A4) — 스트림이 말한 것만 칠한다 ──
+     working=--running · waiting=--blocked(맥박) · idle=--faint · exited=--done. 전부 기존 토큰이고 새 색은 없다.
+     .st 에 얹히면 트리 run 행의 상태 점을 덮고(트리가 곧 rail 이다), 단독 .as-dot 이면 탭의 작은 상태 점이다.
+     상태가 없는 run 은 아무 클래스도 안 붙어 점이 뜨지 않는다 — 없는 것을 그리지 않는다.
+     주의: .st.* 색 규칙보다 반드시 **뒤**에 와야 한다(같은 특이도 → 나중 규칙이 이긴다). */
+  .as-dot{width:6px;height:6px;border-radius:50%;flex:none;display:none}
+  .st.as-working,.as-dot.as-working{background:var(--running);box-shadow:none;display:inline-block}
+  .st.as-waiting,.as-dot.as-waiting{background:var(--blocked);box-shadow:none;display:inline-block;animation:aspulse 1.5s ease-in-out infinite}
+  .st.as-idle,.as-dot.as-idle{background:var(--faint);box-shadow:none;display:inline-block}
+  .st.as-exited,.as-dot.as-exited{background:var(--done);box-shadow:none;display:inline-block}
+  @keyframes aspulse{0%,100%{opacity:1}50%{opacity:.3}}
+  @media (prefers-reduced-motion:reduce){.st.as-waiting,.as-dot.as-waiting{animation:none}}
+  /* 대기 칩 — 헤더에 산다. 그래서 포커스 모드(.layout.focusmode 는 .rail·.reqbar 만 숨긴다)와
+     모바일 헤더에서 그대로 살아남는다. 부름은 항상 보여야 하니까. */
+  .waitchip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11.5px;color:var(--blocked);
+    background:rgba(214,162,73,.16);border:1px solid rgba(214,162,73,.4);border-radius:999px;padding:3px 10px;cursor:pointer}
+  .waitchip[hidden]{display:none}
+  .waitchip:hover{color:var(--ink);border-color:var(--blocked)}
   .tree-sep{height:1px;background:var(--line);margin:8px 4px}
   .railfoot{margin-top:auto;padding:8px;color:var(--faint);font-size:11px;border-top:1px solid var(--line)}
 
@@ -399,6 +417,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
   <div class="right">
     <span class="ver" id="ver" title="로드된 cockpit 버전 (캐시 확인용)">v__COXPIT_VER__</span>
+    <button type="button" class="waitchip" id="waitChip" hidden title="입력을 기다리는 에이전트 — 클릭하면 차례로 그 터미널로">◔ <span id="waitN">0</span></button>
     <span class="ws" id="ws"><span class="dot"></span><span id="wstext" class="b-txt">connecting</span></span>
     <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">∗<span class="b-txt"> Secrets</span></button>
     <a class="toggle" href="/" title="보드(모니터) 뷰로">←<span class="b-txt"> Board</span></a>
@@ -641,6 +660,46 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function repoOfRun(runId){ var r=runById[runId]; var t=r&&taskById[r.taskId]; return t?t.repoId:null; }
   function runIsSession(runId){ var r=runById[runId]; var t=r&&taskById[r.taskId]; var rp=t&&repoById[t.repoId]; return !!(rp&&rp.kind==='sessions'); }
 
+  // ── 에이전트 상태 (v5.28 A4) ──
+  // 서버가 터미널 출력에서 읽어 보내준 거친 상태만 담는다. 여기 없는 run 은 점이 없다 —
+  // 클라이언트는 상태를 짐작하지도, 전이를 지어내지도 않는다(spec A6). 'unknown'(첫 출력 전)도 담지 않는다.
+  var agentState = {};   // runId(문자열 키) -> 'working'|'waiting'|'idle'|'exited'
+  var AS_CLASS = { working:'as-working', waiting:'as-waiting', idle:'as-idle', exited:'as-exited' };
+  function asClass(s){ return AS_CLASS[s]||''; }
+  function agentStateOf(runId){ return agentState[runId]||''; }
+  // 대기 중인 run — 칩의 숫자이자 순회 대상. id 순으로 고정해 클릭할 때마다 순서가 흔들리지 않게.
+  function waitingRunIds(){
+    var out=[]; Object.keys(agentState).forEach(function(k){ if(agentState[k]==='waiting') out.push(k); });
+    out.sort(function(a,b){ return Number(a)-Number(b); });
+    return out;
+  }
+  // 델타 한 건 = 그 run 자리만 칠한다(리하이드레이트 없음). 탭 점 · 트리 run 행 점 · 대기 칩.
+  function paintAgentState(runId, state){
+    if (state && state!=='unknown') agentState[runId]=state; else delete agentState[runId];
+    var cls=asClass(state);
+    var tabDot=$('tabs').querySelector('.tab[data-tab="'+runId+'"] [data-role=asdot]');
+    if (tabDot) tabDot.className='as-dot '+cls;
+    // 트리 run 행(세션 행 포함) — 기존 run 상태 점을 에이전트 상태로 덮어쓴다. 순서는 건드리지 않는다.
+    var row=$('tree').querySelector('.tnode[data-run="'+runId+'"] .st');
+    if (row){ var r=runById[runId]; row.className='st '+((r&&r.status)||'')+(cls?' '+cls:''); }
+    updateWaitChip();
+  }
+  function updateWaitChip(){
+    var n=waitingRunIds().length;
+    $('waitN').textContent=String(n);
+    $('waitChip').hidden = n===0;   // N>0 일 때만 존재한다
+  }
+  // 칩 클릭 = 다음 대기 터미널로. 이미 열린 탭이면 그 페인에 포커스, 아니면 탭으로 연다.
+  var waitCycle=0;
+  function jumpNextWaiting(){
+    var ids=waitingRunIds(); if(!ids.length) return;
+    if (waitCycle>=ids.length) waitCycle=0;
+    var id=Number(ids[waitCycle]); waitCycle=(waitCycle+1)%ids.length;
+    if(!runById[id]){ toast('대기 중인 run 을 찾을 수 없습니다 · r'+id); return; }
+    openTab(id);
+  }
+  $('waitChip').addEventListener('click', jumpNextWaiting);
+
   async function hydrate(){
     try{
       var d = await (await fetch('/api/fleet?view=all')).json();
@@ -649,6 +708,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       (d.tasks||[]).forEach(function(t){ taskById[t.id]=t; });
       (d.repos||[]).forEach(function(r){ repoById[r.id]=r; });
       if (d.machines && d.machines[0]) { $('mach').textContent = d.machines[0].slug; $('machName').textContent = d.machines[0].slug; }
+      // 에이전트 상태 씨앗 — 갓 뜬(또는 재연결한) 코크핏이 다음 델타를 기다리지 않게. 맵은 서버가 준 것으로 통째 교체한다
+      // (터미널이 떨어진 run 은 서버 맵에서 빠지므로 여기서 자연히 사라진다).
+      agentState={}; var asm=d.agentStates||{};
+      Object.keys(asm).forEach(function(k){ var s=asm[k]&&asm[k].state; if(s && s!=='unknown') agentState[k]=s; });
       renderTree();
       syncPanes();
       restoreSession();   // 첫 hydrate 로 runById 가 채워진 뒤 마지막 세션 탭을 되살린다(1회)
@@ -712,7 +775,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         var r=s.run; var open = tabs[r.id] ? ' open' : '';
         var sPath=(r.worktreePath||'');
         var sTail=sPath.replace(/^.*\\/([^/]+)$/,'$1');   // 마지막 폴더명만(끝 조금)
-        html += '<div class="tnode session'+open+'" data-run="'+r.id+'" title="'+esc(sPath)+'"><span class="st '+esc(r.status)+'"></span>'
+        html += '<div class="tnode session'+open+'" data-run="'+r.id+'" title="'+esc(sPath)+'"><span class="st '+esc(r.status)+' '+asClass(agentStateOf(r.id))+'"></span>'
           + '<span class="n" title="'+esc(s.title||'session')+'">'+esc(s.title||'session')+'</span>'
           + '<span class="p" title="'+esc(sPath)+'">'+esc(sTail)+'</span>'
           + '<button class="del" data-delsession="'+r.id+'" title="세션 삭제 — 터미널만 종료, 폴더·파일은 보존">×</button></div>';
@@ -756,7 +819,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (!isFold(tk)) rns.sort(function(a,b){return a.id-b.id;}).forEach(function(r){
       var open = tabs[r.id] ? ' open' : '';
       var act=latestActivity(r.id);
-      s += '<div class="tnode run'+open+'" data-run="'+r.id+'" title="r'+r.id+' · '+esc(r.status)+'"><span class="st '+esc(r.status)+'"></span>'
+      // 점 하나에 두 층 — 에이전트 상태가 살아 있으면 그게 이기고, 없으면 지금까지의 run 상태 그대로.
+      s += '<div class="tnode run'+open+'" data-run="'+r.id+'" title="r'+r.id+' · '+esc(r.status)+'"><span class="st '+esc(r.status)+' '+asClass(agentStateOf(r.id))+'"></span>'
         + '<span class="n">'+esc(runTreeName(r.id))+'</span>'+(act?'<span class="ract">'+esc(act)+'</span>':'')
         + '<span class="meta">r'+r.id+'</span></div>';
     });
@@ -1025,12 +1089,15 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         return;
       }
       var r=runById[runId];
+      // 이름 뒤의 작은 점이 에이전트 상태 — 앞의 점(run 상태)과 축이 다르다. 상태가 없으면 뜨지 않는다.
       html += '<div class="tab'+(shown[runId]?' shown':'')+'" draggable="true" data-tab="'+runId+'" title="더블클릭=이름변경 · 드래그=페인에 배치">'
         + '<span class="st '+esc(r?r.status:'')+'"></span>'
         + '<span class="nm">'+esc(t.name)+'</span>'
+        + '<span data-role="asdot" class="as-dot '+asClass(agentStateOf(runId))+'"></span>'
         + '<button class="x" title="탭 닫기(터미널 종료)">×</button></div>';
     });
     $('tabs').innerHTML = html;
+    updateWaitChip();
   }
   function buildNode(node){
     if (node.leaf){
@@ -1199,6 +1266,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     try{ if(t.ro) t.ro.disconnect(); }catch(e){}
     try{ if(t.term) t.term.dispose(); }catch(e){}
     eachLeaf(layout,function(l){ if(l.tab===runId) l.tab=null; });
+    // 이 클라이언트의 터미널이 떨어졌으니 로컬 상태도 버린다(대기 칩에 갈 수 없는 곳이 남지 않게).
+    // 다른 클라이언트가 아직 붙어 있어 서버 맵엔 남아 있을 수 있는데, 그 어긋남은 다음 hydrate 가 통째 교체하며 스스로 맞춘다.
+    delete agentState[runId];
     delete tabs[runId]; tabOrder=tabOrder.filter(function(x){return x!==runId;});
     render(); renderTree();
   }
@@ -1929,8 +1999,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     ws.onopen = function(){ $('ws').classList.add('on'); $('wstext').textContent='live'; };
     ws.onclose = function(){ $('ws').classList.remove('on'); $('wstext').textContent='reconnecting'; setTimeout(wsConnect, 1500); };
     /* 델타는 종류가 많아 단순히 전체 리하이드레이트(디바운스).
-       단 agentstate 는 초당 여러 번 올 수 있어 리하이드레이트를 걸지 않는다 — 칠하는 일은 phase 3. */
-    ws.onmessage = function(m){ var ev=null; try{ ev = JSON.parse(m.data); }catch(e){} if (ev && ev.type==='agentstate') return; scheduleHydrate(); };
+       단 agentstate 는 초당 여러 번 올 수 있어 리하이드레이트를 걸지 않는다 — 그 run 자리만 표적으로 칠한다(A4). */
+    ws.onmessage = function(m){
+      var ev=null; try{ ev = JSON.parse(m.data); }catch(e){}
+      if (ev && ev.type==='agentstate'){ paintAgentState(ev.runId, ev.state); return; }
+      scheduleHydrate();
+    };
   }
   var hydT=null;
   function scheduleHydrate(){ if (hydT) return; hydT = setTimeout(function(){ hydT=null; hydrate(); }, 400); }

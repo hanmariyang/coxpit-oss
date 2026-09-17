@@ -1728,12 +1728,27 @@ curl -s -X POST "$B/api/runs/$ASRUN/cleanup" >/dev/null
 curl -s -X POST "$B/api/runs/$ANRUN/cleanup" >/dev/null
 pass "agentstate transport: hub delta (detail empty) + /api/fleet agentStates (attached only, cleared on detach)"
 
-# 클라이언트는 이 단계에서 한 줄만 바뀐다 — agentstate 델타로 전체 리하이드레이트를 걸지 않는다.
-# (칠하는 일은 phase 3. 보드는 이미 type 별로 분기해 모르는 종류를 흘려보내므로 손대지 않았다.)
+# agentstate 델타는 전체 리하이드레이트를 걸지 않는다 — 그 run 자리만 표적으로 칠한다(phase 3).
+# (보드는 이미 type 별로 분기해 모르는 종류를 흘려보내므로 손대지 않았다.)
 ASMARK="ev.type==='agentstate'"
-case "$CKPT" in *'function wsConnect'*"$ASMARK"*'function scheduleHydrate'*) : ;; *) fail "cockpit /ws handler should skip rehydrate on agentstate";; esac
+case "$CKPT" in *'function wsConnect'*"$ASMARK"*'function scheduleHydrate'*) : ;; *) fail "cockpit /ws handler should not rehydrate on agentstate";; esac
 case "$CKPT" in *'coxpit · cockpit'*'workspace'*) : ;; *) fail "cockpit shell markers lost";; esac
-pass "cockpit /ws: agentstate deltas skip the rehydrate (no UI change in phase 2)"
+pass "cockpit /ws: agentstate deltas never trigger the rehydrate path"
+
+# v5.28 A4 (phase 3) — 코크핏 표면. **트리가 곧 rail**이라 별도 Agents rail 은 만들지 않는다:
+# 탭 점 + 트리 run 행 점 덮어쓰기 + ◔ N 대기 칩. 색은 전부 기존 토큰(래칫 60/46/29 불변).
+case "$CKPT" in *'.as-working{background:var(--running)'*'.as-waiting{background:var(--blocked)'*'.as-idle{background:var(--faint)'*'.as-exited{background:var(--done)'*) : ;; *) fail "agent-state dots must map to the four existing tokens (working/waiting/idle/exited)";; esac
+case "$CKPT" in *'@keyframes aspulse'*) : ;; *) fail "waiting dot should pulse (motion, never a new color)";; esac
+# 상태가 없는 run 은 점이 안 뜬다(클라이언트가 상태를 지어내지 않는다는 규칙의 표면 쪽 절반)
+case "$CKPT" in *'.as-dot{width:6px;height:6px;border-radius:50%;flex:none;display:none}'*) : ;; *) fail "a run without agentstate must show no dot (as-dot defaults to display:none)";; esac
+case "$CKPT" in *'id="waitChip"'*'id="waitN"'*'</header>'*) : ;; *) fail "◔ N waiting chip must live in the header (survives focus mode + mobile)";; esac
+case "$CKPT" in *'.layout.focusmode .rail{display:none}'*'.layout.focusmode .reqbar{display:none}'*) : ;; *) fail "focus mode must hide only the rail/reqbar (tab dots + chip stay)";; esac
+case "$CKPT" in *'function paintAgentState'*'function updateWaitChip'*'function jumpNextWaiting'*) : ;; *) fail "cockpit agentstate paint / chip / cycle handlers missing";; esac
+case "$CKPT" in *'d.agentStates'*) : ;; *) fail "hydrate should seed the agent-state map from /api/fleet.agentStates";; esac
+case "$CKPT" in *'data-role="asdot"'*'asClass(agentStateOf(runId))'*) : ;; *) fail "terminal tabs should render an agent-state dot";; esac
+case "$CKPT" in *'paintAgentState(ev.runId, ev.state)'*) : ;; *) fail "ws agentstate branch must paint (targeted), not skip";; esac
+case "$CKPT" in *'function closeTab'*'delete agentState[runId]'*'delete tabs[runId]'*) : ;; *) fail "closeTab should drop this client's agent-state entry";; esac
+pass "cockpit v5.28 A4: tab dots + tree run-row override + ◔ N waiting chip (existing tokens only, targeted paint)"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
