@@ -21,7 +21,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates } from './agentstate';
 import { addSink, removeSink, broadcast } from './hub';
@@ -236,7 +236,14 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 무인증 헬스(외부 감시용)
   app.get('/api/health', async () => {
     const max = ptyMax();
-    return { ok: true, name: 'coxpit', version: config.version, terminals: liveTerminals, ...(max ? { ptyMax: max } : {}) };
+    // v6.0 T6b — worktree 디스크 빚을 바깥(모니터링)에서도 볼 수 있게. 값은 캐시에서 나오고
+    // du 는 배경에서 돈다(health 는 기다리지 않는다). 없거나 0 이면 아예 싣지 않는다.
+    const wt = await worktreeDisk().catch(() => null);
+    return {
+      ok: true, name: 'coxpit', version: config.version, terminals: liveTerminals,
+      ...(max ? { ptyMax: max } : {}),
+      ...(wt && wt.count ? { worktrees: { count: wt.count, sizeKb: wt.sizeKb } } : {}),
+    };
   });
 
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨(무인증 요청은 게이트가 login/setup 페이지로 응답).

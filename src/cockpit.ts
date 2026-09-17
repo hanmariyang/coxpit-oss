@@ -487,7 +487,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <div class="scrim" id="scrim"></div>
 <div class="layout" id="layout">
   <aside class="rail" id="rail">
-    <div class="lbl"><span>Workspace</span><span class="lacts"><span class="lnk" id="reapBtn" title="고아 터미널 — run 기록이 없는 coxpit-r* tmux 세션을 찾아 정리합니다(유지보수: 보드의 Reclaim 과 같은 가족)">↻ 고아 터미널</span><span id="machName" style="color:var(--faint)">local</span></span></div>
+    <div class="lbl"><span>Workspace</span><span class="lacts"><span class="lnk" id="wtBtn" title="worktree 회수 — 끝난 run 이 남긴 .coxpit-worktrees 폴더의 총량을 보고 되찾습니다(미머지 산출물은 표시만 하고 미리 고르지 않습니다)">▤ worktree</span><span class="lnk" id="reapBtn" title="고아 터미널 — run 기록이 없는 coxpit-r* tmux 세션을 찾아 정리합니다(유지보수: 보드의 Reclaim 과 같은 가족)">↻ 고아 터미널</span><span id="machName" style="color:var(--faint)">local</span></span></div>
     <div id="tree"></div>
     <div class="railfoot">클릭한 run·세션은 <b>탭</b>으로 열립니다 · split 으로 페인을 나란히 배치</div>
   </aside>
@@ -702,6 +702,19 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     <div class="pick-f">
       <span id="reapHint" style="flex:1;font-size:11px;color:var(--faint)">…</span>
       <button class="go" id="reapGo">선택 종료</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="wtModal">
+  <div class="pick" style="width:min(600px,92vw)">
+    <div class="pick-h"><span class="t">▤ worktree 회수</span><button class="x" id="wtClose" title="닫기">×</button></div>
+    <div class="pick-path" id="wtTotal">…</div>
+    <div class="sheet-note">끝난 run 이 남긴 <b>격리 worktree</b>입니다 — 하나에 node_modules 가 통째로 들어 있어 수백 MB씩 쌓입니다. <b>돌고 있는 run 은 여기 오르지 않습니다.</b> 머지됐거나 export·PR 로 빠져나간 것은 미리 체크했고, <b>아직 아무 데도 없는 변경(미머지)은 표시만 하고 절대 미리 고르지 않습니다</b> — 그 worktree 가 <b>유일한 사본</b>이라 지우면 그 변경은 사라집니다. repo 체크아웃과 그 파일은 그대로입니다.</div>
+    <div class="pick-list" id="wtList"></div>
+    <div class="pick-f">
+      <span id="wtHint" style="flex:1;font-size:11px;color:var(--faint)">…</span>
+      <button class="go" id="wtGo">선택 회수</button>
     </div>
   </div>
 </div>
@@ -2244,6 +2257,76 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('reapList').addEventListener('change', function(e){
     var c=e.target.closest('[data-reapchk]'); if(!c) return;
     reapSel[c.dataset.reapchk]=c.checked; renderReap();
+  });
+
+  // ── worktree 회수(▤ — 보드의 Reclaim 과 같은 유지보수 가족) ──
+  // v6.0 T6b. 두 가지만 한다: **빚을 보여주고**(머리말 한 줄에 개수·총량), 끝난 worktree 까지
+  // 되찾게 한다. 대신 선 하나는 절대 넘지 않는다 — 미머지·미탈출 변경의 **유일한 사본**은
+  // 목록에 올리되 미리 고르지 않는다. 서버도 같은 규칙이다(전체 회수는 위험 표시 없는 것만).
+  var wtRows=[], wtSel={}, wtBusy=false;
+  function wtMB(kb){ if(!kb) return '크기 미상'; return kb>=1048576 ? ((kb/1048576).toFixed(1)+'GB') : (Math.round(kb/1024)+'MB'); }
+  function wtRowHTML(x){
+    return '<label class="scrub-row'+(x.reclaimRisk?' risky':'')+'" title="'+esc(x.path)+'"><input type="checkbox" data-wtchk="'+x.runId+'"'+(wtSel[x.runId]?' checked':'')+' />'
+      + '<span class="snm">r'+x.runId+' · '+esc(x.branch||x.path)+'</span>'
+      + (x.reclaimRisk ? '<span class="swarn">미머지 — 유일한 사본</span>' : '')
+      + '<span class="sage">'+esc(x.reason)+' · '+wtMB(x.sizeKb)+(x.exists?'':' · 폴더 없음')+'</span></label>';
+  }
+  function wtCount(){ var n=0; Object.keys(wtSel).forEach(function(k){ if(wtSel[k]) n++; }); return n; }
+  function renderWt(){
+    $('wtList').innerHTML = wtRows.length ? wtRows.map(wtRowHTML).join('')
+      : '<div class="pick-row" style="cursor:default;color:var(--faint)">회수할 worktree 가 없습니다 — 남은 것은 돌고 있거나 열린 작업의 것입니다</div>';
+    var totalKb=0, riskN=0, selKb=0;
+    wtRows.forEach(function(x){
+      totalKb += (x.sizeKb||0);
+      if (x.reclaimRisk) riskN++;
+      if (wtSel[x.runId]) selKb += (x.sizeKb||0);
+    });
+    // 한 줄 판독 — docker system df 가 하는 그 일. 볼 수 없는 것은 관리할 수 없다.
+    $('wtTotal').textContent = wtRows.length
+      ? ('worktree '+wtRows.length+'개 · '+wtMB(totalKb)+(riskN?(' · 그중 미머지 '+riskN+'개'):''))
+      : 'worktree 0개';
+    var n=wtCount();
+    $('wtHint').textContent = wtRows.length ? (n+'개 선택 · '+wtMB(selKb)+' 회수') : '';
+    $('wtGo').disabled = n===0;
+  }
+  async function loadWt(){
+    $('wtList').innerHTML='<div class="pick-row" style="cursor:default;color:var(--faint)">worktree 를 재는 중…</div>';
+    $('wtTotal').textContent='…'; $('wtHint').textContent=''; $('wtGo').disabled=true;
+    wtRows=[]; wtSel={};
+    try{
+      var res=await fetch('/api/worktrees');
+      var j=await res.json();
+      wtRows=(j.items||[]).slice().sort(function(a,b){ return (b.sizeKb||0)-(a.sizeKb||0); });
+      wtRows.forEach(function(x){ if(!x.reclaimRisk) wtSel[x.runId]=true; });   // 안전한 것만 미리 체크
+    }catch(e){ wtRows=[]; }
+    renderWt();
+  }
+  function openWt(){ $('wtModal').classList.add('on'); loadWt(); }
+  function closeWt(){ $('wtModal').classList.remove('on'); }
+  async function runWt(){
+    if (wtBusy) return;
+    var ids=Object.keys(wtSel).filter(function(k){ return wtSel[k]; }).map(Number);
+    if (!ids.length){ toast('선택한 worktree 가 없습니다'); return; }
+    wtBusy=true; $('wtGo').disabled=true;
+    try{
+      // 언제나 **고른 id 만** 보낸다 — 사람이 찍은 것 말고는 아무것도 지워지지 않는다.
+      var res=await fetch('/api/worktrees/prune',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({runIds:ids})});
+      var j=await res.json().catch(function(){return{};});
+      if (!res.ok) toast('회수 실패: '+(j.detail||j.error||('HTTP '+res.status)));
+      else toast('worktree '+(j.count||0)+'개 회수됨 · repo 체크아웃은 그대로입니다');
+    }catch(e){ toast('회수 실패: '+e); }
+    finally{ wtBusy=false; }
+    await hydrate();
+    await loadWt();
+  }
+  $('wtBtn').addEventListener('click', openWt);
+  $('wtClose').addEventListener('click', closeWt);
+  $('wtModal').addEventListener('click', function(e){ if(e.target===this) closeWt(); });
+  $('wtGo').addEventListener('click', runWt);
+  $('wtList').addEventListener('change', function(e){
+    var c=e.target.closest('[data-wtchk]'); if(!c) return;
+    wtSel[+c.dataset.wtchk]=c.checked; renderWt();
   });
 
   function openSession(){ $('pickModal').classList.add('on'); $('pickName').value=''; browseTo(''); }

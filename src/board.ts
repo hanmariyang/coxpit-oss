@@ -1928,23 +1928,29 @@ $('archList').addEventListener('click', async (e)=>{
   }catch{ toast('could not open task', 'error'); }
 });
 
-/* ── Reclaim orphaned worktrees ── cleaned/failed run worktrees are disk debt
-   (~180MB each — node_modules lives inside). Only shown when there's something
-   to reclaim; active/successful work is never listed by the server. */
+/* ── Reclaim orphaned worktrees ── finished run worktrees are disk debt
+   (~180MB each — node_modules lives inside). Active work is never listed by the
+   server. v6.0 T6b: settled done worktrees are listed too, but any whose change
+   set is unmerged AND un-exported is flagged (reclaimRisk) — this button reclaims
+   only the safe ones, so the count here is the SAFE count. Pick a flagged one
+   deliberately in the cockpit's worktree sheet. */
 let reclaimN = 0;
 async function reclaimRefresh(){
   try{
     const j = await fetch('/api/worktrees').then(x=>x.json());
-    reclaimN = (j.items||[]).length;
-    const mb = Math.round((j.totalKb||0)/1024);
-    $('reclaimHint').textContent = reclaimN ? (reclaimN+' · ~'+mb+'MB') : '';
+    const items = (j.items||[]);
+    const safe = items.filter(w=>!w.reclaimRisk);
+    reclaimN = safe.length;
+    const mb = Math.round(safe.reduce((s,w)=>s+(w.sizeKb||0),0)/1024);
+    const flagged = items.length - safe.length;
+    $('reclaimHint').textContent = reclaimN ? (reclaimN+' · ~'+mb+'MB'+(flagged?(' (+'+flagged+' flagged)'):'')) : '';
     $('reclaimBtn').hidden = reclaimN===0;
   }catch{ $('reclaimBtn').hidden = true; }
 }
 $('reclaimBtn').addEventListener('click', async ()=>{
   if (!reclaimN) return;
-  const ok = await confirmUI('remove '+reclaimN+' cleaned/failed run worktree'+(reclaimN===1?'':'s')+'?', {
-    sub:'active work is untouched — only closed tasks and failed/error/stopped runs are reclaimed',
+  const ok = await confirmUI('remove '+reclaimN+' finished run worktree'+(reclaimN===1?'':'s')+'?', {
+    sub:'active work is untouched, and worktrees holding unmerged, un-exported changes are left alone — tick those one by one in the cockpit',
     okLabel:'Reclaim', danger:true });
   if (!ok) return;
   try{
