@@ -238,7 +238,7 @@ pass "Phase 4 cockpit verify badge + green-gate + verifyCmd editor (UI)"
 # Free session (workbench) opener + empty-state fix (panes hidden until a pane exists — no grey ghost box)
 case "$CKPT" in *'id="sessionBtn"'*'id="sessionCta"'*'function openSession'*) : ;; *) fail "cockpit free-session opener missing";; esac
 case "$CKPT" in *'id="pickModal"'*'function browseTo'*'/api/browse'*"/api/session'"*) : ;; *) fail "cockpit folder picker / session wiring missing";; esac
-case "$CKPT" in *"kind!=='sessions'"*'>Sessions<'*) : ;; *) fail "cockpit sessions tree section / project split missing";; esac
+case "$CKPT" in *"kind!=='sessions'"*'>Scratch<'*) : ;; *) fail "cockpit scratch tree section / project split missing";; esac
 case "$CKPT" in *'.panes{flex:1;display:none'*) : ;; *) fail "cockpit empty panes should default to display:none (grey-box fix)";; esac
 # folder/file pickers show a loading state + surface HTTP errors (empty list must never be silent)
 case "$CKPT" in *'불러오는 중…'*'인증이 만료'*) : ;; *) fail "pickers should show loading + auth/HTTP error instead of a blank list";; esac
@@ -251,9 +251,9 @@ case "$CKPT" in *'function startRename'*'function renameTask'*"'/api/tasks/'"*) 
 case "$CKPT" in *'id="pickName"'*'title:nm'*) : ;; *) fail "cockpit session-name input missing";; esac
 pass "cockpit tabs + split-tree panes + session naming/rename"
 
-# v6.0 Part T — 작업 트리(Sessions 섹션이 먼저, 그 다음 프로젝트 섹션 ▸ 작업 ▸ 세션) + 생성 어포던스.
-# 파일 순서 그대로 매칭: Sessions 마크업이 repo 섹션의 ＋새 작업 보다 앞에 있어야 한다.
-case "$CKPT" in *'>Sessions<'*'data-newwork='*'data-newagent='*) : ;; *) fail "cockpit work tree order/affordances missing (Sessions → repo ＋새 작업 → work ＋에이전트)";; esac
+# v6.0 Part T — 작업 트리(Scratch 섹션이 먼저, 그 다음 프로젝트 섹션 ▸ 작업 ▸ 세션) + 생성 어포던스.
+# 파일 순서 그대로 매칭: Scratch 마크업이 repo 섹션의 ＋새 작업 보다 앞에 있어야 한다.
+case "$CKPT" in *'>Scratch<'*'data-newwork='*'data-newagent='*) : ;; *) fail "cockpit work tree order/affordances missing (Scratch → repo ＋새 작업 → work ＋에이전트)";; esac
 case "$CKPT" in *'>＋ 새 작업</button>'*'>＋ 에이전트</button>'*) : ;; *) fail "cockpit tree create affordances (＋ 새 작업 / ＋ 에이전트) missing";; esac
 case "$CKPT" in *'id="workModal"'*'id="workName"'*'id="agentModal"'*'id="agentRole"'*'id="agentProv"'*'id="agentModel"'*) : ;; *) fail "cockpit new-work / add-agent sheets missing";; esac
 case "$CKPT" in *'function runLabel'*'function renameRun'*'function openNewWork'*'function openAddAgent'*) : ;; *) fail "cockpit work-tree logic (runLabel/renameRun/openNewWork/openAddAgent) missing";; esac
@@ -261,7 +261,25 @@ case "$CKPT" in *'function runLabel'*'function renameRun'*'function openNewWork'
 case "$CKPT" in *"r.agent==='session') return 'main'"*) : ;; *) fail "cockpit root-session tab/tree name should fall back to main";; esac
 # 새 작업 = /api/workbench root:true · 에이전트 = /api/tasks/:id/run count:1 + title
 case "$CKPT" in *"'/api/workbench'"*'root:true'*"'/api/tasks/'+agentTaskId+'/run'"*'count:1'*) : ;; *) fail "cockpit work/agent creation should reuse the existing endpoints";; esac
-pass "v6.0 T1–T4 cockpit: Sessions→project▸work▸session tree + ＋새 작업/＋에이전트 sheets + run role naming"
+pass "v6.0 T1–T4 cockpit: Scratch→project▸work▸session tree + ＋새 작업/＋에이전트 sheets + run role naming"
+
+# v6.0 Part S — Scratch(리프레임) · 정리(S1b) · 승격(S2). 파일 순서대로 매칭:
+# CSS → 시트 마크업 → 트리 라벨/행 → 정리 로직 → 승격 로직.
+case "$CKPT" in *'.tree-note{'*'.scrub-row{'*'.scrub-fold{'*) : ;; *) fail "cockpit Scratch styles (tree-note/scrub-row/scrub-fold) missing";; esac
+# 정리 판은 **폴더는 보존된다**고 말하고, 접힌 오래된 세션은 선택도 삭제도 되지 않는다고 말한다
+case "$CKPT" in *'id="scrubModal"'*'폴더와 파일은 언제나 그대로 보존'*'선택되지도 지워지지도 않습니다'*'id="scrubList"'*'id="scrubGo"'*) : ;; *) fail "cockpit Scratch cleanup sheet must state the folder is preserved and that folded sessions are untouched";; esac
+# 승격 메뉴 — 등록 / 이동 두 길
+case "$CKPT" in *'id="promoModal"'*'data-promo="register"'*'>프로젝트로 등록<'*'data-promo="move"'*'>프로젝트로 이동<'*) : ;; *) fail "cockpit promotion menu (프로젝트로 등록 / 프로젝트로 이동) missing";; esac
+# 라벨 = Scratch + 한 줄 카피(트리 목소리 그대로) + 정리… + 행마다 ⇧ 승격
+case "$CKPT" in *'<span>Scratch</span>'*'data-scrub="1"'*'>정리…</span>'*'프로젝트가 되기 전의 생각들'*'data-promote='*) : ;; *) fail "cockpit Scratch section needs the reframe copy + 정리… + per-session ⇧ promote";; esac
+# 오래된 세션은 접기만 한다 — 접는 것은 훑기 위한 장치이지 지우는 장치가 아니다
+case "$CKPT" in *'SCRUB_STALE_DAYS = 14'*'data-scrubold="1"'*'오래된 세션 '*'접힌 것은 지워지지 않습니다'*) : ;; *) fail "cockpit Scratch cleanup must fold >14d-quiet sessions without deleting anything";; esac
+# 지우는 길은 기존 세션 삭제 하나 — 한 건이든 정리 판이든 같은 DELETE /api/runs/:id 를 지난다
+case "$CKPT" in *'function delSessionReq'*"'/api/runs/'+runId,{method:'DELETE'}"*'function deleteSession'*'function runScrub'*) : ;; *) fail "cockpit cleanup must reuse the existing deleteSession path (DELETE /api/runs/:id)";; esac
+# 승격 = 기존 등록 흐름(POST /api/repos) + 재부모화(PATCH /api/tasks/:id {repoId}), 밖이면 경고하되 막지 않는다
+case "$CKPT" in *"'/api/repos'"*"'/api/tasks/'+promoTaskId"*'repoId:repoId'*) : ;; *) fail "cockpit promotion must reuse POST /api/repos + PATCH /api/tasks/:id {repoId}";; esac
+case "$CKPT" in *'function paintPromoWarn'*'밖입니다'*'터미널은 이 폴더에서 그대로 돕니다'*) : ;; *) fail "cockpit promotion must warn (not hide) when the session folder lies outside the chosen repo";; esac
+pass "v6.0 S1/S1b/S2 cockpit: Scratch reframe + cleanup sheet (folder preserved · stale fold) + promotion menu (등록/이동)"
 
 # v6.0 Part P — 격리는 선택이다. 시트에 둘 곳 세그(worktree 기본 │ in-place) + 대가를 말하는 한 줄.
 # 파일 순서대로: 세그 → 정직한 한 줄 → 인라인 에러 자리.
@@ -1017,6 +1035,74 @@ curl -s "$B/api/tasks/$RNTID" | grep -q '"title":"after name"' || fail "task ren
 expect_code 400 -X PATCH "$B/api/tasks/$RNTID" -H 'content-type: application/json' -d '{"title":""}'
 curl -s -X POST "$B/api/tasks/$RNTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 pass "task/session rename: PATCH title (empty→400, persisted)"
+
+# v6.0 Part S — 승격. Scratch 의 생각 하나가 프로젝트가 된다 — 터미널을 잃지 않고.
+# ① 자유 세션(= sessions 버킷)을 하나 열고 그 작업을 실제 repo 아래로 재부모화
+PRSESS="$WORK/scratch idea"
+mkdir -p "$PRSESS"; printf 'idea\n' > "$PRSESS/note.txt"
+PRS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$PRSESS\",\"title\":\"떠오른 것\"}")
+PRRUN=$(echo "$PRS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+[ -n "$PRRUN" ] || fail "scratch session did not open: $PRS"
+PRIDS=$(curl -s "$B/api/fleet?view=all" | PRRUN="$PRRUN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b), run=(j.runs||[]).find(r=>r.id===Number(process.env.PRRUN));
+  const task=(j.tasks||[]).find(t=>t.id===run.taskId);
+  const bucket=(j.repos||[]).find(r=>r.id===task.repoId);
+  if(bucket.kind!=="sessions") throw new Error("a fresh session must start in the scratch bucket");
+  console.log(task.id+" "+bucket.id);
+})') || fail "scratch session not in the sessions bucket"
+set -- $PRIDS; PRTASK="$1"; PRBUCKET="$2"
+# title-only PATCH 는 지금까지 그대로 동작한다(repoId 를 안 보내면 소속은 안 건드린다)
+curl -s -X PATCH "$B/api/tasks/$PRTASK" -H 'content-type: application/json' -d '{"title":"떠오른 것 2"}' | grep -q '"title":"떠오른 것 2"' || fail "title-only PATCH broke when repoId became optional"
+# Scratch 버킷으로 미는 길은 없다(승격은 한 방향) · 없는 repo 는 404
+expect_code 400 -X PATCH "$B/api/tasks/$PRTASK" -H 'content-type: application/json' -d "{\"repoId\":$PRBUCKET}"
+expect_code 404 -X PATCH "$B/api/tasks/$PRTASK" -H 'content-type: application/json' -d '{"repoId":999999}'
+# ② 이동 — 이미 등록된 프로젝트(repo 1) 아래로. run 은 손대지 않는다: 터미널은 제 폴더 그대로.
+MV=$(curl -s -X PATCH "$B/api/tasks/$PRTASK" -H 'content-type: application/json' -d '{"repoId":1}')
+case "$MV" in *'"repoId":1'*) : ;; *) fail "re-parent PATCH failed: $MV";; esac
+curl -s "$B/api/fleet?view=all" | PRTASK="$PRTASK" PRRUN="$PRRUN" PRSESS="$PRSESS" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b), t=(j.tasks||[]).find(x=>x.id===Number(process.env.PRTASK));
+  if(t.repoId!==1) throw new Error("task did not move, repoId="+t.repoId);
+  if(t.title!=="떠오른 것 2") throw new Error("re-parent must not touch the title: "+t.title);
+  const repo=(j.repos||[]).find(x=>x.id===t.repoId);
+  if(repo.kind==="sessions") throw new Error("task still under the scratch bucket");
+  const r=(j.runs||[]).find(x=>x.id===Number(process.env.PRRUN));
+  if(r.worktreePath!==process.env.PRSESS) throw new Error("promotion must not move the terminal: "+r.worktreePath);
+  console.log("promotion ok");
+})' || fail "re-parent not visible in /api/fleet"
+curl -s -X POST "$B/api/runs/$PRRUN/cleanup" >/dev/null
+[ -f "$PRSESS/note.txt" ] || fail "promotion destroyed the scratch folder"
+pass "v6.0 S2: PATCH /api/tasks/:id {repoId} re-parents (title untouched, terminal keeps its folder) · scratch bucket 400 · unknown repo 404 · title-only still works"
+
+# ③ 등록 + 재부모화 왕복 — "이 폴더가 자랐다": 세션 폴더를 repo 로 등록하고 그 작업을 그 아래로.
+GROWN="$WORK/grown-up"
+mkdir -p "$GROWN"; git -C "$GROWN" init -q -b main
+printf 'grown\n' > "$GROWN/README.md"; git -C "$GROWN" add -A
+git -C "$GROWN" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
+GRS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$GROWN\",\"title\":\"자란 생각\"}")
+GRRUN=$(echo "$GRS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+GRTASK=$(curl -s "$B/api/fleet?view=all" | GRRUN="$GRRUN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b), run=(j.runs||[]).find(r=>r.id===Number(process.env.GRRUN));
+  console.log(run.taskId);
+})')
+GRREPO=$(curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$GROWN\"}" \
+  | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).repo.id))')
+[ -n "$GRREPO" ] || fail "registering the grown scratch folder failed"
+curl -s -X PATCH "$B/api/tasks/$GRTASK" -H 'content-type: application/json' -d "{\"repoId\":$GRREPO}" | grep -q "\"repoId\":$GRREPO" || fail "register-and-reparent PATCH failed"
+curl -s "$B/api/fleet?view=all" | GRTASK="$GRTASK" GRREPO="$GRREPO" GRRUN="$GRRUN" GROWN="$GROWN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const j=JSON.parse(b), t=(j.tasks||[]).find(x=>x.id===Number(process.env.GRTASK));
+  if(t.repoId!==Number(process.env.GRREPO)) throw new Error("task not under the newly registered repo");
+  const repo=(j.repos||[]).find(x=>x.id===t.repoId);
+  if(repo.path!==process.env.GROWN) throw new Error("registered repo path wrong: "+repo.path);
+  const r=(j.runs||[]).find(x=>x.id===Number(process.env.GRRUN));
+  if(r.worktreePath!==process.env.GROWN) throw new Error("the promoted session lost its terminal folder");
+  console.log("register+reparent ok");
+})' || fail "register-and-reparent round trip did not land"
+curl -s -X POST "$B/api/runs/$GRRUN/cleanup" >/dev/null
+pass "v6.0 S2: register-and-reparent round trip (scratch folder → repo → the work lives under it, terminal intact)"
 
 # scrollback capture — mobile "read what scrolled above" (history overlay backend)
 SBSESS="$WORK/sbsess"; mkdir -p "$SBSESS"
