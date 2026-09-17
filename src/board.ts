@@ -3896,12 +3896,18 @@ $('machineMenu').addEventListener('click', (e)=>{
 });
 document.addEventListener('click', ()=>$('machineMenu').classList.remove('open'));
 
-/* 딥링크 — /?run=N 이면 하이드레이션 후 그 run 모달을 연다 (웹훅 링크·알림용) */
+/* 딥링크 — /?run=N 이면 하이드레이션 후 그 run 모달을 연다 (웹훅 링크·알림용).
+   /?view=archive|goals|… 는 코크핏 ⌘K 가 읽는 방을 바로 여는 길(v6.0 Part B) —
+   새 진입 경로가 아니라 이미 있는 setView 를 URL 로 깨우는 것뿐이다. */
+const DEEP_VIEWS = ['active','goals','documents','archive','settings'];
 function openFromURL(){
-  const q = new URLSearchParams(location.search).get('run');
+  const sp = new URLSearchParams(location.search);
+  const v = sp.get('view');
+  if (v && DEEP_VIEWS.indexOf(v) >= 0) setView(v);
+  const q = sp.get('run');
   const id = Number(q);
   if (q && runs.has(id)){ openModal(id); }
-  if (q) history.replaceState(null, '', location.pathname);
+  if (q || v) history.replaceState(null, '', location.pathname);
 }
 
 var _bmkRot = $('bmkRotate'); if (_bmkRot) _bmkRot.addEventListener('click', rotateCaptureKeyUI);

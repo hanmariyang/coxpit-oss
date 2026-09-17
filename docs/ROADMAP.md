@@ -4,6 +4,13 @@ Coxpit's goal is simple: prove that a self-hosted, owner-first agent-fleet cockp
 
 Where the big agent desktops go wide, Coxpit stays narrow and deep: tmux-native terminals, git worktrees as the isolation unit, and a swarm loop (plan → fan-out → integrate) you can read end-to-end in an afternoon.
 
+**Positioning (since v6.0): the cockpit is the home, the board is the reading room.** `/cockpit` is the surface you live in — a workspace tree of Project ▸ Work ▸ Session with a real terminal behind every row. `/` keeps being the board: review, compare, archive, goal workrooms, one `⌘K` away. Consequences, stated so nobody has to guess:
+
+- **New capabilities land in the cockpit.** That is where the work happens, so that is where the surface grows.
+- **The board gets fixes only** — a growth freeze, not a deprecation. It stays correct and maintained.
+- **Nothing is removed.** Every board route, view and habit survives; a fleet-first user loses nothing. Absorbing a board view into a cockpit pane is a 6.x question, and only with evidence.
+- The contrast we care about is measured, not marketed: plenty of agent consoles *draw* a terminal. Coxpit attaches a real PTY to the tmux session the agent is actually running in. One surface that works beats five that render.
+
 ## Shipped
 
 ### v2.x — from prototype to product
@@ -311,7 +318,7 @@ destination: adding a second agent to a work *is* the fleet.
 - [x] **Part T — the work tree** *(shipped on main, unreleased — r51)*: Scratch (공용, today's flat sessions) → Project ▸ Work ▸
       Session; 새 작업 opens a `main` hand terminal at the checkout; ＋에이전트 adds a named
       role session (`구현 · opus`); `agent_runs.title`.
-- [ ] **Part P — in-place agent sessions**: isolation becomes a per-session choice
+- [x] **Part P — in-place agent sessions** *(shipped on main, unreleased — r54)*: isolation becomes a per-session choice
       (in-place = sequential collaboration in the checkout, worktree = parallel attempts);
       reuses the root-session marker; one live in-place agent per repo, honestly enforced.
 - [x] **Part W — WORK.md** *(shipped on main, unreleased — r55)*: one shared context file per
@@ -320,15 +327,21 @@ destination: adding a second agent to a work *is* the fleet.
       past; the decisions written here travel to every session under the work. W4 (harvesting
       lines a live run appends in its own worktree) stays **deferred** — the spec already calls
       it optional, and curated injection carries the context on its own.
-- [ ] **Part S — Scratch & promotion**: ideas graduate — register the folder as a repo, or
-      re-parent the work to an existing project.
-- [ ] **Part B — the board recedes**: cockpit is the only home; the board keeps working as
-      the reading room (growth freeze, ⌘K entries); nothing removed.
+- [x] **Part S — Scratch & promotion** *(shipped on main, unreleased — r56)*: ideas graduate — register the folder as a repo, or
+      re-parent the work to an existing project. Plus the scratch cleanup sheet (S1b) — the list
+      is cleanable from where it clutters, and the folder is always preserved.
+- [x] **Part B — the board recedes** *(shipped on main, unreleased — r57)*: cockpit is the only home; the board keeps working as
+      the reading room. Mostly policy (see **Positioning** at the top) plus three ⌘K entries —
+      **Board · Archive · Workrooms** — that wake the board's own `setView` through the existing
+      `/?view=` deep link. Growth freeze, **nothing removed**.
+- [ ] **T6 — project-node hygiene**: 등록 해제 / 묵은 작업 정리 on the project node, and an
+      orphan-tmux reaper next to Reclaim worktrees. The last piece before the 6.0 cut.
 
 ## Non-goals
 
 - Vendoring or wrapping agent CLIs — external tools stay external (`git`, `tmux`, the agent)
 - Accounts, telemetry, cloud relay — the daemon is yours; front it with your own access layer
 - A bundler for the board — one self-contained HTML string is a feature, not a debt
+- Growing the board — since v6.0 it is the reading room: fixes yes, new capability no (that lands in the cockpit). Removing anything from it is also a non-goal
 
 Suggestions and PRs welcome — see [CONTRIBUTING.md](CONTRIBUTING.md), then file an issue.

@@ -303,6 +303,22 @@ case "$CKPT" in *"'/api/fs/read?path='"*"d.kind==='md' && d.editable"*) : ;; *) 
 case "$CKPT" in *"'/api/tasks/'+taskId+'/work'"*'ensureViewer(j.path'*'edit:true'*) : ;; *) fail "WORK.md must open in the existing file-viewer pane in edit mode";; esac
 pass "v6.0 W2 cockpit: WORK.md on the work node (mono ▤) → existing viewer pane in edit mode + the next-launch/steer promise"
 
+# v6.0 Part B — 보드는 물러난다. 코크핏이 집이고, 보드는 ⌘K 한 번 거리의 읽는 방이다.
+# 파일 순서대로: gotoBoard 헬퍼 → 팔레트의 세 항목(Board · Archive · Workrooms).
+case "$CKPT" in *'function gotoBoard(view)'*"location.href = view ? ('/?view='"*) : ;; *) fail "cockpit gotoBoard(view) helper missing (⌘K → board views)";; esac
+case "$CKPT" in *"label:'Board — 보드 (리뷰·기록실)'"*"label:'Archive — 닫힌 작업 보관함'"*"label:'Workrooms — 골 워크룸'"*) : ;; *) fail "cockpit ⌘K palette must offer Board / Archive / Workrooms";; esac
+case "$CKPT" in *"gotoBoard('')"*"gotoBoard('archive')"*"gotoBoard('goals')"*) : ;; *) fail "the ⌘K board entries must be wired to the board's own views";; esac
+# 헤더의 ← Board 는 그대로다 — 팔레트는 더한 것이지 옮긴 것이 아니다
+case "$CKPT" in *'class="toggle" href="/"'*) : ;; *) fail "the header ← Board toggle must survive Part B (nothing is removed)";; esac
+# 보드 쪽: 새 진입 경로가 아니라 이미 있는 setView 를 기존 /?run= 딥링크 블록에서 깨운다
+case "$BOARD_HTML" in *'function setView(v)'*'const DEEP_VIEWS'*'function openFromURL'*"sp.get('view')"*'setView(v)'*) : ;; *) fail "board ?view= deep link must reuse setView inside the existing openFromURL block";; esac
+# 보드는 아무것도 잃지 않았다 — 뷰 nav 다섯 자리와 아카이브/워크룸 실물이 그대로 선다
+case "$BOARD_HTML" in *'data-view="active"'*'data-view="goals"'*'data-view="documents"'*'data-view="archive"'*'data-view="settings"'*) : ;; *) fail "board view nav entries lost (Part B removes nothing)";; esac
+case "$BOARD_HTML" in *'id="archive"'*'gband-open'*'async function openRoom'*) : ;; *) fail "board archive list / workroom entry lost (Part B removes nothing)";; esac
+expect_code 200 "$B/?view=archive"
+expect_code 200 "$B/?view=goals"
+pass "v6.0 Part B: ⌘K reaches Board/Archive/Workrooms (board's own setView via ?view=) — header toggle + every board view intact"
+
 # 마지막 세션 자동 기억/복원: 첫 hydrate 뒤 restoreSession, render 말미 persistSession (파일 순서대로 매칭).
 case "$CKPT" in *'restoreSession();'*'persistSession();'*"'coxpit.session'"*'function persistSession'*'function restoreSession'*) : ;; *) fail "cockpit last-session persist/restore missing or unwired";; esac
 pass "cockpit remembers + auto-restores the last open session tabs (localStorage snapshot, dead runs pruned)"

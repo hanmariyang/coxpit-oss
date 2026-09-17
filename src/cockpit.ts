@@ -1662,6 +1662,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   });
 
   // ── ⌘K 커맨드 팔레트 — 이동(세션·run·프로젝트) + 명령 ──
+  // 보드로 나가는 유일한 길. 헤더의 ← Board 와 같은 이동이고, 뷰만 딥링크로 지정한다.
+  function gotoBoard(view){ location.href = view ? ('/?view='+encodeURIComponent(view)) : '/'; }
   var palItems=[], palSel=0;
   function paletteItems(){
     var items=[
@@ -1677,7 +1679,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       {k:'cmd', label:'뷰어 / 히스토리', run:openHistory},
       {k:'cmd', label:'Review 열기 (비교·머지)', run:showReview},
       {k:'cmd', label:'시크릿 (env 주입)', run:openSecrets},
-      {k:'cmd', label:'보드로 전환', run:function(){ location.href='/'; }}
+      // 보드는 읽는 방이다 — ⌘K 한 번이면 닿지만, 현관은 아니다(v6.0 Part B).
+      // 뷰 전환은 보드가 이미 가진 setView 를 /?view= 딥링크로 깨울 뿐, 새 길을 내지 않는다.
+      {k:'board', label:'Board — 보드 (리뷰·기록실)', hint:'/', run:function(){ gotoBoard(''); }},
+      {k:'board', label:'Archive — 닫힌 작업 보관함', hint:'/?view=archive', run:function(){ gotoBoard('archive'); }},
+      {k:'board', label:'Workrooms — 골 워크룸', hint:'/?view=goals', run:function(){ gotoBoard('goals'); }}
     ];
     // 세션 → 페인으로 열기
     var runs=[]; Object.keys(runById).forEach(function(id){ runs.push(runById[id]); });
