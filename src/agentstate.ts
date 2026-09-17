@@ -11,12 +11,14 @@
 // attach 레퍼런스 카운트로 tracker 를 공유하고, 타이머도 tracker 당 하나만 둔다.
 
 import { broadcast } from './hub';
+import { config } from './config';
 
 export type AgentState = 'unknown' | 'working' | 'waiting' | 'idle' | 'exited';
 
 const ACTIVE_MS = 600;      // 이만큼 새 바이트가 없으면 "멎었다"고 보고 분류한다
 const FLAP_MS = 1_500;      // working↔idle 플랩 억제 — idle 은 이만큼 조용해야 확정한다
 const TAIL_MAX = 8 * 1024;  // 굴러가는 raw tail (ANSI 제거는 분류 시점에)
+const HOOK_COOLDOWN_MS = 60_000;  // run 하나가 웹훅을 때릴 수 있는 최소 간격
 
 interface Pattern { id: string; re: RegExp }
 
@@ -87,6 +89,41 @@ interface Tracker {
   tail: string;                                // raw(ANSI 포함) 꼬리 버퍼
   lastByteAt: number;
   timer: ReturnType<typeof setTimeout> | null;  // tracker 당 정확히 하나
+  lastHookAt: number;                          // 웹훅 쿨다운 — tracker 와 함께 살고 함께 죽는다
+}
+
+/**
+ * 주의 환기의 서버 쪽 절반(spec v5.28 A5) — 코크핏이 아예 닫혀 있을 때 유일하게 남는 신호다.
+ * orchestrator 의 notifySettle 과 같은 모양으로 POST 하고, 실패는 무해하게 삼킨다.
+ *
+ * ⚠️ **상태만 보낸다.** detail 도, tail 조각도 절대 태우지 않는다 — 터미널 출력은 시크릿을
+ * 그대로 뱉을 수 있고 웹훅 엔드포인트는 coxpit 의 신뢰 경계 **밖**이다(꼬리는 인증된 /ws 허브에만).
+ */
+async function postHook(runId: number, state: AgentState): Promise<void> {
+  try {
+    await fetch(config.webhookUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        event: 'agentstate',
+        runId,
+        state,
+        // COXPIT_PUBLIC_URL 설정 시 폰에서 탭 → 그 run 으로 바로 착지
+        ...(config.publicUrl ? { url: `${config.publicUrl}/?run=${runId}` } : {}),
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch { /* 웹훅 실패는 조용히 */ }
+}
+
+/** 사람을 부르는 전이(waiting·exited)에만, run 당 60초에 한 번. 플랩하는 세션이 엔드포인트를 도배하지 못하게. */
+function maybeHook(runId: number, t: Tracker, state: AgentState): void {
+  if (state !== 'waiting' && state !== 'exited') return;
+  if (!config.webhookUrl) return;
+  const now = Date.now();
+  if (now - t.lastHookAt < HOOK_COOLDOWN_MS) return;
+  t.lastHookAt = now;
+  void postHook(runId, state);
 }
 
 const trackers = new Map<number, Tracker>();
@@ -100,6 +137,7 @@ function setState(runId: number, t: Tracker, next: AgentState): void {
   // 소독 규칙이 생기는 phase 3 의 몫이다. 터미널 출력은 시크릿을 그대로 뱉을 수 있어서,
   // 규칙 없이 꼬리 조각을 허브에 태우지 않는다.
   broadcast({ type: 'agentstate', runId, state: next, detail: '', ts: t.since });
+  maybeHook(runId, t, next);   // 허브가 먼저, 웹훅은 그 다음 — 붙어 있는 화면이 항상 가장 빠르다
 }
 
 function clearTimer(t: Tracker): void {
@@ -135,7 +173,7 @@ function onQuiet(runId: number): void {
 export function attach(runId: number): void {
   const cur = trackers.get(runId);
   if (cur) { cur.refs++; return; }
-  trackers.set(runId, { refs: 1, state: 'unknown', since: Date.now(), tail: '', lastByteAt: 0, timer: null });
+  trackers.set(runId, { refs: 1, state: 'unknown', since: Date.now(), tail: '', lastByteAt: 0, timer: null, lastHookAt: 0 });
 }
 
 /** 출력 청크 — tail 에 붙이고 시각을 찍고 working. 미러 중복이 들어와도 해롭지 않다. */

@@ -1646,7 +1646,10 @@ main().then(
   (e) => { console.error(String(e)); process.exit(1); },
 );
 EOF
-AS_OUT=$(node --import tsx "$WORK/agentstate.test.ts" 2>&1) || fail "agent state detection: $AS_OUT"
+# ⚠️ 헤르메틱하게: phase 4 부터 agentstate 는 config 를 import 한다(웹훅). COXPIT_DB 를 안 주면
+# config 가 ~/.coxpit/settings.json 을 읽어 **상주 데몬의 webhookUrl** 을 물고 들어와,
+# 유닛 테스트의 waiting 전이가 진짜 엔드포인트를 때린다. 스크래치 DB + 빈 웹훅으로 못 박는다.
+AS_OUT=$(COXPIT_DB="$DB" COXPIT_WEBHOOK_URL= node --import tsx "$WORK/agentstate.test.ts" 2>&1) || fail "agent state detection: $AS_OUT"
 case "$AS_OUT" in *AGENTSTATE_OK*) : ;; *) fail "agent state detection: $AS_OUT";; esac
 pass "agent state: waiting only on a pattern hit (ANSI-safe), input clears it, no tracker/timer leak"
 
@@ -1749,6 +1752,78 @@ case "$CKPT" in *'data-role="asdot"'*'asClass(agentStateOf(runId))'*) : ;; *) fa
 case "$CKPT" in *'paintAgentState(ev.runId, ev.state)'*) : ;; *) fail "ws agentstate branch must paint (targeted), not skip";; esac
 case "$CKPT" in *'function closeTab'*'delete agentState[runId]'*'delete tabs[runId]'*) : ;; *) fail "closeTab should drop this client's agent-state entry";; esac
 pass "cockpit v5.28 A4: tab dots + tree run-row override + ◔ N waiting chip (existing tokens only, targeted paint)"
+
+# v5.28 A5 (phase 4) — 주의 환기. 코크핏에 설정 화면은 없다: 세 취향은 헤더 버튼 하나 밑 작은 판에 산다.
+# 전부 opt-in·기본 꺼짐이고, **보고 있는 탭은 자신을 울리지 않는다**.
+case "$CKPT" in *'id="attnBtn"'*'id="attnPop"'*'</header>'*) : ;; *) fail "attention popover + header toggle must live in the header";; esac
+# 행은 기존 컴포넌트 그대로(새 설정 시스템을 짓지 않는다): .rchk 체크박스 둘 + .modes/.mode 세그 하나
+case "$CKPT" in *'id="attnSound"'*'id="attnNotify"'*'id="attnOnWaiting"'*'id="attnOnExited"'*'id="attnOnBoth"'*) : ;; *) fail "attention popover rows (sound · notify · transition seg) missing";; esac
+case "$CKPT" in *'coxpit.sound'*'coxpit.notify'*'coxpit.pingOn'*) : ;; *) fail "the three attention prefs must be remembered in localStorage";; esac
+# 소리는 코드로 만든 두 음짜리 블립 — 오디오 에셋도 새 파일도 없다
+case "$CKPT" in *'function blip'*'AudioContext'*'createOscillator'*) : ;; *) fail "WebAudio two-tone blip missing (no audio asset)";; esac
+# 브라우저 알림 — 보드와 같은 권한 흐름. 본문은 세션 이름 + 상태뿐(터미널 내용 금지)
+case "$CKPT" in *'new Notification'*'runLabel(runId)'*'Notification.requestPermission'*) : ;; *) fail "browser notification wiring (permission flow + session-name body) missing";; esac
+AT_GUARD="var away = document.hidden || String(focusedRunId())!==String(runId);"
+case "$CKPT" in *"$AT_GUARD"*) : ;; *) fail "attention must require document.hidden or a non-focused tab — the focused tab never pings itself";; esac
+AT_FILTER="if (attn.on!=='both' && attn.on!==next) return;"
+case "$CKPT" in *"$AT_FILTER"*) : ;; *) fail "coxpit.pingOn transition filter (waiting / exited / both) missing";; esac
+case "$CKPT" in *'raiseAttention(runId, prev, state)'*) : ;; *) fail "paintAgentState must raise attention using the PREVIOUS state (a transition, not a repaint)";; esac
+pass "cockpit v5.28 A5: attention popover (sound · notify · transitions), opt-in, focused tab never pings itself"
+
+# v5.28 A5 서버 절반 — 웹훅. 코크핏이 닫혀 있을 때 유일하게 남는 신호다.
+# 실제로 터미널을 붙이고 tmux 세션을 죽여 onExit → 'exited' 전이를 만든 뒤, 리스너가 받은 본문을 본다.
+# 계약: 상태만 실린다(엔드포인트는 신뢰 경계 밖이라 detail·꼬리 발췌는 절대 안 된다).
+kill "$DPID" 2>/dev/null || true; sleep 0.5
+rm -f "$DB"*; rm -f "$AUTHDIR/auth.json" 2>/dev/null || true
+COXPIT_AUTH_DISABLED=1 COXPIT_DB="$DB" COXPIT_PORT="$PORT" COXPIT_WEBHOOK_URL="http://127.0.0.1:$HOOKPORT/" \
+  COXPIT_PUBLIC_URL="http://board.example:9999/" \
+  node --import tsx "$ROOT/src/index.ts" >>"$WORK/daemon.log" 2>&1 &
+DPID=$!
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
+WHDIR="$WORK/as-hook"; mkdir -p "$WHDIR"
+WHS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$WHDIR\",\"title\":\"hook\"}")
+WHRUN=$(echo "$WHS" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
+cat > "$WORK/agentstate.hook.mjs" <<'EOF'
+// 터미널을 붙여 감지기를 깨우고, tmux 세션을 죽여 onExit('exited') 를 만든다.
+import { execSync } from 'node:child_process';
+const B = process.argv[2];
+const RID = String(process.argv[3]);
+const WSB = B.replace(/^http/, 'ws');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const die = (m) => { console.error(m); process.exit(1); };
+
+const term = new WebSocket(WSB + '/ws/term/' + RID + '?cols=80&rows=24');
+let out = 0, exited = false;
+term.addEventListener('message', (e) => {
+  try { const m = JSON.parse(e.data); if (m.t === 'o') out++; else if (m.t === 'exit') exited = true; else if (m.t === 'err') die('term: ' + m.d); }
+  catch { /* not json */ }
+});
+await new Promise((res, rej) => {
+  term.addEventListener('open', () => res());
+  term.addEventListener('error', () => rej(new Error('term ws failed to open')));
+});
+for (let i = 0; i < 40 && out === 0; i++) await sleep(250);
+if (out === 0) die('no terminal output in 10s — nothing to feed the detector');
+await sleep(1200);   // 분류가 안정될 때까지(여기선 idle — 웹훅을 쏘지 않는 전이)
+
+execSync("tmux kill-session -t '=coxpit-r" + RID + "' 2>/dev/null || true", { shell: '/bin/sh' });
+for (let i = 0; i < 40 && !exited; i++) await sleep(250);
+if (!exited) die('pane never reported exit after tmux kill-session');
+await sleep(1500);   // 웹훅 POST 가 리스너에 닿을 시간
+console.log('HOOK_OK');
+EOF
+HK_OUT=$(node "$WORK/agentstate.hook.mjs" "$B" "$WHRUN" 2>&1) || fail "agentstate webhook: $HK_OUT"
+case "$HK_OUT" in *HOOK_OK*) : ;; *) fail "agentstate webhook: $HK_OUT";; esac
+HK=$(grep 'agentstate' "$WORK/hooks.log" 2>/dev/null | tail -1 || true)
+[ -n "$HK" ] || fail "no agentstate webhook delivered (daemon log: $(tail -5 "$WORK/daemon.log"))"
+case "$HK" in *'"state":"exited"'*) : ;; *) fail "agentstate webhook should report the exited transition: $HK";; esac
+case "$HK" in *"\"runId\":$WHRUN"*) : ;; *) fail "agentstate webhook missing runId $WHRUN: $HK";; esac
+case "$HK" in *'http://board.example:9999/?run='*) : ;; *) fail "agentstate webhook missing deep-link url (COXPIT_PUBLIC_URL): $HK";; esac
+# 신뢰 경계 밖이다 — 상태 말고는 아무것도 싣지 않는다
+case "$HK" in *detail*) fail "agentstate webhook must never carry a detail field: $HK";; *) : ;; esac
+case "$HK" in *tail*) fail "agentstate webhook must never carry terminal tail text: $HK";; *) : ;; esac
+curl -s -X POST "$B/api/runs/$WHRUN/cleanup" >/dev/null
+pass "agentstate webhook: fires on the exited transition, state only (no detail/tail), 60s per-run cooldown"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

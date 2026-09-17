@@ -62,6 +62,16 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .wip{font-size:10.5px;color:var(--blocked);border:1px solid rgba(214,162,73,.4);border-radius:999px;padding:2px 9px}
   .toggle{font-size:12px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:7px;padding:5px 11px;background:none;cursor:pointer;font-family:var(--mono)}
   .toggle:hover{color:var(--ink);border-color:var(--line-hi)}
+  .toggle.on{color:var(--brand);border-color:rgba(78,201,176,.35)}   /* 무언가 켜져 있을 때만 액센트 — 켜짐이 헤더에서 보인다 */
+  /* ── 주의 환기 팝오버 (v5.28 A5) — 코크핏에는 설정 화면이 없다. 세 가지 취향이 사는
+     헤더 버튼 하나 밑의 작은 판. 행은 전부 기존 컴포넌트(.rchk 체크박스 · .modes/.mode 세그)를
+     그대로 쓰고, 이 규칙은 띄우는 자리만 만든다. 새 색 없음(래칫 불변). */
+  .apwrap{position:relative;display:inline-flex}
+  .apop{position:absolute;top:calc(100% + 8px);right:0;z-index:60;width:238px;display:flex;flex-direction:column;gap:9px;
+    background:var(--surface);border:1px solid var(--line-hi);border-radius:11px;padding:12px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+  .apop[hidden]{display:none}
+  .apop .lbl{padding:0 0 1px}
+  .apop-note{font-family:var(--mono);font-size:10px;line-height:1.5;color:var(--faint)}
 
   .layout{display:grid;grid-template-columns:270px 1fr;height:calc(100dvh - 46px)}
   /* 포커스 모드 — 트리·요청바 숨기고 페인만(⌘.) */
@@ -418,6 +428,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   <div class="right">
     <span class="ver" id="ver" title="로드된 cockpit 버전 (캐시 확인용)">v__COXPIT_VER__</span>
     <button type="button" class="waitchip" id="waitChip" hidden title="입력을 기다리는 에이전트 — 클릭하면 차례로 그 터미널로">◔ <span id="waitN">0</span></button>
+    <div class="apwrap" id="apWrap">
+      <button type="button" class="toggle" id="attnBtn" aria-haspopup="true" aria-expanded="false" title="알림 — 소리 · 브라우저 알림 · 울릴 전이">◎</button>
+      <div class="apop" id="attnPop" hidden role="group" aria-label="알림">
+        <div class="lbl"><span>알림</span></div>
+        <label class="rchk" title="대기·완료 전이에 짧은 신호음"><input type="checkbox" id="attnSound" /> 소리</label>
+        <label class="rchk" title="처음 켤 때 브라우저 권한을 묻습니다"><input type="checkbox" id="attnNotify" /> 브라우저 알림</label>
+        <div class="modes" id="attnOn" role="group" aria-label="울릴 전이">
+          <button type="button" class="mode" id="attnOnWaiting" title="입력 대기일 때만">대기만</button>
+          <button type="button" class="mode" id="attnOnExited" title="완료(종료)일 때만">완료만</button>
+          <button type="button" class="mode" id="attnOnBoth" title="대기·완료 둘 다">둘 다</button>
+        </div>
+        <div class="apop-note">전부 기본 꺼짐. 보고 있는 탭은 자신을 울리지 않습니다.</div>
+      </div>
+    </div>
     <span class="ws" id="ws"><span class="dot"></span><span id="wstext" class="b-txt">connecting</span></span>
     <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">∗<span class="b-txt"> Secrets</span></button>
     <a class="toggle" href="/" title="보드(모니터) 뷰로">←<span class="b-txt"> Board</span></a>
@@ -675,6 +699,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   // 델타 한 건 = 그 run 자리만 칠한다(리하이드레이트 없음). 탭 점 · 트리 run 행 점 · 대기 칩.
   function paintAgentState(runId, state){
+    var prev = agentState[runId]||'';   // 덮어쓰기 **전**의 상태 — 전이를 아는 유일한 지점
     if (state && state!=='unknown') agentState[runId]=state; else delete agentState[runId];
     var cls=asClass(state);
     var tabDot=$('tabs').querySelector('.tab[data-tab="'+runId+'"] [data-role=asdot]');
@@ -683,6 +708,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var row=$('tree').querySelector('.tnode[data-run="'+runId+'"] .st');
     if (row){ var r=runById[runId]; row.className='st '+((r&&r.status)||'')+(cls?' '+cls:''); }
     updateWaitChip();
+    raiseAttention(runId, prev, state);   // 점·칩은 항상 켜져 있고, 소리/알림만 취향을 탄다
   }
   function updateWaitChip(){
     var n=waitingRunIds().length;
@@ -699,6 +725,102 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     openTab(id);
   }
   $('waitChip').addEventListener('click', jumpNextWaiting);
+
+  // ── 주의 환기 (v5.28 A5) ──
+  // 부름은 opt-in 이고, 정직하며, 그것을 부른 사건보다 결코 시끄럽지 않다.
+  // 시각(탭 점·트리 점·◔ 칩)은 항상 켜져 있고 — 소리와 브라우저 알림만 여기 취향을 탄다.
+  // 세 취향은 코크핏에 설정 화면이 없어서 헤더 버튼 하나 밑 작은 판에 산다(localStorage 기억).
+  function lsGet(k, d){ try{ var v=localStorage.getItem(k); return v==null?d:v; }catch(e){ return d; } }
+  function lsSet(k, v){ try{ localStorage.setItem(k, v); }catch(e){} }
+  var attn = {
+    sound: lsGet('coxpit.sound','0')==='1',
+    // 권한은 브라우저가 SSOT — 기억된 '켜짐'이라도 권한이 없으면 꺼진 것이다(지어낸 준비 상태 없음).
+    notify: lsGet('coxpit.notify','0')==='1' && ('Notification' in window) && Notification.permission==='granted',
+    on: (function(v){ return (v==='waiting'||v==='exited')?v:'both'; })(lsGet('coxpit.pingOn','both')),
+  };
+
+  // 두 음짜리 짧은 신호음 — WebAudio 로 그 자리에서 만든다(오디오 에셋도, 새 파일도 없다).
+  var actx=null;
+  function blip(){
+    try{
+      var AC = window.AudioContext||window.webkitAudioContext; if(!AC) return;
+      if(!actx) actx=new AC();
+      if(actx.state==='suspended') actx.resume();
+      var t0=actx.currentTime;
+      [[660,0],[880,0.11]].forEach(function(p){
+        var o=actx.createOscillator(), g=actx.createGain();
+        o.type='sine'; o.frequency.value=p[0];
+        g.gain.setValueAtTime(0.0001, t0+p[1]);
+        g.gain.exponentialRampToValueAtTime(0.06, t0+p[1]+0.015);   // 작게 — 터미널이 부르는 소리지 경보가 아니다
+        g.gain.exponentialRampToValueAtTime(0.0001, t0+p[1]+0.10);
+        o.connect(g); g.connect(actx.destination);
+        o.start(t0+p[1]); o.stop(t0+p[1]+0.12);
+      });
+    }catch(e){}
+  }
+
+  // 브라우저 알림 — 보드와 같은 패턴(권한 요청 + localStorage + 탭하면 그 자리로).
+  // 본문은 **세션 이름과 상태뿐**이다. 터미널 내용은 한 글자도 싣지 않는다.
+  function notifyAttn(runId, state){
+    if (!attn.notify || !('Notification' in window) || Notification.permission!=='granted') return;
+    try{
+      var n = new Notification('coxpit', {
+        body: runLabel(runId) + (state==='waiting' ? ' · 입력 대기' : ' · 완료'),
+        tag: 'coxpit-as-'+runId,
+      });
+      n.onclick = function(){ try{ window.focus(); }catch(e){} jumpToRun(Number(runId)); n.close(); };
+    }catch(e){}
+  }
+  // 칩의 순회와 같은 착지 — 열린 탭이면 그 페인 포커스, 아니면 탭으로 연다.
+  function jumpToRun(id){ if(!runById[id]){ toast('run 을 찾을 수 없습니다 · r'+id); return; } openTab(id); }
+
+  function raiseAttention(runId, prev, next){
+    if (next!=='waiting' && next!=='exited') return;   // 부를 만한 전이가 아니다
+    if (prev===next) return;                           // 같은 상태 재통보는 전이가 아니다
+    if (attn.on!=='both' && attn.on!==next) return;    // 울릴 전이 필터(대기만 / 완료만 / 둘 다)
+    var away = document.hidden || String(focusedRunId())!==String(runId);
+    if (!away) return;                                 // 보고 있는 탭은 절대 자신을 울리지 않는다
+    if (attn.sound) blip();
+    notifyAttn(runId, next);
+  }
+
+  // 팝오버 — 행은 기존 컴포넌트(.rchk · .modes/.mode) 그대로. 새 설정 시스템이 아니다.
+  var AT_ON = { waiting:'attnOnWaiting', exited:'attnOnExited', both:'attnOnBoth' };
+  function paintAttn(){
+    $('attnSound').checked = attn.sound;
+    $('attnNotify').checked = attn.notify;
+    Object.keys(AT_ON).forEach(function(k){ $(AT_ON[k]).classList.toggle('on', attn.on===k); });
+    $('attnBtn').classList.toggle('on', attn.sound||attn.notify);
+  }
+  function setAttnPop(open){
+    $('attnPop').hidden = !open;
+    $('attnBtn').setAttribute('aria-expanded', open?'true':'false');
+    if (open) $('attnSound').focus();   // 키보드로 열어도 바로 첫 행에 선다
+  }
+  $('attnBtn').addEventListener('click', function(e){ e.stopPropagation(); setAttnPop($('attnPop').hidden); });
+  document.addEventListener('click', function(e){ if(!$('attnPop').hidden && !$('apWrap').contains(e.target)) setAttnPop(false); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('attnPop').hidden){ e.preventDefault(); setAttnPop(false); $('attnBtn').focus(); } });
+  $('apWrap').addEventListener('focusout', function(){
+    setTimeout(function(){ if(!$('apWrap').contains(document.activeElement)) setAttnPop(false); }, 0);
+  });
+  $('attnSound').addEventListener('change', function(){
+    attn.sound = this.checked; lsSet('coxpit.sound', attn.sound?'1':'0'); paintAttn();
+    if (attn.sound) blip();   // 켜는 순간 한 번 들려준다(겸사겸사 사용자 제스처로 오디오 잠금 해제)
+  });
+  $('attnNotify').addEventListener('change', async function(){
+    if (this.checked){
+      if(!('Notification' in window)){ this.checked=false; toast('이 브라우저는 알림을 지원하지 않습니다'); return; }
+      var perm = Notification.permission;
+      if (perm!=='granted') perm = await Notification.requestPermission();
+      if (perm!=='granted'){ this.checked=false; attn.notify=false; lsSet('coxpit.notify','0'); paintAttn(); toast('알림 권한이 거부됐습니다'); return; }
+    }
+    attn.notify = this.checked; lsSet('coxpit.notify', attn.notify?'1':'0'); paintAttn();
+  });
+  Object.keys(AT_ON).forEach(function(k){
+    // this.focus() — Safari 는 버튼 클릭에 포커스를 안 옮겨서 focusout 이 판을 닫아버린다
+    $(AT_ON[k]).addEventListener('click', function(){ attn.on=k; lsSet('coxpit.pingOn', k); paintAttn(); this.focus(); });
+  });
+  paintAttn();
 
   async function hydrate(){
     try{
