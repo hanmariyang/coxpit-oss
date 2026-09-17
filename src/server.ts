@@ -21,7 +21,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, openSessionAt, deleteSession, getScrollback, getSessionChat } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates } from './agentstate';
 import { addSink, removeSink, broadcast } from './hub';
@@ -961,7 +961,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // N개의 에이전트 run 을 만들고 각자 오케스트레이션 시작(fire-and-forget).
   app.post('/api/tasks/:id/run', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const b = (req.body ?? {}) as { agent?: string; count?: number; real?: boolean; model?: string; title?: string };
+    const b = (req.body ?? {}) as { agent?: string; count?: number; real?: boolean; model?: string; title?: string; inPlace?: boolean };
     const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     const task = tr[0];
     if (!task) return reply.code(404).send({ error: 'task not found' });
@@ -978,16 +978,34 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
     // v6.0 T4 — 역할 이름(선택). 작업 안에서 이 run 이 무엇인지(구현·기타). 빈값 = 프로바이더 이름으로 표시.
     const title = (b.title ?? '').trim().slice(0, RUN_TITLE_MAX);
+    // v6.0 P — 격리는 선택이다. in-place = repo 체크아웃 공유(순차) · worktree = 병렬(나중에 머지).
+    const inPlace = b.inPlace === true;
+    if (inPlace && count > 1) {
+      return reply.code(400).send({
+        error: 'IN_PLACE_FANOUT',
+        detail: 'in-place is sequential — one agent per checkout (count must be 1). launch in a worktree to fan out.',
+      });
+    }
+    // P3 — 한 체크아웃에 에이전트 둘은 서로를 덮어쓴다. 만들기 **전에** 막고 이유를 말한다.
+    if (inPlace) {
+      const busy = await liveInPlaceRun(task.repoId);
+      if (busy !== null) {
+        return reply.code(409).send({
+          error: 'IN_PLACE_BUSY',
+          detail: `r${busy} is already working in this checkout — steer it, or launch in a worktree`,
+        });
+      }
+    }
     const created: Array<typeof agentRuns.$inferSelect> = [];
     for (let i = 0; i < count; i++) {
       const ins = await db.insert(agentRuns)
-        .values({ taskId: id, machineId: rp[0].machineId, agent, model, title, status: 'pending' })
+        .values({ taskId: id, machineId: rp[0].machineId, agent, model, title, inPlace, status: 'pending' })
         .returning();
       created.push(ins[0]!);
     }
     // 보드가 taskId 를 알도록 생성 브로드캐스트 후 백그라운드 시작.
     for (const r of created) {
-      broadcast({ type: 'run', runId: r.id, taskId: id, status: 'pending', agent, title, branch: '', filesChanged: 0 });
+      broadcast({ type: 'run', runId: r.id, taskId: id, status: 'pending', agent, title, inPlace, branch: '', filesChanged: 0 });
       void launchRun(r.id, b.real);
     }
     return reply.code(202).send({ ok: true, runs: created.map((r) => ({ id: r.id, status: r.status })) });

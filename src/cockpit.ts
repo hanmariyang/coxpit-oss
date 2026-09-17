@@ -289,6 +289,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .sheet-body{padding:12px 15px 4px;display:flex;flex-direction:column;gap:5px}
   .sheet-body .pick-name{width:100%;flex:none}
   .sheet-body .modes{align-self:flex-start;margin-bottom:3px}
+  /* 둘 곳 선택 바로 밑의 정직한 한 줄 — 둘 다인 척하지 않는다(P4) */
+  .sheet-tradeoff{font-size:11px;color:var(--faint);font-family:var(--mono);line-height:1.5}
+  /* 시트 안에서 이유를 말하는 자리(예: IN_PLACE_BUSY) — 토스트로 날려보내지 않는다 */
+  .sheet-err{font-size:11px;color:var(--failed);line-height:1.5;margin-top:4px}
+  .sheet-err[hidden]{display:none}
   .flabel{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:5px}
   .sec-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;font-size:12.5px;color:var(--ink)}
   .sec-row:hover{background:var(--surface2)}
@@ -582,10 +587,17 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <div class="modes" id="agentProv"></div>
       <div class="flabel">모델</div>
       <input class="pick-name" id="agentModel" placeholder="비우면 CLI 기본 (예: opus)" autocomplete="off" spellcheck="false" />
+      <div class="flabel">둘 곳</div>
+      <div class="modes" id="agentPlace">
+        <button type="button" class="mode on" data-place="worktree">worktree</button>
+        <button type="button" class="mode" data-place="inplace">in-place</button>
+      </div>
+      <div class="sheet-tradeoff">in-place = 체크아웃 공유, 순차 · worktree = 병렬, 나중에 머지</div>
+      <div class="sheet-err" id="agentErr" hidden></div>
     </div>
     <div class="pick-f">
       <label class="rchk" title="실제 CLI 실행 (기본=드라이런)"><input type="checkbox" id="agentReal" /> real</label>
-      <span class="shint" style="flex:1">worktree 로 격리해 띄웁니다 — 나란히 비교하고 승자만 머지</span>
+      <span class="shint" id="agentPlaceHint" style="flex:1">worktree 로 격리해 띄웁니다 — 나란히 비교하고 승자만 머지</span>
       <button class="go" id="agentGo">에이전트 추가</button>
     </div>
   </div>
@@ -941,10 +953,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (!isFold(tk)) rns.sort(function(a,b){return a.id-b.id;}).forEach(function(r){
       var open = tabs[r.id] ? ' open' : '';
       var act=latestActivity(r.id);
+      // in-place 는 브랜치 칩이 없다 — 격리가 없으니 보여줄 브랜치도 없다. 대신 어디서 일하는지를 적는다.
+      var ip = r.inPlace ? ' · in-place' : '';
+      var tip = 'r'+r.id+' · '+r.status+(r.inPlace?' · repo 체크아웃에서 직접 작업(격리 없음)':'');
       // 점 하나에 두 층 — 에이전트 상태가 살아 있으면 그게 이기고, 없으면 지금까지의 run 상태 그대로.
-      s += '<div class="tnode run'+open+'" data-run="'+r.id+'" title="r'+r.id+' · '+esc(r.status)+'"><span class="st '+esc(r.status)+' '+asClass(agentStateOf(r.id))+'"></span>'
+      s += '<div class="tnode run'+open+'" data-run="'+r.id+'" title="'+esc(tip)+'"><span class="st '+esc(r.status)+' '+asClass(agentStateOf(r.id))+'"></span>'
         + '<span class="n">'+esc(runTreeName(r.id))+'</span>'+(act?'<span class="ract">'+esc(act)+'</span>':'')
-        + '<span class="meta">r'+r.id+'</span></div>';
+        + '<span class="meta">r'+r.id+esc(ip)+'</span></div>';
     });
     return s;
   }
@@ -1759,7 +1774,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   // ── v6.0 Part T — 새 작업(＋ 새 작업) / 에이전트 추가(＋ 에이전트) ──
   // 작업 = task(이름이 사는 곳), 그 아래 세션 = run. 작업을 만들면 repo 체크아웃에
   // main 터미널(root 세션)이 바로 열리고, 에이전트는 그 작업 아래에 worktree 로 붙는다.
-  var workRepoId=null, agentTaskId=null, agentProvId='';
+  // v6.0 Part P — 격리는 강제가 아니라 선택이다. 'worktree'(기본, 지금까지의 손버릇 그대로)
+  // 아니면 'inplace'(repo 체크아웃 공유 · 순차). 도구는 대가를 그대로 말하고, 한 체크아웃에
+  // 에이전트 둘은 절대 안 돌린다(서버가 409 로 막고, 그 이유는 시트 안에서 보인다).
+  var workRepoId=null, agentTaskId=null, agentProvId='', agentPlace='worktree';
+  var PLACE_HINT={ worktree:'worktree 로 격리해 띄웁니다 — 나란히 비교하고 승자만 머지',
+                   inplace:'repo 체크아웃에서 그대로 띄웁니다 — main 터미널에서 편집이 바로 보입니다' };
+  function setAgentPlace(p){
+    agentPlace = (p==='inplace') ? 'inplace' : 'worktree';
+    Array.prototype.forEach.call($('agentPlace').querySelectorAll('.mode'), function(x){
+      x.classList.toggle('on', x.getAttribute('data-place')===agentPlace);
+    });
+    $('agentPlaceHint').textContent = PLACE_HINT[agentPlace];
+  }
+  function agentErr(msg){ var el=$('agentErr'); if(!msg){ el.hidden=true; el.textContent=''; return; } el.textContent=msg; el.hidden=false; }
   function openNewWork(repoId){
     var rp=repoById[repoId]; if(!rp){ toast('프로젝트를 찾을 수 없습니다'); return; }
     workRepoId=repoId;
@@ -1795,6 +1823,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     $('agentProv').innerHTML=provs.map(function(p){
       return '<button type="button" class="mode'+(p.id===agentProvId?' on':'')+'" data-prov="'+esc(p.id)+'">'+esc(p.label||p.id)+'</button>';
     }).join('');
+    agentErr(''); setAgentPlace(agentPlace);
     $('agentModal').classList.add('on');
     setTimeout(function(){ try{ $('agentRole').focus(); }catch(e){} }, 30);
   }
@@ -1802,16 +1831,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   var addingAgent=false;
   async function addAgent(){
     if(addingAgent || agentTaskId==null) return;
-    addingAgent=true; $('agentGo').disabled=true;
+    addingAgent=true; $('agentGo').disabled=true; agentErr('');
     try{
       var role=$('agentRole').value.trim();
       var res=await fetch('/api/tasks/'+agentTaskId+'/run',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({agent:agentProvId, count:1, real:$('agentReal').checked, model:$('agentModel').value.trim(), title:role})});
+        body:JSON.stringify({agent:agentProvId, count:1, real:$('agentReal').checked, model:$('agentModel').value.trim(), title:role,
+          inPlace:(agentPlace==='inplace')})});
       var j=await res.json().catch(function(){return{};});
       var ids=(j&&j.runs||[]).map(function(x){ return x.id; });
-      if(res.ok && ids.length){ closeAddAgent(); await hydrate(); openRunPane(ids[0]); toast('에이전트 추가 · '+(role||agentProvId)); }
-      else toast('에이전트 추가 실패: '+(j.detail||j.error||res.status));
-    }catch(e){ toast('에이전트 추가 실패: '+e); }
+      if(res.ok && ids.length){ closeAddAgent(); await hydrate(); openRunPane(ids[0]);
+        toast('에이전트 추가 · '+(role||agentProvId)+' · '+(agentPlace==='inplace'?'in-place':'worktree')); }
+      // 체크아웃이 이미 물려 있으면(409) 시트를 닫지 않는다 — 여기서 이유를 읽고 바로 고를 수 있게.
+      else if(res.status===409){ agentErr(j.detail||'이 체크아웃에서 이미 다른 에이전트가 일하고 있습니다 — steer 하거나 worktree 로 띄우세요'); }
+      else agentErr('에이전트 추가 실패: '+(j.detail||j.error||res.status));
+    }catch(e){ agentErr('에이전트 추가 실패: '+e); }
     finally{ addingAgent=false; $('agentGo').disabled=false; }
   }
   $('workClose').addEventListener('click', closeNewWork);
@@ -1825,6 +1858,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var b=e.target.closest('[data-prov]'); if(!b) return;
     agentProvId=b.getAttribute('data-prov');
     Array.prototype.forEach.call(this.querySelectorAll('.mode'), function(x){ x.classList.toggle('on', x.getAttribute('data-prov')===agentProvId); });
+  });
+  $('agentPlace').addEventListener('click', function(e){
+    var b=e.target.closest('[data-place]'); if(!b) return;
+    setAgentPlace(b.getAttribute('data-place')); agentErr('');
   });
   Array.prototype.forEach.call([$('agentRole'),$('agentModel')], function(el){
     el.addEventListener('keydown', function(e){ e.stopPropagation(); if(e.key==='Enter' && !e.isComposing){ e.preventDefault(); addAgent(); } });
@@ -2051,10 +2088,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       rns.forEach(function(r){
         var col=document.createElement('div'); col.className='rv-col';
         var st = typeof r.stat==='string' ? r.stat.split('\\n').pop().trim() : '';
-        var mergeable = (r.status==='done'||r.status==='open'||r.status==='merged') && r.filesChanged>0;
+        // 브랜치가 없는 run(in-place · main 손터미널)은 머지할 것이 없다 — 편집이 이미 체크아웃에 있다.
+        var noIso = !r.branch;
+        var mergeable = !noIso && (r.status==='done'||r.status==='open'||r.status==='merged') && r.filesChanged>0;
         // green-gate: verifyCmd 있는데 pass 아니면 "merge anyway"(주의색) — 막지 않고 경고
-        var gated = hasVerify && r.verifyStatus!=='pass';
-        var mlabel = r.status==='merged' ? 'merged' : (gated ? 'merge anyway' : 'merge ▸');
+        var gated = !noIso && hasVerify && r.verifyStatus!=='pass';
+        var mlabel = noIso ? 'in-place' : (r.status==='merged' ? 'merged' : (gated ? 'merge anyway' : 'merge ▸'));
         var vline = '';
         if (hasVerify){
           var vs = r.verifyStatus||''; var out = (r.verifyOutput||'').split('\\n').pop();
@@ -2067,7 +2106,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
           + '<span class="rid">r'+r.id+'</span><span class="chip '+esc(r.status)+'">'+esc(r.status)+'</span>'
           + '<span class="stat">'+esc(st)+'</span>'
           + '<button class="rv-merge'+(gated?' caution':'')+'" data-merge="'+r.id+'"'+((r.status==='merged'||!mergeable)?' disabled':'')
-          + (gated?' title="검증 미통과 — 그래도 머지"':'')+'>'+mlabel+'</button></div>'
+          + (noIso?' title="체크아웃에서 직접 작업 — 머지할 것이 없습니다(아래는 커밋 안 한 변경)"':(gated?' title="검증 미통과 — 그래도 머지"':''))+'>'+mlabel+'</button></div>'
           + vline
           + '<div class="rv-diff">'+diffHTML(r.diff)+'</div>';
         col._vout = { text: r.verifyOutput||'' };
