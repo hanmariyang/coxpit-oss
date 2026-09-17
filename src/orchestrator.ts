@@ -2037,33 +2037,51 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
 // cleanupRun 으로 이미 정리하지만, 실패·에러·데몬 재시작으로 고아가 된 run 은
 // (검수용으로) worktree 를 남겨두므로 쌓인다. 이를 안전하게 되찾는 길.
 //
-// 안전 규칙(핵심): running/preparing/pending/'done' run 은 절대 대상 아님 —
-// 활성 작업이거나(진행 중), 성공했지만 아직 머지 안 됐을 수 있는 작업이므로.
+// 안전 규칙(핵심): running/preparing/pending run 은 절대 대상 아님 — 활성 작업이므로.
+//
+// v6.0 T6b — 빚이 실제로 쌓이는 자리는 **끝났는데 머지도 닫지도 않은 run** 이었다.
+// 그래서 done/merged 도 목록에는 올린다. 다만 하나를 갈라 본다:
+//   산출물이 이미 빠져나갔나(머지됐거나 export·PR 됐나) = 지워도 되는 사본
+//   아직 아무 데도 없나 = 이 worktree 가 **유일한 사본** → reclaimRisk:true
+// 위험한 것은 **보여주되 미리 고르지 않고**, 전체 회수(runIds 없음)에서도 빠진다.
+// 사람이 직접 찍어 보낸 runIds 만 그 선을 넘는다.
 
 /** 회수 대상 판정용 안전 상태 집합 — task 가 closed 이거나 run 상태가 이 중 하나. */
 const RECLAIM_STATUSES = new Set(['failed', 'error', 'stopped']);
+/** v6.0 T6b — 정착한 성공 run. 격리 worktree 를 가진 것만 목록에 든다(위험 표시와 함께). */
+const RECLAIM_SETTLED_STATUSES = new Set(['done', 'merged']);
+/** taskCloseRisk 와 **같은** 신호를 쓰는 상태 집합 — 정착 + 변경있음 + 미탈출 = 위험. */
+const RISK_STATUSES = new Set(['done', 'failed', 'stopped']);
 
 export interface ReclaimableWorktree {
   runId: number;
   path: string;
   branch: string;
   taskId: number;
-  reason: string; // 'task closed' | 'failed' | 'error' | 'stopped'
+  reason: string; // 'task closed' | 'failed' | 'error' | 'stopped' | 'done' | 'merged'
   exists: boolean; // worktree dir 가 아직 디스크에 있나(false = 이미 수동 삭제됨)
   sizeKb?: number; // best-effort du -sk (실패 시 생략)
+  /** v6.0 T6b — 이 worktree 가 미머지·미탈출 산출물의 **유일한 사본**인가(v4.1 close 가드와 같은 신호). */
+  reclaimRisk: boolean;
 }
 
 /**
  * 안전하게 회수 가능한 worktree 목록. worktreePath 가 비어있지 않은 모든 run 중
- * (a) task 가 closed 이거나 (b) run 상태 ∈ {failed, error, stopped} 인 것만.
- * running/preparing/pending/'done'/'open'/'merged' 는 절대 포함하지 않는다
- * (활성 또는 성공-미머지 가능성). exists=디스크 잔존 여부, sizeKb=best-effort du.
+ * (a) task 가 closed 이거나 (b) run 상태 ∈ {failed, error, stopped} 이거나
+ * (c) 격리 worktree 를 가진 채 정착한 done/merged(T6b — 쌓이던 그 빚).
+ * running/preparing/pending/'open' 은 절대 포함하지 않는다(활성 작업).
+ * exists=디스크 잔존 여부, sizeKb=best-effort du, reclaimRisk=유일 사본 경고.
  */
 export async function listReclaimableWorktrees(): Promise<ReclaimableWorktree[]> {
   const allRuns = (await db.select().from(agentRuns)).filter((r) => !!r.worktreePath);
   // task 상태 룩업(closed 판정용)
   const taskById = new Map<number, typeof tasks.$inferSelect>();
   for (const t of await db.select().from(tasks)) taskById.set(t.id, t);
+  // 산출물이 이미 빠져나간 run — export·PR 이벤트 한 번이면 worktree 는 유일 사본이 아니다.
+  const escaped = new Set<number>();
+  for (const e of await db.select().from(agentEvents).where(inArray(agentEvents.kind, ['export', 'pr']))) {
+    escaped.add(e.runId);
+  }
 
   const out: ReclaimableWorktree[] = [];
   for (const run of allRuns) {
@@ -2071,11 +2089,18 @@ export async function listReclaimableWorktrees(): Promise<ReclaimableWorktree[]>
     const task = taskById.get(run.taskId);
     const taskClosed = task?.status === 'closed';
     const statusReclaim = RECLAIM_STATUSES.has(run.status);
-    if (!taskClosed && !statusReclaim) continue; // done/open/merged/running/preparing/pending 제외
-    const reason = taskClosed ? 'task closed' : run.status;
+    const settled = RECLAIM_SETTLED_STATUSES.has(run.status);
+    if (!taskClosed && !statusReclaim && !settled) continue; // open/running/preparing/pending 제외
 
     // worktree 잔존 여부 + best-effort 사이즈(로컬만 정확; 원격은 machine 경유).
     const ctx = await loadContext(run.id).catch(() => null);
+    // done/merged 로 새로 들어온 run 은 **격리 worktree 를 가진 것만** — 루트 세션·in-place run 의
+    // worktreePath 는 repo 체크아웃 그 자체라 회수할 디스크가 애초에 없다(기존 경로는 그대로 둔다).
+    if (settled && !taskClosed && !statusReclaim && (!run.branch || (ctx && run.worktreePath === ctx.repoPath))) continue;
+    const reason = taskClosed ? 'task closed' : run.status;
+    // v4.1 close 가드와 같은 판정 — 정착 ∧ 변경있음 ∧ export·PR 없음. merged 는 이미 빠져나갔다.
+    const reclaimRisk = RISK_STATUSES.has(run.status) && run.filesChanged > 0 && !escaped.has(run.id);
+
     let exists = false;
     let sizeKb: number | undefined;
     if (ctx) {
@@ -2090,9 +2115,63 @@ export async function listReclaimableWorktrees(): Promise<ReclaimableWorktree[]>
         if (du.ok && Number.isFinite(n) && n > 0) sizeKb = n;
       }
     }
-    out.push({ runId: run.id, path: run.worktreePath, branch: run.branch, taskId: run.taskId, reason, exists, sizeKb });
+    out.push({ runId: run.id, path: run.worktreePath, branch: run.branch, taskId: run.taskId, reason, exists, sizeKb, reclaimRisk });
   }
   return out;
+}
+
+// ── v6.0 T6b — 디스크 빚을 눈에 보이게 ──────────────────────────
+// 볼 수 없는 것은 관리할 수 없다. `.coxpit-worktrees` 의 총량·개수를 /api/health 와
+// 회수 판에 한 줄로 싣는다. du 는 큰 트리에서 느리므로 **health 는 절대 기다리지 않는다** —
+// 값은 캐시에서 나오고, 낡았으면 배경에서 다시 잰다(첫 호출은 값 없이 지나간다).
+
+export interface WorktreeDisk { count: number; sizeKb: number }
+const DISK_TTL_MS = 30_000;
+let diskCache: { at: number; value: WorktreeDisk } | null = null;
+let diskInflight: Promise<WorktreeDisk> | null = null;
+
+/** 로컬 머신 repo 들의 `.coxpit-worktrees` 부모 폴더를 한 번에 du -sk. 원격은 세지 않는다(health 는 이 머신의 디스크다). */
+async function measureWorktreeDisk(): Promise<WorktreeDisk> {
+  const machineRows = await db.select().from(machines);
+  const localIds = new Set(machineRows.filter((m) => m.kind === 'local' || m.address === '').map((m) => m.id));
+  const dirs: string[] = [...new Set<string>(
+    (await db.select().from(repos))
+      .filter((r) => localIds.has(r.machineId))
+      .map((r) => ppath.join(ppath.dirname(r.path), '.coxpit-worktrees')),
+  )];
+  if (!dirs.length) return { count: 0, sizeKb: 0 };
+  // 폴더마다 "<KB> <개수>" 한 줄. 없는 폴더는 건너뛴다.
+  const script = `for d in ${dirs.map(shq).join(' ')}; do [ -d "$d" ] || continue; ` +
+    `s=$(du -sk "$d" 2>/dev/null | tail -1 | cut -f1); [ -n "$s" ] || s=0; ` +
+    `c=$(ls -1 "$d" 2>/dev/null | wc -l); [ -n "$c" ] || c=0; echo "$s $c"; done`;
+  const out = await runShellOn(LOCAL_MACHINE, script, 20000).catch(() => ({ ok: false as boolean, stdout: '' as string }));
+  let count = 0, sizeKb = 0;
+  for (const line of String(out.stdout || '').split('\n')) {
+    const [s = '', c = ''] = line.trim().split(/\s+/);
+    const kb = parseInt(s, 10), n = parseInt(c, 10);
+    if (Number.isFinite(kb) && kb > 0) sizeKb += kb;
+    if (Number.isFinite(n) && n > 0) count += n;
+  }
+  return { count, sizeKb };
+}
+
+/**
+ * 캐시된 worktree 디스크 사용량. darwin/linux 만(du 전제) — 그 밖은 null.
+ * **절대 기다리지 않는다** — 낡았으면 배경에서 다시 재고 마지막 값을 그대로 돌려준다.
+ * 아직 한 번도 못 쟀으면 null(=health 에 싣지 않는다). 디스크가 꽉 찬 머신에서 du 가
+ * 오래 걸릴수록 health 는 더 빨라야 하지, 같이 멈추면 안 된다.
+ */
+export async function worktreeDisk(): Promise<WorktreeDisk | null> {
+  if (process.platform !== 'darwin' && process.platform !== 'linux') return null;
+  const cur = diskCache;
+  if ((!cur || Date.now() - cur.at >= DISK_TTL_MS) && !diskInflight) {
+    const p: Promise<WorktreeDisk> = measureWorktreeDisk()
+      .then((v) => { diskCache = { at: Date.now(), value: v }; return v; })
+      .catch(() => diskCache?.value ?? { count: 0, sizeKb: 0 })
+      .finally(() => { if (diskInflight === p) diskInflight = null; });
+    diskInflight = p;
+  }
+  return cur ? cur.value : null;
 }
 
 /**
@@ -2101,13 +2180,17 @@ export async function listReclaimableWorktrees(): Promise<ReclaimableWorktree[]>
  * dir 가 이미 수동 삭제됐으면 git worktree prune + branch -D + DB 포인터 blank 만.
  * 마지막에 영향받은 repo 마다 git worktree prune 1회(스테일 메타데이터 정리).
  * 멱등 — 다시 돌려도 안전(이미 회수된 run 은 worktreePath 가 비어 목록에서 빠짐).
+ *
+ * v6.0 T6b — **전체 회수(runIds 없음)는 위험 표시가 없는 것만** 지운다. 미머지·미탈출
+ * 산출물의 유일한 사본이 "전부 지우기" 한 번에 사라지는 일은 없다. 사람이 그 id 를
+ * 직접 찍어 보냈다면(runIds) 그건 고른 것이므로 그대로 따른다. 라이브 run 은 어느 쪽도 아니다.
  */
 export async function pruneWorktrees(runIds?: number[]): Promise<{
   removed: Array<{ runId: number; detail: string }>; count: number;
 }> {
-  const reclaimable = await listReclaimableWorktrees();
+  const reclaimable = (await listReclaimableWorktrees()).filter((r) => !isRunLive(r.runId));
   const want = runIds && runIds.length ? new Set(runIds) : null;
-  const targets = want ? reclaimable.filter((r) => want.has(r.runId)) : reclaimable;
+  const targets = want ? reclaimable.filter((r) => want.has(r.runId)) : reclaimable.filter((r) => !r.reclaimRisk);
 
   const removed: Array<{ runId: number; detail: string }> = [];
   const affectedRepoPaths = new Map<string, MachineTarget>(); // repoPath -> machine (prune 대상)

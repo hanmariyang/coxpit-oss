@@ -343,6 +343,14 @@ case "$CKPT" in *'function closeRiskOf'*'그래도 닫기 ('*'r.status===409'*) 
 case "$CKPT" in *'if(x.idle) reapSel[x.name]=true;'*) : ;; *) fail "the reaper must preselect idle shells only";; esac
 pass "v6.0 T6 cockpit: 등록 해제 (folder preserved · close-risk aggregated) · 묵은 작업 정리 (one table, one pass) · orphan-tmux reaper (idle preselected, busy flagged)"
 
+# v6.0 T6b — 디스크 빚을 보이게 하고, 되찾을 수 있게 하되, 유일한 사본은 놀라서 사라지지 않게.
+# 파일 순서대로: 레일의 ▤ 링크 → 회수 판(한 줄 판독 + 규칙) → 로직(미리 체크 규칙 · 언제나 runIds).
+case "$CKPT" in *'id="wtBtn"'*'▤ worktree'*) : ;; *) fail "cockpit worktree-reclaim link (mono ▤ on the Workspace label) missing";; esac
+# 판이 열리면 **먼저 숫자**(개수·총량), 그 다음 빗자루 — 볼 수 없는 것은 관리할 수 없다
+case "$CKPT" in *'id="wtModal"'*'id="wtTotal"'*'돌고 있는 run 은 여기 오르지 않습니다'*'표시만 하고 절대 미리 고르지 않습니다'*'유일한 사본'*'id="wtList"'*'id="wtGo"'*) : ;; *) fail "cockpit worktree sheet must lead with the disk readout and state the sole-copy rule";; esac
+case "$CKPT" in *'function wtRowHTML'*'if(!x.reclaimRisk) wtSel[x.runId]=true;'*'body:JSON.stringify({runIds:ids})'*) : ;; *) fail "the worktree sheet must preselect only non-risky rows and always post explicit runIds";; esac
+pass "v6.0 T6b cockpit: ▤ worktree sheet (disk readout first · risky flagged, never preselected · explicit runIds)"
+
 # 마지막 세션 자동 기억/복원: 첫 hydrate 뒤 restoreSession, render 말미 persistSession (파일 순서대로 매칭).
 case "$CKPT" in *'restoreSession();'*'persistSession();'*"'coxpit.session'"*'function persistSession'*'function restoreSession'*) : ;; *) fail "cockpit last-session persist/restore missing or unwired";; esac
 pass "cockpit remembers + auto-restores the last open session tabs (localStorage snapshot, dead runs pruned)"
@@ -1607,7 +1615,9 @@ for i in $(seq 1 30); do
 done
 case "$RCS" in '"status":"failed"'|'"status":"error"'|'"status":"stopped"') : ;; *) fail "reclaim victim not settled after agent kill: $RCS";; esac
 
-# an OPEN task with a settled 'done' run — it must NOT be reclaimable (dry run settles done)
+# v6.0 T6b — an OPEN task with a settled 'done' run whose change set is UNMERGED and
+# UN-EXPORTED. It IS listed now (that was the invisible debt), but flagged reclaimRisk:true
+# and never swept by a bare prune-all: its worktree is the only copy of that work.
 SAFET=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' \
   -d "{\"repoId\":$DRID,\"title\":\"reclaim-safe-open\",\"prompt\":\"do work\"}")
 SAFETID=$(echo "$SAFET" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
@@ -1619,44 +1629,126 @@ for i in $(seq 1 60); do
   [ -n "$SAFES" ] && break; sleep 0.5
 done
 [ "$SAFES" = '"status":"done"' ] || fail "safe open run did not settle done: $SAFES"
+SAFEFC=$(curl -s "$B/api/runs/$SAFERUN" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).run.filesChanged))')
+[ "${SAFEFC:-0}" -gt 0 ] || fail "the dry run must change a file for the at-risk case to exist (filesChanged=$SAFEFC)"
 
-# GET /api/worktrees — shape {items:[{runId,path,branch,taskId,reason,exists}],totalKb}
+# ...and its twin whose output ESCAPED (an export event) — merged/exported work is safe to
+# reclaim, so this one preselects and a bare prune-all takes it.
+EXPT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' \
+  -d "{\"repoId\":$DRID,\"title\":\"reclaim-exported\",\"prompt\":\"do work\"}")
+EXPTID=$(echo "$EXPT" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).task.id))')
+curl -sf -X POST "$B/api/tasks/$EXPTID/run" -H 'content-type: application/json' -d '{"count":1}' | grep -q '"ok":true' || fail "exported-case run launch"
+EXPRUN=$(curl -s "$B/api/tasks/$EXPTID" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runs[0].id))')
+EXPS=''
+for i in $(seq 1 60); do
+  EXPS=$(curl -s "$B/api/runs/$EXPRUN" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1)
+  [ -n "$EXPS" ] && break; sleep 0.5
+done
+[ "$EXPS" = '"status":"done"' ] || fail "exported-case run did not settle done: $EXPS"
+EXPO=$(curl -sf -X POST "$B/api/runs/$EXPRUN/export" -H 'content-type: application/json' -d "{\"dest\":\"$WORK/t6b-export\"}")
+case "$EXPO" in *'"ok":true'*) : ;; *) fail "export (escaped-work case) failed: $EXPO";; esac
+
+# ...and one that is still RUNNING (the stalling agent bin) — never listed, never reclaimed.
+LIVT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' \
+  -d "{\"repoId\":$DRID,\"title\":\"reclaim-live\",\"prompt\":\"do work\"}")
+LIVTID=$(echo "$LIVT" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).task.id))')
+curl -sf -X POST "$B/api/tasks/$LIVTID/run" -H 'content-type: application/json' -d '{"count":1,"real":true}' | grep -q '"ok":true' || fail "live run launch"
+LIVRUN=$(curl -s "$B/api/tasks/$LIVTID" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runs[0].id))')
+LIVS=''
+for i in $(seq 1 60); do
+  LIVS=$(curl -s "$B/api/runs/$LIVRUN" | { grep -oE '"status":"running"' || true; } | head -1)
+  [ -n "$LIVS" ] && break; sleep 0.5
+done
+[ "$LIVS" = '"status":"running"' ] || fail "live run never reached running: $(curl -s "$B/api/runs/$LIVRUN")"
+
+# v6.0 T6b — the disk readout rides /api/health for anything watching from outside.
+# The value is CACHED (du runs in the background), so poll: the first stale call kicks the
+# refresh, the next carries it. Numbers are whatever the disk says — assert the shape.
+WTH=''
+for i in $(seq 1 40); do
+  WTH=$(curl -sf "$B/api/health" || true)
+  case "$WTH" in *'"worktrees"'*) break;; esac
+  sleep 0.5
+done
+node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const w=JSON.parse(b).worktrees;
+  if(!w) throw new Error("health must carry worktrees:{count,sizeKb} while worktrees exist: "+b);
+  if(typeof w.count!=="number"||typeof w.sizeKb!=="number") throw new Error("worktrees field types wrong: "+b);
+  if(!(w.count>0)) throw new Error("count must be positive when worktrees exist: "+b);
+  if(!(w.sizeKb>0)) throw new Error("sizeKb must be positive when worktrees exist: "+b);
+  console.log("health disk readout ok");
+})' <<<"$WTH" || fail "health worktrees readout wrong: $WTH"
+pass "T6b: /api/health carries the worktree disk readout { count, sizeKb } (cached du)"
+
+# GET /api/worktrees — {items:[{runId,path,branch,taskId,reason,exists,reclaimRisk}],totalKb}
 WT=$(curl -sf "$B/api/worktrees")
-RCRUN="$RCRUN" SAFERUN="$SAFERUN" python3 -c 'import sys,json,os
-d=json.loads(sys.stdin.read())
-assert isinstance(d["items"],list) and isinstance(d["totalKb"],int),d
-ids=[w["runId"] for w in d["items"]]
-victim=int(os.environ["RCRUN"]); safe=int(os.environ["SAFERUN"])
-assert victim in ids, ("stopped/failed run must be reclaimable", ids, victim)
-assert safe not in ids, ("open done run must NOT be reclaimable", ids, safe)
-w=[x for x in d["items"] if x["runId"]==victim][0]
-assert w["path"] and w["branch"] and "reason" in w and "exists" in w, ("item shape", w)
-' <<<"$WT" || fail "worktrees shape/filter wrong: $WT"
-pass "worktrees list: stopped/failed reclaimable, open+done run NOT listed"
+RCRUN="$RCRUN" SAFERUN="$SAFERUN" EXPRUN="$EXPRUN" LIVRUN="$LIVRUN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const d=JSON.parse(b);
+  if(!Array.isArray(d.items)||typeof d.totalKb!=="number") throw new Error("payload shape: "+b);
+  const by=id=>d.items.find(x=>x.runId===Number(process.env[id]));
+  const victim=by("RCRUN"), risky=by("SAFERUN"), escaped=by("EXPRUN");
+  if(!victim) throw new Error("a failed run must stay reclaimable: "+b);
+  for (const k of ["path","branch","reason","exists","reclaimRisk"]) if(!(k in victim)) throw new Error("item missing "+k);
+  if(victim.reclaimRisk!==false) throw new Error("a failed run with no changed files is not at risk: "+JSON.stringify(victim));
+  if(!risky) throw new Error("a settled done run must now be listed (that was the invisible debt): "+b);
+  if(risky.reclaimRisk!==true) throw new Error("done + changes + no export/pr must be flagged: "+JSON.stringify(risky));
+  if(!escaped) throw new Error("the exported done run must be listed: "+b);
+  if(escaped.reclaimRisk!==false) throw new Error("exported work is not the only copy: "+JSON.stringify(escaped));
+  if(by("LIVRUN")) throw new Error("a running run must NEVER be listed: "+b);
+  console.log("worktrees listing ok");
+})' <<<"$WT" || fail "worktrees shape/risk wrong: $WT"
+pass "T6b worktrees list: done listed with reclaimRisk, exported/failed safe, running never listed"
 
-# POST /api/worktrees/prune — reclaims the victim; its worktreePath must be cleared,
-# and the safe (open/done) run's worktree must remain untouched.
+# POST /api/worktrees/prune with no runIds = "reclaim all" and all means all NON-risky:
+# the failed victim and the exported run go; the unmerged one and the live one stay.
 PR=$(curl -sf -X POST "$B/api/worktrees/prune" -H 'content-type: application/json' -d '{}')
-RCRUN="$RCRUN" python3 -c 'import sys,json,os
-d=json.loads(sys.stdin.read())
-assert d["count"]>=1 and isinstance(d["removed"],list),d
-assert int(os.environ["RCRUN"]) in [r["runId"] for r in d["removed"]],("victim removed",d)
-' <<<"$PR" || fail "prune result wrong: $PR"
+RCRUN="$RCRUN" SAFERUN="$SAFERUN" EXPRUN="$EXPRUN" LIVRUN="$LIVRUN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const d=JSON.parse(b);
+  if(!(d.count>=1)||!Array.isArray(d.removed)) throw new Error("prune payload: "+b);
+  const ids=d.removed.map(r=>r.runId), has=k=>ids.includes(Number(process.env[k]));
+  if(!has("RCRUN")) throw new Error("the failed victim should have been reclaimed: "+b);
+  if(!has("EXPRUN")) throw new Error("the exported run should have been reclaimed: "+b);
+  if(has("SAFERUN")) throw new Error("prune-all must never delete the sole copy of unmerged work: "+b);
+  if(has("LIVRUN")) throw new Error("prune-all must never touch a running run: "+b);
+  console.log("prune-all ok");
+})' <<<"$PR" || fail "prune result wrong: $PR"
 # victim worktreePath now blank
 VWT=$(curl -s "$B/api/runs/$RCRUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["worktreePath"])')
 [ -z "$VWT" ] || fail "victim worktreePath not cleared after prune: '$VWT'"
-# safe run's worktree still present (never touched)
+# the at-risk run's worktree is still there (flagged, not preselected, not swept)
 SWT=$(curl -s "$B/api/runs/$SAFERUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["worktreePath"])')
-[ -n "$SWT" ] || fail "safe open run's worktree was wrongly cleared"
-# idempotent — re-prune finds nothing (victim gone, safe not eligible)
+[ -n "$SWT" ] || fail "prune-all wrongly reclaimed the sole copy of unmerged work"
+# the live run's worktree is untouched too
+LWT=$(curl -s "$B/api/runs/$LIVRUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["worktreePath"])')
+[ -n "$LWT" ] || fail "prune-all wrongly reclaimed a running run's worktree"
+pass "T6b prune-all reclaims the non-risky only — unmerged and running worktrees survive"
+
+# ...but the human may still tick it: an explicit runIds honors the choice.
+PR2=$(curl -sf -X POST "$B/api/worktrees/prune" -H 'content-type: application/json' -d "{\"runIds\":[$SAFERUN]}")
+SAFERUN="$SAFERUN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const ids=JSON.parse(b).removed.map(r=>r.runId);
+  if(!ids.includes(Number(process.env.SAFERUN))) throw new Error("an explicitly chosen at-risk run must be reclaimed: "+b);
+  console.log("explicit prune ok");
+})' <<<"$PR2" || fail "explicit prune wrong: $PR2"
+SWT2=$(curl -s "$B/api/runs/$SAFERUN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["run"]["worktreePath"])')
+[ -z "$SWT2" ] || fail "explicitly chosen worktreePath not cleared: '$SWT2'"
+# idempotent — re-prune finds nothing (both gone, the live one still never offered)
 WT2=$(curl -sf "$B/api/worktrees")
-RCRUN="$RCRUN" SAFERUN="$SAFERUN" python3 -c 'import sys,json,os
+RCRUN="$RCRUN" SAFERUN="$SAFERUN" LIVRUN="$LIVRUN" python3 -c 'import sys,json,os
 ids=[w["runId"] for w in json.loads(sys.stdin.read())["items"]]
 assert int(os.environ["RCRUN"]) not in ids,("victim still reclaimable",ids)
-assert int(os.environ["SAFERUN"]) not in ids,("safe leaked into reclaimable",ids)
+assert int(os.environ["SAFERUN"]) not in ids,("explicitly reclaimed run still listed",ids)
+assert int(os.environ["LIVRUN"]) not in ids,("a running run leaked into reclaimable",ids)
 ' <<<"$WT2" || fail "post-prune list wrong: $WT2"
-pass "prune: reclaimable removed + pointer cleared, open/done run untouched, idempotent"
-# cleanup the safe task so branch check downstream stays clean
+pass "T6b explicit runIds reclaims the flagged one (human chose), pointer cleared, idempotent"
+# stop the live run and cleanup the tasks so the branch check downstream stays clean
+curl -s -X POST "$B/api/runs/$LIVRUN/stop" >/dev/null
+pkill -f stall-agent.sh 2>/dev/null || true
+curl -s -X POST "$B/api/tasks/$LIVTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+curl -s -X POST "$B/api/tasks/$EXPTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 curl -s -X POST "$B/api/tasks/$SAFETID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 curl -s -X POST "$B/api/tasks/$RCTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 
