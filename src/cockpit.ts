@@ -349,9 +349,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .lock{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .lock:hover{color:var(--brand)}
   .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
-  .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none}
-  /* 섹션 라벨에 액션이 둘 이상이면 한 묶음으로 — 양쪽 끝으로 흩어지지 않게(.tact+.tact 와 같은 이유) */
-  .lbl .lacts{display:flex;align-items:center;gap:10px}
+  /* white-space:nowrap — 좁은 레일에서 "고아 터미널"이 "고아 터미 / 널"로 단어 중간에 접히던 것 방지(2026-09-18) */
+  .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none;white-space:nowrap}
+  /* 섹션 라벨에 액션이 둘 이상이면 한 묶음으로 — 양쪽 끝으로 흩어지지 않게(.tact+.tact 와 같은 이유).
+     min-width:0 로 flex 아이템이 필요하면 줄어들 수 있게(넘칠 땐 각 라벨은 nowrap 이라 통째로 유지) */
+  .lbl .lacts{display:flex;align-items:center;gap:10px;min-width:0}
   /* v6.0 S1 — Scratch 안내문은 제거함(의뢰자 요청 2026-09-17). .tree-note 미사용 */
   .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
   .tnode.session.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
