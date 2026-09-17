@@ -12,6 +12,7 @@ import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnap
 import { runShellOn, spawnShellOn, shq, type MachineTarget } from './exec';
 import { broadcast } from './hub';
 import { getProvider, type Provider } from './providers';
+import { workContextBlock, removeWorkDoc } from './workdoc';
 
 // ── 산출물 계약(deliverable contract) ─────────────────────────
 /** 산출물 타입 5종 — 태스크가 선언할 수 있는 계약 항목. */
@@ -391,6 +392,7 @@ function remoteKillScript(worktreePath: string): string {
 
 interface RunContext {
   runId: number;
+  taskId: number;
   machine: MachineTarget;
   machineId: number;
   repoId: number;
@@ -435,8 +437,15 @@ async function loadContext(runId: number): Promise<RunContext | null> {
   const declared = parseOutputs(task.outputs);
   if (declared.length) prompt += deliverablesNote(declared);
 
+  // v6.0 W3 — 작업의 공유 컨텍스트(WORK.md). 격리된 run 은 과거에서 갈라져 나오지만,
+  // 여기 적힌 결정은 이 작업 아래 모든 세션에 따라붙는다(파일 컨텍스트는 Part P 의 몫,
+  // 결정 컨텍스트는 이쪽 몫). 디자인 캡처·산출물 계약과 같은 시임이라 발사 경로 전부가 덮인다.
+  // ⚠️ 편집은 **다음 발사·steer** 부터 닿는다 — 돌고 있는 턴에 끼어드는 마법은 없다.
+  prompt += workContextBlock(task.id);
+
   return {
     runId,
+    taskId: task.id,
     machine: { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser },
     machineId: m.id,
     repoId: repo.id,
@@ -689,9 +698,11 @@ export async function steerRun(runId: number, message: string, mode: 'work' | 'a
   await recordEvent(runId, mode === 'ask' ? 'ask' : 'steer', message.slice(0, 2000));
 
   // Ask 모드 — 세션에 질문만: 파일 수정 없이 답변만 하도록 래핑
-  const finalMessage = mode === 'ask'
+  // 뒤에 붙는 WORK CONTEXT(W3): 작업 중간에 steer 를 받는 에이전트도 그동안 적힌 결정을 본다.
+  // 여기서도 편집은 **이 steer 부터** 닿는다(이미 돌고 있던 턴은 건드리지 않는다).
+  const finalMessage = (mode === 'ask'
     ? `Question about your work in this session (do NOT modify any files, do NOT run write commands — answer concisely):\n${message}`
-    : message;
+    : message) + workContextBlock(ctx.taskId);
 
   const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
   const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
@@ -1219,7 +1230,8 @@ export async function deleteSession(runId: number): Promise<{ ok: boolean; detai
   await db.delete(agentRuns).where(eq(agentRuns.id, runId));
   // 세션 task 는 run 과 1:1 — 남은 run 이 없으면 task 도 제거해 트리에서 사라지게.
   const siblings = await db.select().from(agentRuns).where(eq(agentRuns.taskId, run.taskId));
-  if (task && siblings.length === 0) await db.delete(tasks).where(eq(tasks.id, task.id));
+  // 작업이 사라지면 그 작업의 WORK.md 도 같이 사라진다(W1 — 정본은 task 수명에 매인다).
+  if (task && siblings.length === 0) { await db.delete(tasks).where(eq(tasks.id, task.id)); removeWorkDoc(task.id); }
   broadcast({ type: 'run', runId, deleted: true });   // 모든 콘솔이 재하이드레이트 → 행 제거
   return { ok: true, detail: 'session deleted (folder preserved)' };
 }

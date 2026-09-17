@@ -29,7 +29,8 @@ import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
 import { BOARD_HTML } from './board';
 import { COCKPIT_HTML } from './cockpit';
-import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText, findFiles as fsFindFiles, uploadFile as fsUploadFile } from './files';
+import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText, findFiles as fsFindFiles, uploadFile as fsUploadFile, withinFilesRoot } from './files';
+import { ensureWorkDoc, readWorkDoc, writeWorkDoc, removeWorkDoc, workDocPath, workDocSize } from './workdoc';
 
 const require_ = createRequire(import.meta.url);
 
@@ -955,6 +956,47 @@ export async function buildServer(): Promise<FastifyInstance> {
     return { ok: true, title };
   });
 
+  // ─── v6.0 Part W — WORK.md (작업의 공유 컨텍스트) ───────────────
+  // 정본은 데몬 데이터 디렉터리(~/.coxpit/work/<taskId>.md)에 산다 — git 트리 밖이라
+  // 어떤 worktree 의 diff 에도 뜨지 않고 브랜치가 갈려도 내용이 갈라지지 않는다.
+  // 읽기·쓰기는 **기존 파일 뷰어**(/api/fs/read·write)가 그대로 맡는 것이 기본이다:
+  // ~/.coxpit 은 기본 뷰어 루트(홈) 안이라 이미 통과한다(새 파일 창구를 만들지 않는다).
+  // 여기 셋은 그 앞뒤만 맡는다 — ① 처음 열 때 빈 파일을 만들어 주고(POST),
+  // ② COXPIT_DB/COXPIT_FILES_ROOT 조합 때문에 그 길이 막힌 경우의 대체 경로(GET/PUT).
+  const WORK_DOC_MAX = 512 * 1024;
+  const workTask = async (id: number) => (await db.select().from(tasks).where(eq(tasks.id, id)).limit(1))[0];
+
+  app.post('/api/tasks/:id/work', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!(await workTask(id))) return reply.code(404).send({ error: 'task not found' });
+    try {
+      const path = ensureWorkDoc(id);
+      // inRoot=true 면 클라이언트는 평소 쓰던 파일 뷰어 페인으로 그냥 연다.
+      return { ok: true, path, inRoot: withinFilesRoot(path), size: workDocSize(id) };
+    } catch (e: any) { return reply.code(500).send({ error: String(e?.message || e) }); }
+  });
+
+  app.get('/api/tasks/:id/work', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!(await workTask(id))) return reply.code(404).send({ error: 'task not found' });
+    const path = workDocPath(id);
+    const text = readWorkDoc(id);
+    // 뷰어가 /api/fs/read 에서 받던 모양 그대로 — 같은 렌더러가 손 안 대고 붙는다.
+    return { path, name: 'WORK.md', kind: 'md', size: Buffer.byteLength(text, 'utf8'), editable: true, text };
+  });
+
+  app.put('/api/tasks/:id/work', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const b = (req.body ?? {}) as { content?: string };
+    if (typeof b.content !== 'string') return reply.code(400).send({ error: 'content required' });
+    if (Buffer.byteLength(b.content, 'utf8') > WORK_DOC_MAX) return reply.code(400).send({ error: 'content exceeds edit cap (512KB)' });
+    if (!(await workTask(id))) return reply.code(404).send({ error: 'task not found' });
+    try {
+      const { path, size } = writeWorkDoc(id, b.content);
+      return { ok: true, path, name: 'WORK.md', size };
+    } catch (e: any) { return reply.code(500).send({ error: String(e?.message || e) }); }
+  });
+
   // 역할 이름(run.title) 상한 — 탭 한 칸에 들어가는 길이. 작업 이름(140)보다 짧게 둔다.
   const RUN_TITLE_MAX = 60;
 
@@ -1060,6 +1102,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     for (const r of trs) cleanups.push({ runId: r.id, ...(await cleanupRun(r.id)) });
 
     await db.update(tasks).set({ status: 'closed', closedAt: new Date() }).where(eq(tasks.id, id));
+    // 작업이 닫히면 그 작업의 WORK.md 도 같이 사라진다(W1) — 공유 컨텍스트는 작업의 수명을 산다.
+    removeWorkDoc(id);
     broadcast({ type: 'task', taskId: id, status: 'closed' });
     return { ok: true, taskId: id, cleanups };
   });

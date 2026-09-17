@@ -94,9 +94,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tnode.goal{margin:3px 4px 3px 12px;padding:5px 8px;border:1px dashed var(--line);border-radius:6px}
   .tnode.goal .gi{color:var(--brand)}
   .tnode.task{padding-left:30px}
-  /* 트리 노드 액션(＋ 새 작업 · ＋ 에이전트) — hover 에서만 드러나고, 터치 기기는 옅게 상주 */
+  /* 트리 노드 액션(＋ 새 작업 · ▤ WORK.md · ＋ 에이전트) — hover 에서만 드러나고, 터치 기기는 옅게 상주 */
   .tnode .tact{margin-left:auto;flex:none;white-space:nowrap;font-family:var(--mono);font-size:10.5px;line-height:1;
     color:var(--faint);background:none;border:none;border-radius:5px;padding:3px 5px;cursor:pointer;opacity:0}
+  /* 한 행에 액션이 둘이면 앞의 것만 밀어낸다(둘 다 auto 면 남은 공간을 나눠 가져 사이가 벌어진다) */
+  .tnode .tact+.tact{margin-left:2px}
   .tnode:hover .tact{opacity:1}
   .tnode .tact:hover{color:var(--brand);background:var(--surface2)}
   body.touch .tnode .tact{opacity:.7}
@@ -949,6 +951,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var tk='task'+t.id;
     var s = '<div class="tnode task" data-fold="'+tk+'"><span class="car">'+(rns.length?(isFold(tk)?'▸':'▾'):' ')+'</span>'
       + '<span class="n" title="'+esc(t.title)+'">'+esc(t.title)+'</span>'
+      + '<button class="tact" data-workmd="'+t.id+'" title="WORK.md — 이 작업의 공유 컨텍스트(목표·결정·제약). 저장한 내용은 다음 발사·steer 부터 에이전트에게 전달됩니다(돌고 있는 턴에는 반영되지 않습니다).">▤ WORK.md</button>'
       + '<button class="tact" data-newagent="'+t.id+'" title="에이전트 추가 — 이 작업 아래에 역할 세션 하나(worktree 격리)">＋ 에이전트</button></div>';
     if (!isFold(tk)) rns.sort(function(a,b){return a.id-b.id;}).forEach(function(r){
       var open = tabs[r.id] ? ' open' : '';
@@ -970,6 +973,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (nw){ e.stopPropagation(); openNewWork(+nw.dataset.newwork); return; }
     var na = e.target.closest('[data-newagent]');
     if (na){ e.stopPropagation(); openAddAgent(+na.dataset.newagent); return; }
+    var wm = e.target.closest('[data-workmd]');
+    if (wm){ e.stopPropagation(); openWorkDoc(+wm.dataset.workmd); return; }
     var del = e.target.closest('[data-delsession]');
     if (del){ e.stopPropagation(); deleteSession(+del.dataset.delsession); return; }
     var run = e.target.closest('[data-run]');
@@ -1090,10 +1095,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
 
   // ── 파일 뷰어 탭(비터미널) — md/html/pdf/이미지/텍스트 보기 + .env 등 편집 ──
-  function ensureViewer(path, name){
+  // opts.workTaskId — WORK.md 전용(뷰어 루트 밖일 때). 읽기·쓰기만 그 작업의 창구로 바뀌고
+  // 렌더러·편집 UI 는 완전히 같은 것을 쓴다. opts.edit — 열자마자 편집 모드로.
+  function ensureViewer(path, name, opts){
     var id='v'+(viewerSeq++);
     var host=document.createElement('div'); host.className='view-host';
-    var t={ runId:id, name:name||(path.split('/').pop()||path), kind:'viewer', term:null, ws:null, host:host, path:path, closing:false, opened:false };
+    var t={ runId:id, name:name||(path.split('/').pop()||path), kind:'viewer', term:null, ws:null, host:host, path:path, closing:false, opened:false,
+            workTaskId:(opts&&opts.workTaskId)||null, _openEdit:!!(opts&&opts.edit) };
     tabs[id]=t; tabOrder.push(id);
     renderViewer(t);
     return t;
@@ -1125,18 +1133,24 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var bar=host.querySelector('.view-bar'), body=host.querySelector('.view-body');
     bar.querySelector('.vp').textContent=t.path;
     var rawUrl='/api/fs/raw?path='+encodeURIComponent(t.path);
-    fetch('/api/fs/read?path='+encodeURIComponent(t.path)).then(function(r){ return r.json(); }).then(function(d){
+    var readUrl=t.workTaskId ? ('/api/tasks/'+t.workTaskId+'/work') : ('/api/fs/read?path='+encodeURIComponent(t.path));
+    fetch(readUrl).then(function(r){ return r.json(); }).then(function(d){
       if(d.error){ body.innerHTML='<div class="view-msg">열 수 없습니다: '+esc(d.error)+'</div>'; return; }
-      // 공통 액션: 원본 열기(새 탭/시스템)
-      var actions='<button data-act="raw" title="원본을 새 탭/시스템 뷰어로">↗ 원본</button>';
+      // 공통 액션: 원본 열기(새 탭/시스템). 뷰어 루트 밖 문서(WORK.md 대체 경로)는 원본 링크가 닿지 않는다.
+      var actions=t.workTaskId ? '' : '<button data-act="raw" title="원본을 새 탭/시스템 뷰어로">↗ 원본</button>';
+      // md 도 편집한다 — WORK.md 가 사는 곳이다(v6.0 W2). 미리보기 ↔ 편집은 같은 페인 안에서 오간다.
+      if(d.kind==='md' && d.editable) actions='<button data-act="edit" class="prim">편집</button>'+actions;
       if(d.kind==='md' || d.kind==='html' || d.kind==='pdf' || d.kind==='image'){
         bar.innerHTML='<span class="vp"></span>'+actions; bar.querySelector('.vp').textContent=t.path;
       }
       if(d.kind==='md'){
+        t._text=d.text||''; t._editable=!!d.editable;
         var html='<!doctype html><html><head><meta charset="utf-8"><base target="_blank"><style>'+MD_FRAME_CSS+'</style></head><body>'
           + ((window.marked&&window.marked.parse)?window.marked.parse(d.text||''):esc(d.text||'')) + '</body></html>';
         var f=document.createElement('iframe'); f.setAttribute('sandbox','allow-popups allow-popups-to-escape-sandbox'); f.srcdoc=html;
         body.innerHTML=''; body.appendChild(f);
+        // 처음 열 때만 바로 편집으로(WORK.md) — 저장·취소 뒤에는 평소대로 미리보기로 돌아온다.
+        if(t._openEdit && d.editable){ t._openEdit=false; startEdit(t); }
       } else if(d.kind==='html'){
         // 저장된/임의 HTML 은 신뢰 불가 → same-origin 금지 sandbox(불투명 출처라 쿠키·API 접근 차단)
         var fh=document.createElement('iframe'); fh.setAttribute('sandbox','allow-scripts allow-popups allow-popups-to-escape-sandbox'); fh.src=rawUrl;
@@ -1156,6 +1170,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         bar.innerHTML='<span class="vp"></span>'+actions; bar.querySelector('.vp').textContent=t.path;
         var pre=document.createElement('pre'); pre.className='vtext'; pre.textContent=d.text||''; body.innerHTML=''; body.appendChild(pre);
         t._text=d.text||''; t._editable=!!d.editable;
+        if(t._openEdit && d.editable){ t._openEdit=false; startEdit(t); }
       }
     }).catch(function(){ body.innerHTML='<div class="view-msg">불러오기 실패</div>'; });
 
@@ -1180,7 +1195,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   function saveEdit(t){
     var ta=t._ta; if(!ta) return; var content=ta.value;
-    fetch('/api/fs/write',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:t.path,content:content})})
+    var wUrl=t.workTaskId ? ('/api/tasks/'+t.workTaskId+'/work') : '/api/fs/write';
+    var wBody=t.workTaskId ? JSON.stringify({content:content}) : JSON.stringify({path:t.path,content:content});
+    fetch(wUrl,{method:(t.workTaskId?'PUT':'POST'),headers:{'content-type':'application/json'},body:wBody})
       .then(function(r){ return r.json(); }).then(function(d){
         if(d.error){ toast('저장 실패: '+d.error); return; }
         t._text=content; toast('저장됨 · '+t.name+' ('+fmtSize(d.size||0)+')'); renderViewer(t);
@@ -1810,6 +1827,21 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       else toast('작업 생성 실패: '+(j.detail||j.error||res.status));
     }catch(e){ toast('작업 생성 실패: '+e); }
     finally{ creatingWork=false; $('workGo').disabled=false; }
+  }
+  // WORK.md — 이 작업의 공유 컨텍스트(목표·결정·제약). 서버가 없으면 빈 파일로 만들어 주고,
+  // 그 경로가 파일 뷰어 루트(기본=홈, ~/.coxpit 이 그 안) 안이면 **평소 쓰던 뷰어 페인** 그대로 연다.
+  // 밖이면(COXPIT_DB 를 홈 밖으로 옮긴 경우) 같은 페인이 전용 창구로 읽고 쓴다 — 어포던스는 깨지지 않는다.
+  // [주의] 저장은 **다음 발사·steer** 부터 닿는다. 돌고 있는 턴에 끼어드는 마법은 없다.
+  async function openWorkDoc(taskId){
+    var t=taskById[taskId]; if(!t){ toast('작업을 찾을 수 없습니다'); return; }
+    try{
+      var res=await fetch('/api/tasks/'+taskId+'/work',{method:'POST'});
+      var j=await res.json().catch(function(){return{};});
+      if(!res.ok || !j.path){ toast('WORK.md 를 열 수 없습니다: '+(j.detail||j.error||res.status)); return; }
+      var v=ensureViewer(j.path, 'WORK.md · '+(t.title||('task '+taskId)), { edit:true, workTaskId:(j.inRoot?null:taskId) });
+      openTab(v.runId); if (isMobile()) setDrawer(false);
+      toast('WORK.md · 저장한 내용은 다음 발사·steer 부터 전달됩니다');
+    }catch(e){ toast('WORK.md 를 열 수 없습니다: '+e); }
   }
   function openAddAgent(taskId){
     var t=taskById[taskId]; if(!t){ toast('작업을 찾을 수 없습니다'); return; }
