@@ -288,7 +288,7 @@ so the next milestone deepens that. Theme: **run many agents from the terminal, 
 back only when one needs you.** Grounded in Giting's measured references (ruflo — ship only
 what works, no stub state; PokeTokenBar — ambient glance).
 
-- [ ] **Part A — agent state & attention** *(spec ready)*: coarse per-terminal state
+- [x] **Part A — agent state & attention** *(shipped on main, unreleased — phases 1–4 fleet-implemented 2026-09-17: r48 compare-pair·r50·r52·r53)*: coarse per-terminal state
       (working · waiting · idle · exited) read from the real PTY stream (`src/agentstate.ts`,
       tapped in `/ws/term`), surfaced as tab dots + an Agents rail + a waiting count, with
       opt-in sound / browser notification / webhook when a *background* tab needs you.
@@ -308,7 +308,7 @@ Session** (Repo ▸ Task ▸ Run — the model coxpit already has, finally surfa
 organize terminals); the board recedes to a review-and-records room. The fleet stops being a
 destination: adding a second agent to a work *is* the fleet.
 
-- [ ] **Part T — the work tree**: Scratch (공용, today's flat sessions) → Project ▸ Work ▸
+- [x] **Part T — the work tree** *(shipped on main, unreleased — r51)*: Scratch (공용, today's flat sessions) → Project ▸ Work ▸
       Session; 새 작업 opens a `main` hand terminal at the checkout; ＋에이전트 adds a named
       role session (`구현 · opus`); `agent_runs.title`.
 - [ ] **Part P — in-place agent sessions**: isolation becomes a per-session choice
