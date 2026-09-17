@@ -942,18 +942,50 @@ export async function buildServer(): Promise<FastifyInstance> {
     return { task: tr[0], runs };
   });
 
-  // 태스크 이름 변경(=세션 이름 변경). title 만 갱신.
+  // 태스크 이름 변경(=세션 이름 변경) + v6.0 S2 승격(repoId 재부모화).
+  // 둘 다 선택 — title 만 보내던 기존 호출은 그대로 동작한다. repoId 는 "이 작업이 어느
+  // 프로젝트 것인가"만 바꾼다: run 의 worktreePath 는 손대지 않으므로 터미널은 제 폴더에서 계속 돈다.
   app.patch('/api/tasks/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const b = (req.body ?? {}) as { title?: string };
+    const b = (req.body ?? {}) as { title?: string; repoId?: unknown };
+    const wantTitle = b.title !== undefined;
+    const wantRepo = b.repoId !== undefined && b.repoId !== null;
+    if (!wantTitle && !wantRepo) return reply.code(400).send({ error: 'title or repoId required' });
+
     const title = (b.title ?? '').trim();
-    if (!title) return reply.code(400).send({ error: 'title required' });
-    if (title.length > 140) return reply.code(400).send({ error: 'title too long (max 140)' });
+    if (wantTitle) {
+      if (!title) return reply.code(400).send({ error: 'title required' });
+      if (title.length > 140) return reply.code(400).send({ error: 'title too long (max 140)' });
+    }
     const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
-    if (!tr[0]) return reply.code(404).send({ error: 'not found' });
-    await db.update(tasks).set({ title }).where(eq(tasks.id, id));
-    broadcast({ type: 'task', taskId: id, title });
-    return { ok: true, title };
+    const task = tr[0];
+    if (!task) return reply.code(404).send({ error: 'not found' });
+
+    let repoId: number | undefined;
+    if (wantRepo) {
+      const wanted = Number(b.repoId);
+      if (!Number.isInteger(wanted)) return reply.code(400).send({ error: 'repoId must be an integer' });
+      const rr = await db.select().from(repos).where(eq(repos.id, wanted)).limit(1);
+      const repo = rr[0];
+      if (!repo) return reply.code(404).send({ error: 'repo not found' });
+      // 승격은 한 방향이다 — 프로젝트로 나가는 길만 있고, Scratch 버킷으로 밀어 넣는 길은 없다.
+      if (repo.kind === 'sessions') {
+        return reply.code(400).send({
+          error: 'cannot re-parent into the scratch bucket',
+          code: 'SCRATCH_BUCKET',
+          detail: 'the sessions bucket is not a project — pick a registered repo',
+        });
+      }
+      repoId = repo.id;
+    }
+    const patch: { title?: string; repoId?: number } = {};
+    if (wantTitle) patch.title = title;
+    if (repoId !== undefined) patch.repoId = repoId;
+    await db.update(tasks).set(patch).where(eq(tasks.id, id));
+    const outTitle = wantTitle ? title : task.title;
+    const outRepo = repoId ?? task.repoId;
+    broadcast({ type: 'task', taskId: id, title: outTitle, repoId: outRepo });
+    return { ok: true, title: outTitle, repoId: outRepo };
   });
 
   // ─── v6.0 Part W — WORK.md (작업의 공유 컨텍스트) ───────────────

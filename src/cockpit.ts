@@ -317,6 +317,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .lock:hover{color:var(--brand)}
   .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
   .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none}
+  /* 섹션 라벨에 액션이 둘 이상이면 한 묶음으로 — 양쪽 끝으로 흩어지지 않게(.tact+.tact 와 같은 이유) */
+  .lbl .lacts{display:flex;align-items:center;gap:10px}
+  /* v6.0 S1 — Scratch 는 아직 프로젝트가 아닌 것들이다. 한 줄로 그렇게 말한다 */
+  .tree-note{padding:0 8px 9px;font-size:10.5px;color:var(--faint);line-height:1.45;white-space:normal}
   .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
   .tnode.session.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
   /* 이름 우선: .n(flex:1) 이 공간을 갖고, 경로는 끝만 짧게(고정 폭) — hover 시 title 로 전체 표시 */
@@ -325,6 +329,25 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tnode.session .del{margin-left:auto;color:var(--faint);border:none;background:none;cursor:pointer;font-size:13px;line-height:1;padding:0 3px;opacity:0;flex:none}
   .tnode.session:hover .del{opacity:1} .tnode.session .del:hover{color:var(--failed)}
   body.touch .tnode.session .del{opacity:.65}
+  /* v6.0 S2 — 승격(⇧). 행에 auto 마진은 **하나만** 둔다: 앞선 .pr 이 가져가고 .del 은 붙어 선다 */
+  .tnode.session .pr{margin-left:auto;color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;line-height:1;padding:0 3px;opacity:0;flex:none}
+  .tnode.session .pr+.del{margin-left:0}
+  .tnode.session:hover .pr{opacity:1} .tnode.session .pr:hover{color:var(--brand)}
+  body.touch .tnode.session .pr{opacity:.65}
+
+  /* ── v6.0 S1b — Scratch 정리 판 · S2 승격 시트 ── */
+  .scrub-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:7px;font-size:12.5px;color:var(--muted);cursor:pointer}
+  .scrub-row:hover{background:var(--surface2)}
+  .scrub-row .snm{flex:1;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .scrub-row .slive{flex:none;font-size:10.5px;color:var(--done)}
+  .scrub-row .slive.dead{color:var(--faint)}
+  .scrub-row .sage{flex:none;font-size:10.5px;color:var(--faint)}
+  /* 접힌 오래된 세션 — 목록을 훑을 수 있게 접을 뿐, 접힌 것은 지우지 않는다 */
+  .scrub-fold{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:7px;font-size:11.5px;color:var(--muted);cursor:pointer}
+  .scrub-fold:hover{background:var(--surface2)}
+  .scrub-fold .sage{font-size:10.5px;color:var(--faint)}
+  .pick-row.on{background:var(--surface2);color:var(--ink)}
+  .pick-row.on .ic{color:var(--brand)}
 
   .toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line-hi);color:var(--ink);
     font-family:var(--mono);font-size:12px;padding:8px 14px;border-radius:9px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40;max-width:80vw}
@@ -601,6 +624,38 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <label class="rchk" title="실제 CLI 실행 (기본=드라이런)"><input type="checkbox" id="agentReal" /> real</label>
       <span class="shint" id="agentPlaceHint" style="flex:1">worktree 로 격리해 띄웁니다 — 나란히 비교하고 승자만 머지</span>
       <button class="go" id="agentGo">에이전트 추가</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="scrubModal">
+  <div class="pick" style="width:min(540px,92vw)">
+    <div class="pick-h"><span class="t">Scratch 정리</span><button class="x" id="scrubClose" title="닫기">×</button></div>
+    <div class="sheet-note">체크한 세션은 <b>터미널만 종료</b>됩니다 — <b>폴더와 파일은 언제나 그대로 보존</b>됩니다. 터미널이 없는 것만 미리 체크해 뒀고, 접어 둔 오래된 세션은 <b>선택되지도 지워지지도 않습니다</b>.</div>
+    <div class="pick-list" id="scrubList"></div>
+    <div class="pick-f">
+      <span id="scrubHint" style="flex:1;font-size:11px;color:var(--faint)">…</span>
+      <button class="go" id="scrubGo">선택 삭제</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="promoModal">
+  <div class="pick" style="width:min(540px,92vw)">
+    <div class="pick-h"><span class="t">⇧ 프로젝트로</span><button class="x" id="promoClose" title="닫기">×</button></div>
+    <div class="pick-path" id="promoPath">…</div>
+    <div class="sheet-body">
+      <div class="modes" id="promoMode">
+        <button type="button" class="mode on" data-promo="register">프로젝트로 등록</button>
+        <button type="button" class="mode" data-promo="move">프로젝트로 이동</button>
+      </div>
+      <div class="sheet-tradeoff" id="promoWhat">이 폴더를 repo 로 등록하고 이 작업을 그 아래로 옮깁니다</div>
+      <div class="sheet-err" id="promoErr" hidden></div>
+    </div>
+    <div class="pick-list" id="promoRepos" hidden></div>
+    <div class="pick-f">
+      <span id="promoWarn" style="flex:1;font-size:11px;color:var(--blocked);line-height:1.45;white-space:normal" hidden></span>
+      <button class="go" id="promoGo">등록하고 옮기기</button>
     </div>
   </div>
 </div>
@@ -889,7 +944,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     return (r && r.model) ? (nm+' · '+r.model) : nm;
   }
 
-  // ── 트리 렌더: Sessions ▸ (프로젝트=Repo 섹션 ▸ Goal 띠 ▸ 작업=Task ▸ 세션=Run) ──
+  // ── 트리 렌더: Scratch ▸ (프로젝트=Repo 섹션 ▸ Goal 띠 ▸ 작업=Task ▸ 세션=Run) ──
   function renderTree(){
     var el = $('tree');
     var repos = fleet.repos||[], tasks = fleet.tasks||[], groups = fleet.groups||[], runs = fleet.runs||[];
@@ -904,8 +959,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     sessRuns.sort(function(a,b){ return b.run.id-a.run.id; });
 
     var html = '';
-    // ── SESSIONS (자유 세션) ──
-    html += '<div class="lbl"><span>Sessions</span><span class="lnk" data-newsession="1">＋ 새 세션</span></div>';
+    // ── SCRATCH (자유 세션 = 아직 프로젝트가 아닌 것들) ──
+    // v6.0 S1: 데이터는 그대로(kind='sessions') — 바뀐 건 이름과 어포던스다. 여기서 바로
+    // 정리(S1b)하고, 여기서 바로 프로젝트로 졸업(S2)시킨다. 어지러워지는 자리에서 치울 수 있어야 한다.
+    html += '<div class="lbl"><span>Scratch</span><span class="lacts">'
+      + '<span class="lnk" data-scrub="1" title="정리 — 터미널이 없는 세션을 한 번에 지웁니다(폴더는 보존)">정리…</span>'
+      + '<span class="lnk" data-newsession="1">＋ 새 세션</span></span></div>';
+    html += '<div class="tree-note">프로젝트가 되기 전의 생각들 — 자라면 ⇧ 로 프로젝트가 됩니다</div>';
     if (sessRuns.length){
       sessRuns.forEach(function(s){
         var r=s.run; var open = tabs[r.id] ? ' open' : '';
@@ -914,6 +974,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         html += '<div class="tnode session'+open+'" data-run="'+r.id+'" title="'+esc(sPath)+'"><span class="st '+esc(r.status)+' '+asClass(agentStateOf(r.id))+'"></span>'
           + '<span class="n" title="'+esc(s.title||'session')+'">'+esc(s.title||'session')+'</span>'
           + '<span class="p" title="'+esc(sPath)+'">'+esc(sTail)+'</span>'
+          + '<button class="pr" data-promote="'+r.id+'" title="프로젝트로 — 이 폴더를 등록하거나 기존 프로젝트로 옮깁니다(터미널은 이 폴더 그대로)">⇧</button>'
           + '<button class="del" data-delsession="'+r.id+'" title="세션 삭제 — 터미널만 종료, 폴더·파일은 보존">×</button></div>';
       });
     } else {
@@ -968,6 +1029,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   $('tree').addEventListener('click', function(e){
     if (e.target.closest('[data-newsession]')){ openSession(); return; }
+    if (e.target.closest('[data-scrub]')){ openScrub(); return; }
+    var pm = e.target.closest('[data-promote]');
+    if (pm){ e.stopPropagation(); openPromote(+pm.dataset.promote); return; }
     // 노드 액션은 접기(data-fold)·열기(data-run) 보다 먼저 가로챈다 — 같은 행 안에 있으므로.
     var nw = e.target.closest('[data-newwork]');
     if (nw){ e.stopPropagation(); openNewWork(+nw.dataset.newwork); return; }
@@ -1738,15 +1802,187 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   // ── 자유 세션 — 폴더를 지정해 tmux 셸(프로젝트 비소속). ──
   var pickPathCur = '';
   function machineSlug(){ return (fleet.machines && fleet.machines[0] && fleet.machines[0].slug) || 'local'; }
-  async function deleteSession(runId){
-    if(!confirm('이 세션을 삭제할까요?\\n터미널만 종료됩니다 · 폴더와 파일은 그대로 보존됩니다.')) return;
+  // 세션 삭제의 유일한 길 — 한 건이든 정리 판의 여러 건이든 이 요청 하나를 지난다.
+  // 서버는 sessions 버킷 run 만 받아주고, 폴더는 **어느 경우에도** 건드리지 않는다.
+  async function delSessionReq(runId){
     try{
       var res=await fetch('/api/runs/'+runId,{method:'DELETE'});
       var j=await res.json().catch(function(){return{};});
-      if(res.ok){ if(tabs[runId]) closeTab(runId); toast('세션 삭제됨 (폴더 보존)'); await hydrate(); }
-      else toast('삭제 실패: '+(j.error||res.status));
-    }catch(e){ toast('삭제 실패: '+e); }
+      if(res.ok && tabs[runId]) closeTab(runId);
+      return { ok:res.ok, detail:(j.error||j.detail||('HTTP '+res.status)) };
+    }catch(e){ return { ok:false, detail:String(e) }; }
   }
+  async function deleteSession(runId){
+    if(!confirm('이 세션을 삭제할까요?\\n터미널만 종료됩니다 · 폴더와 파일은 그대로 보존됩니다.')) return;
+    var r=await delSessionReq(runId);
+    if(r.ok){ toast('세션 삭제됨 (폴더 보존)'); await hydrate(); }
+    else toast('삭제 실패: '+r.detail);
+  }
+
+  // ── v6.0 S1b — Scratch 정리 ──
+  // 신호는 **이미 들고 있는 /api/fleet** 것만 쓴다(추가 엔드포인트 없음):
+  // tmuxWindow+status = 터미널이 살아 있나 · startedAt/endedAt = 마지막으로 움직인 게 언제였나.
+  // 규칙 둘: ① 터미널 없는 것만 미리 체크 ② 14일 넘게 조용한 것은 접어만 두고 **절대 미리 체크하지 않는다**
+  //          (보이지 않는 것을 지우는 판은 청소 도구가 아니라 함정이다).
+  var SCRUB_STALE_DAYS = 14;
+  var scrubSel = {}, scrubOldOpen = false, scrubbing = false;
+  function scratchRows(){
+    var out=[];
+    (fleet.runs||[]).forEach(function(r){
+      var t=taskById[r.taskId]; var rp=t&&repoById[t.repoId];
+      if(!rp || rp.kind!=='sessions') return;
+      var last=Math.max(r.endedAt?new Date(r.endedAt).getTime():0, r.startedAt?new Date(r.startedAt).getTime():0);
+      var days=last?Math.floor((Date.now()-last)/86400000):0;
+      var live=!!r.tmuxWindow && (r.status==='open'||r.status==='running');
+      out.push({ id:r.id, title:(t&&t.title)||('session r'+r.id), path:r.worktreePath||'', live:live, days:days, last:last });
+    });
+    out.sort(function(a,b){ return b.id-a.id; });
+    return out;
+  }
+  function scrubAge(x){ return !x.last ? '시각 모름' : (x.days===0 ? '오늘' : (x.days+'일 전')); }
+  function scrubRowHTML(x){
+    return '<label class="scrub-row" title="'+esc(x.path)+'"><input type="checkbox" data-scrubchk="'+x.id+'"'+(scrubSel[x.id]?' checked':'')+' />'
+      + '<span class="snm">'+esc(x.title)+'</span>'
+      + '<span class="slive'+(x.live?'':' dead')+'">'+(x.live?'터미널 살아 있음':'터미널 없음')+'</span>'
+      + '<span class="sage">r'+x.id+' · '+scrubAge(x)+'</span></label>';
+  }
+  function renderScrub(){
+    var rows=scratchRows(), fresh=[], old=[];
+    rows.forEach(function(x){ ((!x.live && x.days>=SCRUB_STALE_DAYS) ? old : fresh).push(x); });
+    var html = fresh.map(scrubRowHTML).join('');
+    if (old.length){
+      html += '<div class="scrub-fold" data-scrubold="1">'+(scrubOldOpen?'▾':'▸')+' 오래된 세션 '+old.length
+        + '<span class="sage">'+SCRUB_STALE_DAYS+'일 넘게 조용 · 접힌 것은 지워지지 않습니다</span></div>';
+      if (scrubOldOpen) html += old.map(scrubRowHTML).join('');
+    }
+    if (!rows.length) html = '<div class="pick-row" style="cursor:default;color:var(--faint)">정리할 세션이 없습니다</div>';
+    $('scrubList').innerHTML = html;
+    var n=scrubCount();
+    $('scrubHint').textContent = rows.length
+      ? (n+'개 선택 · 세션 '+rows.length+'개 중'+(old.length?(' · 오래된 '+old.length+'개는 접힘'):''))
+      : '';
+    $('scrubGo').disabled = n===0;
+  }
+  function scrubCount(){ var n=0; Object.keys(scrubSel).forEach(function(k){ if(scrubSel[k]) n++; }); return n; }
+  function openScrub(){
+    scrubSel={}; scrubOldOpen=false;
+    scratchRows().forEach(function(x){ if(!x.live && x.days<SCRUB_STALE_DAYS) scrubSel[x.id]=true; });
+    renderScrub(); $('scrubModal').classList.add('on');
+  }
+  function closeScrub(){ $('scrubModal').classList.remove('on'); }
+  async function runScrub(){
+    if (scrubbing) return;
+    var ids=Object.keys(scrubSel).filter(function(k){ return scrubSel[k]; }).map(Number);
+    if (!ids.length){ toast('선택한 세션이 없습니다'); return; }
+    scrubbing=true; $('scrubGo').disabled=true;
+    var okN=0, bad='';
+    for (var i=0;i<ids.length;i++){
+      var r=await delSessionReq(ids[i]);
+      if (r.ok) okN++; else if(!bad) bad=r.detail;
+    }
+    scrubbing=false; scrubSel={};
+    await hydrate();
+    toast('세션 '+okN+'개 삭제됨 (폴더 보존)'+(okN<ids.length?(' · 실패 '+(ids.length-okN)+(bad?(': '+bad):'')):''));
+    if (scratchRows().length) renderScrub(); else closeScrub();
+  }
+  $('scrubClose').addEventListener('click', closeScrub);
+  $('scrubModal').addEventListener('click', function(e){ if(e.target===this) closeScrub(); });
+  $('scrubGo').addEventListener('click', runScrub);
+  $('scrubList').addEventListener('change', function(e){
+    var c=e.target.closest('[data-scrubchk]'); if(!c) return;
+    scrubSel[+c.dataset.scrubchk]=c.checked; renderScrub();
+  });
+  $('scrubList').addEventListener('click', function(e){
+    if (e.target.closest('[data-scrubold]')){ scrubOldOpen=!scrubOldOpen; renderScrub(); }
+  });
+
+  // ── v6.0 S2 — 승격: 생각이 프로젝트가 된다(터미널은 잃지 않고) ──
+  // 길 둘. ① 이 폴더가 자랐다 → 기존 등록 흐름(POST /api/repos)으로 repo 로 만들고 작업을 그 아래로.
+  //        ② 이 작업이 저 프로젝트 것이다 → 이미 있는 repo 를 골라 PATCH /api/tasks/:id { repoId }.
+  // 어느 쪽이든 run 은 손대지 않는다 — worktreePath 가 그대로라 터미널은 같은 폴더에서 계속 돈다.
+  var promoTaskId=null, promoPath='', promoMode='register', promoRepoId=null, promoting=false;
+  function promoErr(msg){ var el=$('promoErr'); if(!msg){ el.hidden=true; el.textContent=''; return; } el.textContent=msg; el.hidden=false; }
+  function realRepoList(){ return (fleet.repos||[]).filter(function(x){ return x.kind!=='sessions'; }); }
+  function renderPromoRepos(){
+    var repos=realRepoList();
+    if (!repos.length){ $('promoRepos').innerHTML='<div class="pick-row" style="cursor:default;color:var(--faint)">등록된 프로젝트가 없습니다 — 먼저 등록으로 만드세요</div>'; return; }
+    $('promoRepos').innerHTML = repos.map(function(x){
+      return '<div class="pick-row'+(promoRepoId===x.id?' on':'')+'" data-promorepo="'+x.id+'">'
+        + '<span class="ic">'+(promoRepoId===x.id?'◉':'◯')+'</span><span>'+esc(x.name)+'</span>'
+        + '<span class="rel" title="'+esc(x.path)+'">'+esc(x.path)+'</span></div>';
+    }).join('');
+  }
+  // 폴더가 그 프로젝트 밖이면 숨기지 않고 말한다 — 바뀌는 건 소속뿐이고 터미널은 이 폴더에 남는다.
+  function paintPromoWarn(){
+    var w=$('promoWarn');
+    var rp=(promoMode==='move' && promoRepoId!=null) ? repoById[promoRepoId] : null;
+    var base=rp ? String(rp.path||'').replace(/\\/+$/,'') : '';
+    var inside = !!base && !!promoPath && (promoPath===base || promoPath.indexOf(base+'/')===0);
+    if (!rp || inside){ w.hidden=true; w.textContent=''; return; }
+    w.textContent='이 세션 폴더는 '+(rp.name||'그 프로젝트')+' 밖입니다 — 바뀌는 건 소속(정리)뿐이고, 터미널은 이 폴더에서 그대로 돕니다.';
+    w.hidden=false;
+  }
+  function setPromoMode(m){
+    promoMode = (m==='move') ? 'move' : 'register';
+    Array.prototype.forEach.call($('promoMode').querySelectorAll('.mode'), function(x){
+      x.classList.toggle('on', x.getAttribute('data-promo')===promoMode);
+    });
+    var reg = promoMode==='register';
+    $('promoWhat').textContent = reg
+      ? '이 폴더를 repo 로 등록하고 이 작업을 그 아래로 옮깁니다 (git 저장소여야 합니다)'
+      : '이미 등록된 프로젝트를 골라 이 작업을 그 아래로 옮깁니다';
+    $('promoRepos').hidden = reg;
+    $('promoGo').textContent = reg ? '등록하고 옮기기' : '여기로 옮기기';
+    if (!reg) renderPromoRepos();
+    promoErr(''); paintPromoWarn();
+  }
+  function openPromote(runId){
+    var r=runById[runId]; if(!r){ toast('세션을 찾을 수 없습니다'); return; }
+    promoTaskId=r.taskId; promoPath=r.worktreePath||''; promoRepoId=null;
+    $('promoPath').textContent = promoPath || '(폴더 없음)';
+    setPromoMode('register');
+    $('promoModal').classList.add('on');
+  }
+  function closePromote(){ $('promoModal').classList.remove('on'); }
+  async function doPromote(){
+    if (promoting || promoTaskId==null) return;
+    promoting=true; $('promoGo').disabled=true; promoErr('');
+    try{
+      var repoId=promoRepoId;
+      if (promoMode==='register'){
+        if (!promoPath){ promoErr('이 세션의 폴더를 알 수 없습니다'); return; }
+        // 이미 등록된 폴더면 다시 등록하지 않는다 — 중복 등록은 트리를 어지럽힐 뿐이다.
+        var dup=realRepoList().filter(function(x){ return x.path===promoPath; })[0];
+        if (dup) repoId=dup.id;
+        else {
+          var rr=await fetch('/api/repos',{method:'POST',headers:{'content-type':'application/json'},
+            body:JSON.stringify({machineSlug:machineSlug(), path:promoPath})});
+          var rj=await rr.json().catch(function(){return{};});
+          if (!rr.ok || !rj.repo){ promoErr('등록 실패: '+(rj.detail||rj.hint||rj.error||rr.status)); return; }
+          repoId=rj.repo.id;
+        }
+      }
+      if (repoId==null){ promoErr('옮길 프로젝트를 고르세요'); return; }
+      var res=await fetch('/api/tasks/'+promoTaskId,{method:'PATCH',headers:{'content-type':'application/json'},
+        body:JSON.stringify({repoId:repoId})});
+      var j=await res.json().catch(function(){return{};});
+      if (!res.ok){ promoErr('옮기기 실패: '+(j.detail||j.error||res.status)); return; }
+      closePromote(); await hydrate();
+      toast('프로젝트로 승격 · 터미널은 이 폴더 그대로입니다');
+    }catch(e){ promoErr('승격 실패: '+e); }
+    finally{ promoting=false; $('promoGo').disabled=false; }
+  }
+  $('promoClose').addEventListener('click', closePromote);
+  $('promoModal').addEventListener('click', function(e){ if(e.target===this) closePromote(); });
+  $('promoGo').addEventListener('click', doPromote);
+  $('promoMode').addEventListener('click', function(e){
+    var b=e.target.closest('[data-promo]'); if(!b) return;
+    setPromoMode(b.getAttribute('data-promo'));
+  });
+  $('promoRepos').addEventListener('click', function(e){
+    var row=e.target.closest('[data-promorepo]'); if(!row) return;
+    promoRepoId=+row.dataset.promorepo; renderPromoRepos(); promoErr(''); paintPromoWarn();
+  });
   function openSession(){ $('pickModal').classList.add('on'); $('pickName').value=''; browseTo(''); }
   function closePicker(){ $('pickModal').classList.remove('on'); }
   async function browseTo(p){

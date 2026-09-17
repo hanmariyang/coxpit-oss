@@ -2299,7 +2299,8 @@ function connectWS(){
       render(); flash(ev.runId); paintModal();
     } else if (ev.type==='task'){
       const t = tasks.get(ev.taskId);
-      if (t){ if (ev.status!=null) t.status = ev.status; if (ev.groupId!=null) t.groupId = ev.groupId; render(); paintModal(); } else { hydrate(); }
+      // repoId 는 v6.0 S2 승격(재부모화)으로 바뀐다 — 안 받으면 repo 스코프가 다음 하이드레이트까지 어긋난다.
+      if (t){ if (ev.status!=null) t.status = ev.status; if (ev.groupId!=null) t.groupId = ev.groupId; if (ev.repoId!=null) t.repoId = ev.repoId; render(); paintModal(); } else { hydrate(); }
     } else if (ev.type==='capture'){
       captures.push(ev.capture); paintSidebar();
     }
