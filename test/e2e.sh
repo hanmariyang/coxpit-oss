@@ -320,6 +320,7 @@ case "$BOARD_HTML" in *'data-view="active"'*'data-view="goals"'*'data-view="docu
 case "$BOARD_HTML" in *'id="archive"'*'gband-open'*'async function openRoom'*) : ;; *) fail "board archive list / workroom entry lost (Part B removes nothing)";; esac
 expect_code 200 "$B/?view=archive"
 expect_code 200 "$B/?view=goals"
+case "$CKPT" in *'id="vtDocs"'*) : ;; *) fail "Docs vtab must be enabled and wired to the board (not disabled)";; esac
 pass "v6.0 Part B: ⌘K reaches Board/Archive/Workrooms (board's own setView via ?view=) — header toggle + every board view intact"
 
 # v6.0 T6 — 어질러지는 자리에서 치운다. 프로젝트 노드의 등록 해제·묵은 작업 정리 + 고아 터미널 수거.

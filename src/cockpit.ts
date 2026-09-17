@@ -459,7 +459,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   <div class="vtabs">
     <button type="button" class="vtab on" id="vtTerm"><span class="g">⌗</span><span class="b-txt">Terminal</span></button>
     <button type="button" class="vtab" id="vtReview"><span class="g">⧉</span><span class="b-txt">Review</span></button>
-    <button type="button" class="vtab" disabled title="Docs = 보드"><span class="g">▤</span><span class="b-txt">Docs</span></button>
+    <button type="button" class="vtab" id="vtDocs" title="Docs — 문서·아카이브는 보드 열람실에서 (Part B)"><span class="g">▤</span><span class="b-txt">Docs</span></button>
   </div>
   <div class="right">
     <span class="ver" id="ver" title="로드된 cockpit 버전 (캐시 확인용)">v__COXPIT_VER__</span>
@@ -2573,6 +2573,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function openReviewForRun(runId){ var r=runById[runId]; if(!r){ toast('run 정보 없음'); return; } showReview(); rvTaskId=r.taskId; try{ $('rvTask').value=String(r.taskId); }catch(e){} syncVcmd(); loadCompare(r.taskId); }
   $('vtTerm').addEventListener('click', showTerminal);
   $('vtReview').addEventListener('click', showReview);
+  // Docs = 보드 열람실(문서 스냅샷은 아카이브 뷰에 산다). Part B 원칙 그대로 gotoBoard 로 연다 —
+  // 죽은 버튼을 코크핏 안에 문서뷰를 다시 그리지 않고, 이미 있는 보드로 보낸다.
+  $('vtDocs').addEventListener('click', function(){ gotoBoard('archive'); });
   function reviewableTasks(){
     var byTask = {}; (fleet.runs||[]).forEach(function(r){ byTask[r.taskId]=(byTask[r.taskId]||0)+1; });
     return (fleet.tasks||[]).filter(function(t){
