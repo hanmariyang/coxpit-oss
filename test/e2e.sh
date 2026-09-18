@@ -2849,5 +2849,91 @@ case "$H_DESIGN" in *'Dry run badge (v5.28 H)'*'.dryc'*'DEFAULT 1'*) : ;; *) fai
 curl -s -X DELETE "$B/api/runs/$HSRUN" >/dev/null
 pass "v5.28 H4: only known-dry runs are badged; no emoji, no new transport, and DESIGN.md carries the component"
 
+# ── v5.28 Part I — 보드는 Scratch 세션을 싣지 않는다 ──
+# 한 줄로 줄이면: **보드는 에이전트 작업의 열람실이다.** 자유 터미널 세션은 run 이 아니므로
+# 여기 서지 않는다 — 그래도 세션의 집인 코크핏에서는 그대로 산다.
+# 서버는 손대지 않았다: /api/fleet 은 세션을 계속 내보내고(두 화면이 같은 페이로드를 읽는다),
+# 거르는 일은 오로지 보드 쪽 client 로직이다. 그래서 여기선 둘을 나눠 본다 —
+#   ① 서빙된 보드 소스에 규칙이 실제로 박혀 있나(모든 입구에)
+#   ② 살아 있는 플릿 페이로드에 그 규칙을 그대로 적용하면 세션만 빠지나
+# 파일 순서대로: 판정 기준 → 하이드레이트 → WS 델타 → 단건/아카이브 → 세는 자리 → 행동 → 코크핏.
+
+# I1(판정) — 기준은 repo.kind 하나다. 그 위에 task/run 헬퍼가 선다(델타는 runId, 객체는 id).
+I_KIND="allRepos.filter(x => x.kind === 'sessions')"
+I_HELP_T="const isSessionTask = (taskId) => sessionTaskIds.has(taskId);"
+I_HELP_R="const isSessionRun = (r) => !!r && (sessionRunIds.has(r.runId ?? r.id) || isSessionTask(r.taskId));"
+case "$BOARD_HTML" in *"$I_KIND"*) : ;; *) fail "the board must derive its session repos from repo.kind === 'sessions'";; esac
+case "$BOARD_HTML" in *"$I_HELP_T"*"$I_HELP_R"*) : ;; *) fail "the board needs isSessionTask/isSessionRun helpers — one rule, used at every door";; esac
+
+# 하이드레이트 — repo 목록·task·run 셋 다 같은 문을 지나고, 기준도 여기서 다시 세워진다.
+I_HREPO="repos = allRepos.filter(x => !isSessionRepo(x.id))"
+I_HTASK="(r.tasks||[]).forEach(t => { if (!isSessionTask(t.id)) tasks.set(t.id, t); });"
+I_HRUN="(r.runs||[]).forEach(rn => { if (!isSessionRun(rn)) runs.set(rn.id, { ...rn, events: rn.events||[] }); });"
+case "$BOARD_HTML" in *"$I_HREPO"*"$I_HTASK"*"$I_HRUN"*) : ;; *) fail "hydrate must drop session repos from the repo list and skip session tasks/runs";; esac
+# 하이드레이트만 거르면 반쪽이다 — 보드가 열려 있는 사이 난 세션은 델타로 들어온다.
+I_WSRUN="if (isSessionRun(ev)) return;"
+I_WSTASK="if (isSessionTask(ev.taskId) || isSessionRepo(ev.repoId)) return;"
+I_UPS="if (isSessionRun(patch)) return;"
+case "$BOARD_HTML" in *"$I_WSRUN"*) : ;; *) fail "the run delta handler must skip a session run (a Scratch session must never pop in)";; esac
+case "$BOARD_HTML" in *"$I_WSTASK"*) : ;; *) fail "the task delta handler must skip a session task";; esac
+case "$BOARD_HTML" in *"$I_UPS"*) : ;; *) fail "upsertRun is the last door — a session run must not slip through it";; esac
+pass "v5.28 I1: the board judges by repo.kind === 'sessions' and guards every ingestion point (hydrate · WS run/task deltas · upsertRun)"
+
+# 단건 fetch 와 아카이브 — 목록만 막으면 뒷문이 열려 있다.
+I_ONE="if(d.run && !isSessionRun(d.run))"
+I_ARCH="filter(row => !sessionRepoNames.has(row.repoName))"
+I_ARCHOPEN="if (isSessionRepo(j.task.repoId)) return;"
+case "$BOARD_HTML" in *"$I_ONE"*"$I_ONE"*) : ;; *) fail "both single-run fetches must refuse to seed a session run into the board's map";; esac
+case "$BOARD_HTML" in *"$I_ARCH"*) : ;; *) fail "the archive list must omit session-bucket rows (rows carry no repoId — match the bucket name)";; esac
+case "$BOARD_HTML" in *"$I_ARCHOPEN"*) : ;; *) fail "opening an archive row must not pull a session task in";; esac
+# 세는 자리와 그리는 자리 — 레일 목록은 걸러진 repos 만 읽고, 배지는 세션을 세지 않는다.
+I_CNT="if (isSessionRun(r)) continue;"
+case "$BOARD_HTML" in *"$I_CNT"*) : ;; *) fail "the rail's active-run counts must never count a session run";; esac
+case "$BOARD_HTML" in *'for (const r of repos){'*"\$('repoList').innerHTML = html;"*) : ;; *) fail "#repoList must render from the filtered repos list only";; esac
+pass "v5.28 I1: single-run fetches · archive rows · repo list · active-run counts all honor the same session guard"
+
+# I1(행동) — 진짜로 만들어 본다: Scratch 세션 하나 + 보통의 에이전트 run 하나.
+ISD="$WORK/i-scratch"; mkdir -p "$ISD"
+ISS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$ISD\",\"title\":\"i-scratch\"}") || fail "Part I: session create failed"
+ISRUN=$(echo "$ISS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+INP="$WORK/i-agent"
+IREPO=$(curl -s -X POST "$B/api/repos/new" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$INP\"}")
+IRID=$(echo "$IREPO" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).repo.id))') || fail "Part I: repos/new failed: $IREPO"
+IT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$IRID,\"title\":\"i-agent\",\"prompt\":\"x\"}")
+ITID=$(echo "$IT" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).task.id))')
+curl -sf -X POST "$B/api/tasks/$ITID/run" -H 'content-type: application/json' -d '{"count":1}' | grep -q '"ok":true' || fail "Part I: agent run launch"
+IARUN=$(curl -s "$B/api/tasks/$ITID" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runs[0].id))')
+I_FLEET=$(curl -sf "$B/api/fleet?view=active") || fail "Part I: GET /api/fleet failed"
+# 서버는 그대로고(세션은 계속 실린다 — 코크핏이 읽는다), 보드의 규칙만 적용해 본다.
+echo "$I_FLEET" | ISRUN="$ISRUN" IARUN="$IARUN" node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const f=JSON.parse(b);
+  const sess=Number(process.env.ISRUN), agent=Number(process.env.IARUN);
+  const bucket=(f.repos||[]).filter(r=>r.kind==="sessions");
+  if(!bucket.length) throw new Error("/api/fleet must still carry the sessions bucket — the cockpit lives on it");
+  if(!(f.runs||[]).some(r=>r.id===sess)) throw new Error("/api/fleet must be unchanged: the session run r"+sess+" is still served");
+  // 여기서부터가 보드가 하는 일 — sessionRepoIds → session tasks → session runs
+  const ids=new Set(bucket.map(r=>r.id));
+  const stasks=new Set((f.tasks||[]).filter(t=>ids.has(t.repoId)).map(t=>t.id));
+  const keptRuns=(f.runs||[]).filter(r=>!stasks.has(r.taskId));
+  if(keptRuns.some(r=>r.id===sess)) throw new Error("the board rule must drop the session run r"+sess);
+  if(!keptRuns.some(r=>r.id===agent)) throw new Error("the board rule must keep the agent run r"+agent);
+  const keptRepos=(f.repos||[]).filter(r=>!ids.has(r.id));
+  if(keptRepos.some(r=>r.kind==="sessions")) throw new Error("no sessions bucket may reach the repo list");
+  if(!keptRepos.length) throw new Error("the real project must survive the filter (this is a filter, not a blackout)");
+  console.log("fleet unchanged · the board rule drops r"+sess+" and keeps r"+agent);
+})' || fail "the board session rule does not hold on the live fleet payload: $I_FLEET"
+pass "v5.28 I1: /api/fleet still serves the Scratch session (server untouched) while the board rule drops it and keeps the agent run"
+
+# I2(범위) — 잃은 것이 없다. 세션의 집은 코크핏이고, 거기 Scratch 섹션은 그대로다.
+I_CKSESS="var sessionRepoIds = {}; repos.forEach(function(r){ if (r.kind==='sessions') sessionRepoIds[r.id]=true; });"
+case "$CKPT" in *"$I_CKSESS"*) : ;; *) fail "the cockpit must keep building its Scratch section from the sessions bucket";; esac
+case "$CKPT" in *'<span>Scratch</span><span class="lacts">'*'<div class="tnode session'*) : ;; *) fail "the cockpit Scratch section (and its session rows) must be untouched by Part I";; esac
+# 컴포넌트 표는 같은 커밋에서 갱신된다(DESIGN.md 는 강제되는 계약이다).
+I_DESIGN=$(cat "$ROOT/DESIGN.md")
+case "$I_DESIGN" in *'Board session exclusion (v5.28 I)'*"sessionRepoIds"*'zero new colors'*) : ;; *) fail "DESIGN.md must record the board's session exclusion in the same commit";; esac
+curl -s -X DELETE "$B/api/runs/$ISRUN" >/dev/null
+pass "v5.28 I2: board-only — the cockpit still shows Scratch, /api/fleet is unchanged, and DESIGN.md carries the rule"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
