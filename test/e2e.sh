@@ -2376,7 +2376,7 @@ case "$CKPT" in *'function activityHTML(runId)'*'class="anm"'*'data-role="actchi
 case "$CKPT" in *'function actNowText'*"return live ? 'starting…'"*'latestActivity(runId)'*) : ;; *) fail "the Now line is latestActivity, and says starting… while the stream is still empty (never invented)";; esac
 # 타임라인 = 공유 humanize 를 r.events 에 그대로. 새 줄은 아래에 잇고, 꼬리에 붙어 있을 때만 따라간다.
 case "$CKPT" in *'function actPaintTimeline'*'humanLines((r&&r.events)'*'el.appendChild(d)'*'if(t._tlPinned){ el.scrollTop=el.scrollHeight;'*) : ;; *) fail "the timeline must be the shared humanize over r.events, appended at the bottom, auto-scrolling only while pinned to the tail";; esac
-case "$CKPT" in *'data-role="actjump"'*'최신으로'*) : ;; *) fail "a scrolled-up timeline needs a jump-to-latest affordance";; esac
+case "$CKPT" in *'data-role="actjump"'*'Latest ↓'*) : ;; *) fail "a scrolled-up timeline needs a jump-to-latest affordance";; esac
 # 변경 요약 = filesChanged N + 접힌 diff(이미 있는 창구·렌더러·공백 토글 그대로)
 case "$CKPT" in *'function actFilesText(runId)'*"return 'filesChanged '"*'data-role="actfiles"'*) : ;; *) fail "the change summary must state filesChanged N";; esac
 case "$CKPT" in *'function actLoadDiff'*"fetch('/api/runs/'+runId+'/diff')"*'diffHTML(d.diff'*) : ;; *) fail "the diff peek must reuse /api/runs/:id/diff + the existing diff renderer";; esac

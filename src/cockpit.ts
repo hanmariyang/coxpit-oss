@@ -388,10 +388,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .act-chg .rv-diff{max-height:210px;border-top:1px solid var(--line)}
   .act-bar{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 12px;
     border-top:1px solid var(--line);background:var(--surface)}
-  .act-bar .abtn{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;
-    border:1px solid var(--line);border-radius:7px;padding:4px 10px;cursor:pointer;white-space:nowrap}
-  .act-bar .abtn:hover,.act-bar .abtn:focus-visible{color:var(--ink);border-color:var(--line-hi)}
-  .act-bar .abtn.prim{color:var(--brand-ink);background:var(--brand);border-color:var(--brand)}
+  /* .abtn = 활동 뷰 버튼. 툴바 .tc-btn 과 같은 치수(radius 6·pad 3/8)로 맞춘다. 셀렉터는 bare —
+     .act-chg-h 의 '변경' 버튼도 같은 규칙을 받아야 한다(전엔 .act-bar 스코프라 그 버튼이 흰 네이티브였다). */
+  .abtn{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;
+    border:1px solid var(--line);border-radius:6px;padding:3px 8px;cursor:pointer;white-space:nowrap}
+  .abtn:hover:not([disabled]),.abtn:focus-visible{color:var(--ink);border-color:var(--line-hi)}
+  .abtn.prim{color:var(--brand-ink);background:var(--brand);border-color:var(--brand)}
   .act-bar .qr{display:inline-flex;align-items:center;gap:3px}
   .act-bar .qr:empty{display:none}
   /* Activity | Terminal — 요청바의 .modes/.mode 세그를 페인 헤더 크기로만 줄여 쓴다(새 컴포넌트 없음) */
@@ -3518,11 +3520,11 @@ ${HUMANIZE_JS}
       + '</div>'
       + '<div class="act-now" data-role="actnow">'+esc(actNowText(runId))+'</div>'
       + '<div class="act-tlwrap"><div class="act-tl" data-role="acttl"></div>'
-      +   '<button type="button" class="act-jump" data-role="actjump" data-actjump="'+runId+'" hidden>최신으로 ↓</button></div>'
+      +   '<button type="button" class="act-jump" data-role="actjump" data-actjump="'+runId+'" hidden>Latest ↓</button></div>'
       + '<div class="act-chg"><div class="act-chg-h">'
       +   '<span class="afiles" data-role="actfiles">'+esc(actFilesText(runId))+'</span>'
-      +   '<button type="button" class="abtn" data-actdiff="'+runId+'" title="지금까지의 변경(diff) — Review 와 같은 렌더러">변경 미리보기</button>'
-      +   '<button type="button" class="rv-ws" data-actws="'+runId+'" title="공백 표시(스페이스·탭)" hidden>␣ 공백</button>'
+      +   '<button type="button" class="abtn" data-actdiff="'+runId+'" title="Diff so far — same renderer as Review">Changes</button>'
+      +   '<button type="button" class="rv-ws" data-actws="'+runId+'" title="Show whitespace (space/tab)" hidden>␣ WS</button>'
       +   '</div><div class="rv-diff" data-role="actdiffbody" hidden></div></div>'
       + '<div class="act-bar">'
       +   '<button type="button" class="abtn prim" data-actterm="'+runId+'" title="이 페인을 날 터미널(worktree 셸)로 — 언제든 한 번에 돌아옵니다">Open terminal</button>'
@@ -3544,7 +3546,7 @@ ${HUMANIZE_JS}
       var j=h.querySelector('[data-role=actjump]'); if(j) j.hidden=atEnd;
     });
     actPaintTimeline(t);
-    if(t._diffOpen){ var db=h.querySelector('[data-actdiff]'); if(db) db.textContent='변경 접기'; actLoadDiff(t.runId); }
+    if(t._diffOpen){ var db=h.querySelector('[data-actdiff]'); if(db) db.textContent='Hide changes'; actLoadDiff(t.runId); }
   }
   function actKey(h){ return h.k+'\\u0000'+h.t; }
   // 새 줄은 **아래에 잇는다**. 통째로 다시 그리는 것은 이을 자리를 못 찾았을 때뿐이다
@@ -3568,7 +3570,7 @@ ${HUMANIZE_JS}
     }
     t._tlKeys=prev;
     var jb=h.querySelector('[data-role=actjump]');
-    if(!prev.length){ el.innerHTML='<div class="act-empty">아직 이벤트가 없습니다 — starting…</div>'; if(jb) jb.hidden=true; return; }
+    if(!prev.length){ el.innerHTML='<div class="act-empty">No events yet — starting…</div>'; if(jb) jb.hidden=true; return; }
     if(t._tlPinned){ el.scrollTop=el.scrollHeight; if(jb) jb.hidden=true; }
     else if(start<lines.length && jb) jb.hidden=false;
   }
@@ -3586,7 +3588,7 @@ ${HUMANIZE_JS}
   function actLoadDiff(runId){
     var t=tabs[runId]; if(!t||!t.actHost) return;
     var body=t.actHost.querySelector('[data-role=actdiffbody]'); if(!body) return;
-    body.hidden=false; body.textContent='불러오는 중…';
+    body.hidden=false; body.textContent='Loading…';
     var wsBtn=t.actHost.querySelector('[data-actws]'); if(wsBtn){ wsBtn.hidden=false; wsBtn.classList.toggle('on', rvShowWs); }
     fetch('/api/runs/'+runId+'/diff').then(function(x){ return x.json(); }).then(function(d){
       if(tabs[runId]!==t || !t._diffOpen) return;
@@ -3597,7 +3599,7 @@ ${HUMANIZE_JS}
   function actToggleDiff(runId){
     var t=tabs[runId]; if(!t||!t.actHost) return;
     t._diffOpen=!t._diffOpen;
-    var btn=t.actHost.querySelector('[data-actdiff]'); if(btn) btn.textContent=t._diffOpen?'변경 접기':'변경 미리보기';
+    var btn=t.actHost.querySelector('[data-actdiff]'); if(btn) btn.textContent=t._diffOpen?'Hide changes':'Changes';
     if(t._diffOpen){ actLoadDiff(runId); return; }
     var body=t.actHost.querySelector('[data-role=actdiffbody]'); if(body){ body.hidden=true; body.innerHTML=''; }
     var wsBtn=t.actHost.querySelector('[data-actws]'); if(wsBtn) wsBtn.hidden=true;
