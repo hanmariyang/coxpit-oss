@@ -2706,5 +2706,148 @@ fi
 kill "$TPID" 2>/dev/null || true
 curl -s -X POST "$B/api/runs/$PSRUN/cleanup" >/dev/null
 
+# ── v5.28 Part H — dry run 은 run 의 일급 성질이다 ──
+# 한 줄로 줄이면: **모의가 진짜 작업으로 오인되면 안 된다.**
+# 라이브에서 dry run 하나가 3파전에 끼어 실 후보들과 구분되지 않았다 — diff 를 열어
+# COXPIT_DRYRUN.txt 를 봐야 알았다. 원인은 단순했다: dry/real 이 run 에 **저장되지 않았다**.
+# 그래서 셋을 못박는다:
+#   ① 사실은 run 행에 남는다(real) — 그리고 모든 직렬화·델타에 실린다
+#   ② **아는 dry 만** 배지한다(기본 1=real) — 모르는 과거를 모의라고 부르지 않는다
+#   ③ 머지·승자 선택 전에 한 번 묻는다 — 네이티브 confirm 이 아니라 기존 확인 대화상자로
+# 파일 순서대로 본다: 스키마/마이그레이션 → API → 코크핏 → 보드.
+
+# H1 — 기본값이 곧 정직함이다. 컬럼은 DEFAULT 1(real) 이라, 이 컬럼 이전의 run 은 절대 dry 로 칠해지지 않는다.
+H_SCHEMA=$(cat "$ROOT/src/db/schema.ts")
+case "$H_SCHEMA" in *"real: integer('real', { mode: 'boolean' }).notNull().default(true)"*) : ;; *) fail "agent_runs needs a real column defaulting to true (badge dry, never guess dry)";; esac
+H_DDL=$(cat "$ROOT/src/db/index.ts")
+case "$H_DDL" in *"ALTER TABLE agent_runs ADD COLUMN real INTEGER NOT NULL DEFAULT 1"*) : ;; *) fail "the real column needs an idempotent DEFAULT 1 migration beside the other ALTERs";; esac
+pass "v5.28 H1: agent_runs.real exists with an idempotent DEFAULT 1 migration (the unknown past stays real)"
+
+# 세션(run 1)은 에이전트 런치가 없어 real=기본(true) — dry 가 아니다(기본값이 곧 정직함).
+H_SESS=$(curl -sf "$B/api/runs/1") || fail "GET /api/runs/1 failed"
+echo "$H_SESS" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const r=JSON.parse(b).run;
+  if(typeof r.real!=="boolean") throw new Error("run.real must be a boolean: "+JSON.stringify(r.real));
+  if(r.agent==="session" && r.real!==true) throw new Error("a session keeps the default real:true (it is not a dry run): "+JSON.stringify(r.real));
+  console.log("session carries real:true (not a dry run)");
+})' || fail "session run lost real: $H_SESS"
+# 진짜 dry 에이전트 run 을 여기서 하나 만든다(그린필드 레시피, 이 데몬은 real 토글이 없어 모의로 돈다) → real:false.
+HNP="$WORK/h-dry"
+HREPO=$(curl -s -X POST "$B/api/repos/new" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$HNP\"}")
+HRID=$(echo "$HREPO" | python3 -c 'import sys,json;print(json.load(sys.stdin)["repo"]["id"])' 2>/dev/null) || fail "h-dry repos/new failed: $HREPO"
+HT=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$HRID,\"title\":\"h-dry\",\"prompt\":\"x\"}")
+HTID=$(echo "$HT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["task"]["id"])')
+curl -sf -X POST "$B/api/tasks/$HTID/run" -H 'content-type: application/json' -d '{"count":1}' | grep -q '"ok":true' || fail "h-dry run launch"
+HRUN=$(curl -s "$B/api/tasks/$HTID" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runs"][0]["id"])')
+HD=""
+for i in $(seq 1 60); do HD=$(curl -s "$B/api/runs/$HRUN" | { grep -oE '"status":"(done|failed|error)"' || true; } | head -1); [ -n "$HD" ] && break; sleep 0.5; done
+H_ONE=$(curl -sf "$B/api/runs/$HRUN")
+echo "$H_ONE" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const r=JSON.parse(b).run;
+  if(typeof r.real!=="boolean") throw new Error("run.real must be a boolean: "+JSON.stringify(r.real));
+  if(r.agent==="session") throw new Error("expected an agent run, got a session");
+  if(r.real!==false) throw new Error("a dry-launched agent run must report real:false, got "+JSON.stringify(r.real));
+  console.log("dry agent run carries real:false");
+})' || fail "dry agent run lost real:false: $H_ONE"
+
+# 손 세션은 진짜 터미널이다 — 에이전트 발사 경로를 타지 않으니 기본값 그대로 real:true 로 남는다.
+HSD="$WORK/h-sess"; mkdir -p "$HSD"
+HSS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$HSD\",\"title\":\"h-real\"}")
+HSRUN=$(echo "$HSS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+H_REAL=$(curl -sf "$B/api/runs/$HSRUN") || fail "GET /api/runs/:id failed for the hand session"
+echo "$H_REAL" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const r=JSON.parse(b).run;
+  if(r.real!==true) throw new Error("a run that never ran a mock must report real:true: "+JSON.stringify(r.real));
+  console.log("real run carries real:true");
+})' || fail "a non-dry run must report real:true: $H_REAL"
+
+# 플릿 — 모든 run 이 불리언 real 을 들고 온다(클라이언트는 real===false 하나만 본다).
+H_FLEET=$(curl -sf "$B/api/fleet?view=all") || fail "GET /api/fleet failed"
+echo "$H_FLEET" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const rs=JSON.parse(b).runs||[];
+  if(!rs.length) throw new Error("no runs in the fleet payload");
+  for(const r of rs) if(typeof r.real!=="boolean") throw new Error("fleet run r"+r.id+" is missing a boolean real");
+  if(!rs.some(r=>r.real===false)) throw new Error("the dry runs of this suite must surface as real:false");
+  if(!rs.some(r=>r.real===true)) throw new Error("a real run must surface as real:true (default 1)");
+  console.log("fleet runs carry real ("+rs.length+")");
+})' || fail "fleet payload lost real"
+# 비교 뷰도 같은 사실을 들고 온다 — 승자를 고르는 화면이 바로 여기다.
+# (파이프 없이 매칭: 큰 페이로드에 grep -q 를 물리면 SIGPIPE+pipefail 오탐이 난다)
+# dry run 이 든 방금 그 태스크(HTID)를 본다 — task 1 은 세션이라 real:false 가 없다.
+H_CMP=$(curl -s "$B/api/tasks/$HTID/compare")
+case "$H_CMP" in *'"real":false'*) : ;; *) fail "compare payload must carry real (the winner is picked here): $H_CMP";; esac
+curl -s -X POST "$B/api/tasks/$HTID/close" -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+pass "v5.28 H1: real rides every serialized run (/api/runs/:id · /api/fleet · /api/tasks/:id/compare) as a boolean"
+
+# H2 — 코크핏. 칩은 real===false 에만 붙는다(항상 붙는 장식이 아니다).
+# bash 3.2 중첩 따옴표 함정 — 따옴표를 품은 패턴은 먼저 변수에 담는다.
+H_DRYATTR='data-dry="1"'
+H_CFMOPEN="\$('cfmModal').classList.add('on')"
+H_CKMERGE="b.getAttribute('data-dry')==='1' && !(await confirmDryMerge(1))"
+H_BDMERGE="btn.dataset.dry==='1' && !(await confirmDryMerge(1))"
+H_ASK='이 run 은 dry (모의)입니다 — 정말 머지할까요?'
+case "$CKPT" in *'.dryc{'*'color:var(--faint)'*'border:1px solid var(--line-hi)'*) : ;; *) fail "the dry chip must be a bordered mono chip on existing tokens (no new color)";; esac
+case "$CKPT" in *'id="cfmModal"'*'id="cfmMsg"'*'id="cfmOk"'*) : ;; *) fail "the cockpit needs its own confirm dialog markup (no native confirm)";; esac
+case "$CKPT" in *'function confirmUI(message, opts)'*"$H_CFMOPEN"*) : ;; *) fail "the cockpit confirm must be the promise-based confirmUI over the existing .pick shell";; esac
+case "$CKPT" in *'function confirmDryMerge(n)'*"$H_ASK"*) : ;; *) fail "the dry merge guard must ask in the existing confirm, with the spec's wording";; esac
+# 판정은 한 줄이다 — real===false 만 dry 다. undefined(마이그레이션 이전·미하이드레이트)는 dry 가 아니다.
+H_CHIP=$(printf '%s' "$CKPT" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const q=String.fromCharCode(39);
+  const i=b.indexOf("function isDryRun(r){");
+  if(i<0) return console.log("NO_ISDRY");
+  const decl=b.slice(i, b.indexOf("\n", i));
+  if(!/return !!r && r\.real===false;/.test(decl)) return console.log("NOT_STRICT");
+  const k=b.indexOf("function dryChip(r){");
+  if(k<0) return console.log("NO_DRYCHIP");
+  const body=b.slice(k, b.indexOf("\n", k));
+  if(!/isDryRun\(r\)/.test(body)) return console.log("CHIP_UNGATED");
+  if(body.indexOf(">dry<")<0) return console.log("CHIP_NOT_THE_WORD");
+  if(body.indexOf(": "+q+q+";")<0) return console.log("REAL_RUN_GETS_A_CHIP");
+  console.log("DRYCHIP_OK");
+});')
+case "$H_CHIP" in DRYCHIP_OK) : ;; *) fail "the chip must key off real===false and draw nothing for a real run: $H_CHIP";; esac
+# 붙는 자리 셋 — 트리 run 행 · 활동 헤더 · (아래 H3) 비교 열
+case "$CKPT" in *'<div class="tnode run'*'dryChip(r)'*) : ;; *) fail "the tree run row must carry the dry chip beside its status dot";; esac
+case "$CKPT" in *'data-role="actchip"'*'dryChip(runById[runId])'*) : ;; *) fail "the activity-view header must carry the dry chip";; esac
+pass "cockpit v5.28 H2: a lowercase mono dry chip on tree run rows + the activity header, gated on real===false (real runs get none)"
+
+# H3 — 비교/머지 가드. dry 열은 표가 나고, 머지는 말없이 지나가지 않는다.
+case "$CKPT" in *'class="rv-col-h"'*'dryChip(r)'*"$H_DRYATTR"*) : ;; *) fail "a dry candidate's compare column must be flagged and its merge button marked";; esac
+case "$CKPT" in *"$H_CKMERGE"*) : ;; *) fail "the cockpit merge must stop on a dry run until the confirm says go";; esac
+# 보드 — 같은 규칙, 같은 낱말. 카드 · 비교 열 · 방(workroom) · 묶음 통합 넷 다.
+case "$BOARD_HTML" in *'.dryc{'*'color:var(--faint)'*'border:1px solid var(--line-hi)'*) : ;; *) fail "the board dry chip must reuse existing tokens (no new color)";; esac
+case "$BOARD_HTML" in *'function isDryRun(r){ return !!r && r.real===false; }'*) : ;; *) fail "the board must judge dry by real===false only (never a falsy check)";; esac
+case "$BOARD_HTML" in *'function confirmDryMerge(n)'*'confirmUI('*"$H_ASK"*) : ;; *) fail "the board dry guard must go through confirmUI, not native confirm";; esac
+case "$BOARD_HTML" in *'chipHTML(r.status)+dryChip(r)'*) : ;; *) fail "the board run card must show the dry chip next to its status chip";; esac
+case "$BOARD_HTML" in *'class="cmp-h"'*'dryChip(r)'*"$H_DRYATTR"*) : ;; *) fail "the board compare column must flag a dry candidate";; esac
+case "$BOARD_HTML" in *"$H_BDMERGE"*) : ;; *) fail "the board compare merge must raise the dry guard first";; esac
+case "$BOARD_HTML" in *'isDryRun(r) && !(await confirmDryMerge(1))'*) : ;; *) fail "the workroom merge must raise the dry guard too";; esac
+case "$BOARD_HTML" in *'selOrder.filter(id=>isDryRun(runs.get(id))).length'*'confirmDryMerge(dryN)'*) : ;; *) fail "a bare Integrate-selected must not silently take a dry run";; esac
+pass "v5.28 H3: dry candidates are flagged in both compares; every merge/pick path (compare · workroom · integrate) asks first via the custom confirm"
+
+# H4 — 정직함과 범위. 새 색도, 이모지도, 새 전송로도 없다(래칫은 위에서 이미 봤다).
+H_EMJ=$(node -e '
+const fs=require("fs");
+const rx=/[\u{1F000}-\u{1FAFF}\u{2699}\u{26A0}\u{2B50}]/u;
+// board.ts·orchestrator.ts 는 제외 — 이전부터 허용된 이모지(⚙ 모델·⚠ 경고·⭐ serve·🤖 PR 본문)가 있다.
+// Part H 가 board.ts 에 더한 dry 칩은 '단어'라 안전하고, 서빙 보드 이모지는 별도 체크가 지킨다.
+const files=["src/cockpit.ts","src/server.ts","src/db/schema.ts","src/db/index.ts"];
+let bad=[];
+for(const f of files){ const s=fs.readFileSync(process.argv[1]+"/"+f,"utf8").split("\n");
+  s.forEach((l,i)=>{ if(rx.test(l)) bad.push(f+":"+(i+1)); }); }
+console.log(bad.length?bad.join(" "):"ASCII_OK");
+' "$ROOT")
+case "$H_EMJ" in ASCII_OK) : ;; *) fail "emoji in a Part H source file (comments included) — the chip is a word: $H_EMJ";; esac
+# 컴포넌트 표는 같은 커밋에서 갱신된다(DESIGN.md 는 강제되는 계약이다).
+H_DESIGN=$(cat "$ROOT/DESIGN.md")
+case "$H_DESIGN" in *'Dry run badge (v5.28 H)'*'.dryc'*'DEFAULT 1'*) : ;; *) fail "DESIGN.md must document the dry run badge in the same commit";; esac
+curl -s -X DELETE "$B/api/runs/$HSRUN" >/dev/null
+pass "v5.28 H4: only known-dry runs are badged; no emoji, no new transport, and DESIGN.md carries the component"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

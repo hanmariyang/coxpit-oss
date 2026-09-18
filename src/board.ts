@@ -554,6 +554,11 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .chip.noop{color:#c9922e;border-color:rgba(201,146,46,.45)}
   .chip.noop.blk{color:#e0955a;border-color:rgba(224,149,90,.6)}
   .card-h .chip.noop::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:1px}
+  /* v5.28 H2 — dry(모의) run 표식. 낱말 하나를 조용한 톤으로: 색은 새로 만들지 않고
+     --faint 글자 + --line-hi 테두리만 쓴다. 진짜 run 에는 아무 칩도 붙지 않는다. */
+  .dryc{display:inline-flex;align-items:center;font-family:var(--mono);font-size:9.5px;line-height:1.6;
+    letter-spacing:.06em;padding:2px 6px;border-radius:999px;color:var(--faint);border:1px solid var(--line-hi);
+    background:transparent;flex:none}
   .meta{display:flex;gap:16px;padding:0 14px 10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
   .meta b{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
   .meta .resumable{color:var(--brand);opacity:.75}
@@ -1513,6 +1518,21 @@ function chipHTML(status){
   return '<span class="chip '+(s==='running'?'running':'')+'" style="color:'+statusColor(s)+';border-color:'+statusColor(s)+'">'
     + '<i></i>'+esc(s)+'</span>';
 }
+/* ── dry(모의) run (v5.28 H) ──
+   판정은 real===false 하나뿐이다. undefined(이 컬럼 이전의 run, 아직 안 온 델타)는 **모르는 것**이지
+   dry 가 아니다 — 모르는 것을 모의라 부르면 거짓 경보가 된다. dry 를 배지하되, dry 를 추측하지 않는다. */
+function isDryRun(r){ return !!r && r.real===false; }
+function dryChip(r){
+  return isDryRun(r)
+    ? '<span class="dryc" title="dry run — a mock stream made these changes (not a real agent)">dry</span>' : '';
+}
+/* 모의를 진짜처럼 base 로 넘기지 않게 — 아는 dry 에만 한 번 묻는다. */
+function confirmDryMerge(n){
+  return confirmUI('이 run 은 dry (모의)입니다 — 정말 머지할까요?', {
+    sub: (n>1 ? '고른 '+n+'개가 dry 입니다. ' : '') + 'dry run 의 변경은 모의 스트림이 만든 것입니다 — 진짜 작업이 아닙니다.',
+    danger: true, okLabel: '그래도 머지',
+  });
+}
 /* 같은 태스크에 run 이 여럿이면 "run i/n" — 같은 제목 카드가 중복이 아니라 시도로 읽히게 */
 function attemptHTML(r){
   const sib = [...runs.values()].filter(x=>x.taskId===r.taskId).sort((a,b)=>a.id-b.id);
@@ -1973,7 +1993,7 @@ function cardHTML(r){
   const selCls = (selectMode?' selmode':'') + (selected.has(r.id)?' selected':'') + (closed?' closed':'');
   return '<div class="card'+selCls+'" id="card-'+r.id+'">'
     + '<div class="card-h"><span class="rid">r'+r.id+'</span><span class="title">'+title+'</span>'
-    + '<span class="selbox">'+ic('check')+'</span>'+chipHTML(r.status)
+    + '<span class="selbox">'+ic('check')+'</span>'+chipHTML(r.status)+dryChip(r)
     + (r.noop ? '<span class="chip noop'+(r.noopReason==='blocked'?' blk':'')+'" title="'
         +(r.noopReason==='blocked'?'settled without making the change it was asked for — likely stalled on approval':'this run changed no files — did it actually do the work?')
         +'">'+(r.noopReason==='blocked'?'blocked':'no changes')+'</span>' : '')
@@ -2486,6 +2506,9 @@ $('selToggle').addEventListener('click', ()=>setSelectMode(!selectMode));
 $('selCancel').addEventListener('click', ()=>setSelectMode(false));
 $('selGo').addEventListener('click', async ()=>{
   if (!selOrder.length){ toast('select settled runs with changes first', 'error'); return; }
+  // 묶어서 넘기는 길이 가장 조용하다 — 고른 것 중 아는 dry 가 하나라도 있으면 먼저 묻는다(H3).
+  const dryN = selOrder.filter(id=>isDryRun(runs.get(id))).length;
+  if (dryN && !(await confirmDryMerge(dryN))) return;
   const yes = await confirmUI('Integrate '+selOrder.length+' run(s) into the base branch?',
     { sub: 'Merged one by one in selection order. A run that conflicts spawns an integration agent (real, spends credits) to resolve it.', okLabel: 'Integrate' });
   if (!yes) return;
@@ -2680,7 +2703,7 @@ async function paintCompare(){
     const mergeable = ['done','failed','stopped'].includes(r.status) && files>0;
     const merged = r.status==='merged';
     return '<div class="cmp-col" data-run="'+r.id+'">'
-      + '<div class="cmp-h"><span class="rid">r'+r.id+'</span>'+chipHTML(r.status)
+      + '<div class="cmp-h"><span class="rid">r'+r.id+'</span>'+chipHTML(r.status)+dryChip(r)
       + '<span class="files">'+files+' file'+(files===1?'':'s')+'</span></div>'
       + '<div class="cmp-meta" title="'+esc(summary)+'">'+(summary?esc(summary):'—')+'</div>'
       + '<div class="cmp-diff"><pre class="diff">'+diffHTML(r.diff||'')+'</pre></div>'
@@ -2690,7 +2713,7 @@ async function paintCompare(){
       + (merged
         ? chipHTML('merged')
         : (r.prUrl ? '' : '<button class="btn-ghost sm" data-pr="'+r.id+'"'+(mergeable?'':' disabled')+'>Open PR</button>')
-          + '<button class="btn sm" data-merge="'+r.id+'"'+(mergeable?'':' disabled')+'>Merge this</button>')
+          + '<button class="btn sm" data-merge="'+r.id+'"'+(isDryRun(r)?' data-dry="1"':'')+(mergeable?'':' disabled')+'>Merge this</button>')
       + '</div></div>';
   }).join('');
   // doc 모드 — 각 열의 diff 를 렌더된 문서로 치환 (열별 비동기, 도착 순)
@@ -2747,6 +2770,8 @@ $('cmpBody').addEventListener('click', async (e)=>{
   }
   const btn = e.target.closest('button[data-merge]'); if(!btn) return;
   const rid = Number(btn.dataset.merge);
+  // dry 열은 여기서 한 번 더 붙잡는다 — 나란히 놓고 고르는 자리가 실수가 나는 자리였다(H3).
+  if (btn.dataset.dry==='1' && !(await confirmDryMerge(1))) return;
   const yes = await confirmUI('Merge r'+rid+' into the base branch?',
     { sub: 'Uncommitted worktree changes are committed first. Conflicts abort automatically.'+(await driftNote(rid)), okLabel: 'Merge' });
   if (!yes) return;
@@ -3084,6 +3109,7 @@ async function roomRunAction(act, rid){
     return;
   }
   if (act==='merge'){
+    if (isDryRun(r) && !(await confirmDryMerge(1))) return;
     const yes = await confirmUI('Merge r'+rid+' into the base branch?',
       { sub: 'Uncommitted worktree changes are committed first. Conflicts abort automatically.', okLabel: 'Merge' });
     if (!yes) return;

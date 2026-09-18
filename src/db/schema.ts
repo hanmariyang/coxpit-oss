@@ -93,6 +93,10 @@ export const agentRuns = sqliteTable('agent_runs', {
   sessionId: text('session_id').notNull().default(''), // 에이전트 세션(steer 용 --resume 키)
   prUrl: text('pr_url').notNull().default(''), // PR 모드로 올린 pull request URL
   model: text('model').notNull().default(''), // 런치별 모델 지정(빈값 = CLI 기본)
+  // v5.28 Part H — 이 run 이 진짜 에이전트로 돌았나(real), 모의 스트림이었나(dry).
+  // 기본 true(real)는 **의도**다: 이 컬럼이 생기기 전 run 은 알 수 없고, 모르는 것을 dry 라
+  // 부르면 거짓 경보가 된다. 아는 dry 만 표시한다 — dry 를 배지하되, dry 를 추측하지 않는다.
+  real: integer('real', { mode: 'boolean' }).notNull().default(true),
   filesChanged: integer('files_changed').notNull().default(0),
   agentPid: integer('agent_pid').notNull().default(0),   // detached sh pgid — 재시작 후 생존 판정/stop
   logOffset: integer('log_offset').notNull().default(0), // 내구 로그에서 tail 이 소비한 바이트(재-adopt 시 여기부터)
