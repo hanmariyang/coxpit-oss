@@ -293,8 +293,8 @@ case "$CKPT" in *'.scrub-row{'*'.scrub-fold{'*) : ;; *) fail "cockpit Scratch st
 case "$CKPT" in *'id="scrubModal"'*'폴더와 파일은 언제나 그대로 보존'*'선택되지도 지워지지도 않습니다'*'id="scrubList"'*'id="scrubGo"'*) : ;; *) fail "cockpit Scratch cleanup sheet must state the folder is preserved and that folded sessions are untouched";; esac
 # 승격 메뉴 — 등록 / 이동 두 길
 case "$CKPT" in *'id="promoModal"'*'data-promo="register"'*'>프로젝트로 등록<'*'data-promo="move"'*'>프로젝트로 이동<'*) : ;; *) fail "cockpit promotion menu (프로젝트로 등록 / 프로젝트로 이동) missing";; esac
-# 라벨 = Scratch + 한 줄 카피(트리 목소리 그대로) + Tidy…(v5.28 F2) + 행마다 ⇧ 승격
-case "$CKPT" in *'<span>Scratch</span>'*'data-scrub="1"'*'>Tidy…</span>'*'data-promote='*) : ;; *) fail "cockpit Scratch section needs the reframe label + Tidy… + per-session promote";; esac
+# 라벨 = Scratch + 섹션 ⋯(v5.28 G2 — Tidy… 는 그 메뉴 안이다) + 행마다 ⇧ 승격
+case "$CKPT" in *'<span>Scratch</span>'*'data-menu="scratch"'*'data-promote='*"{ act:'scrub', label:'Tidy…' }"*) : ;; *) fail "cockpit Scratch section needs the reframe label + the ⋯ carrying Tidy… + per-session promote";; esac
 # 오래된 세션은 접기만 한다 — 접는 것은 훑기 위한 장치이지 지우는 장치가 아니다
 case "$CKPT" in *'SCRUB_STALE_DAYS = 14'*'data-scrubold="1"'*'오래된 세션 '*'접힌 것은 지워지지 않습니다'*) : ;; *) fail "cockpit Scratch cleanup must fold >14d-quiet sessions without deleting anything";; esac
 # 지우는 길은 기존 세션 삭제 하나 — 한 건이든 정리 판이든 같은 DELETE /api/runs/:id 를 지난다
@@ -1242,7 +1242,8 @@ curl -s "$B/api/secrets" | grep -q 'E2E_KEY' && fail "secret not deleted" || tru
 pass "secrets vault: store (value never leaked) → injected as tmux env → delete"
 
 # cockpit secrets UI (A) + send-to-pane (B)
-case "$CKPT" in *'id="secretsBtn"'*'id="secretsModal"'*'function openSecrets'*'/api/secrets'*) : ;; *) fail "cockpit secrets vault UI missing";; esac
+# v5.28 G4 이후 시크릿의 입구는 상단바 ⋯ 메뉴다(인라인 버튼 아님) — 판과 창구는 그대로.
+case "$CKPT" in *'id="secretsModal"'*"label:'∗ Secrets'"*'function openSecrets'*'/api/secrets'*) : ;; *) fail "cockpit secrets vault UI missing";; esac
 case "$CKPT" in *'function startSecretSend'*'data-lock'*) : ;; *) fail "cockpit send-secret-to-pane missing";; esac
 pass "cockpit secrets vault UI + send-secret-to-pane"
 
@@ -2205,7 +2206,8 @@ pass "cockpit v5.28 A4: tab dots + tree run-row override + ◔ N waiting chip (e
 
 # v5.28 A5 (phase 4) — 주의 환기. 코크핏에 설정 화면은 없다: 세 취향은 헤더 버튼 하나 밑 작은 판에 산다.
 # 전부 opt-in·기본 꺼짐이고, **보고 있는 탭은 자신을 울리지 않는다**.
-case "$CKPT" in *'id="attnBtn"'*'id="attnPop"'*'</header>'*) : ;; *) fail "attention popover + header toggle must live in the header";; esac
+# v5.28 G4 이후 그 버튼은 상단바 ⋯(#topMore) 하나다 — 판(#attnPop)은 같은 자리, 같은 앵커(#apWrap).
+case "$CKPT" in *'id="topMore"'*'id="attnPop"'*'</header>'*) : ;; *) fail "attention popover + its header trigger must live in the header";; esac
 # 행은 기존 컴포넌트 그대로(새 설정 시스템을 짓지 않는다): .rchk 체크박스 둘 + .modes/.mode 세그 하나
 case "$CKPT" in *'id="attnSound"'*'id="attnNotify"'*'id="attnOnWaiting"'*'id="attnOnExited"'*'id="attnOnBoth"'*) : ;; *) fail "attention popover rows (sound · notify · transition seg) missing";; esac
 case "$CKPT" in *'coxpit.sound'*'coxpit.notify'*'coxpit.pingOn'*) : ;; *) fail "the three attention prefs must be remembered in localStorage";; esac
@@ -2437,7 +2439,7 @@ pass "v5.28 F1: the Workspace header carries its name and one ⋯ — no inline 
 # 트리 repaint 의 주인 재지정은 repo 행 전용이다 — 트리 밖 정적 ⋯ 를 델타마다 닫아버리면 안 된다
 case "$CKPT" in *"if (rowMenuOwner && rowMenuOwner.hasAttribute('data-more')){"*) : ;; *) fail "a tree repaint must re-point only row-owned menus — the static Workspace ⋯ must not be yanked by a WS delta";; esac
 # 파일 순서대로: 공통 페인터 → repo 열기 → Workspace 항목 → Workspace 열기 → 정적 배선.
-case "$CKPT" in *'function paintRowMenu(btn, html){'*'function openRowMenu(btn, repoId){'*"{ act:'wt',   label:'▤ Worktrees' }"*"{ act:'reap', label:'↻ Orphans' }"*'function openWsMenu(btn){'*'paintRowMenu(btn, WS_MENU_ACTS'*) : ;; *) fail "the Workspace ⋯ must reuse the .rmenu opener (one painter, two item lists) — never a second menu system";; esac
+case "$CKPT" in *'function paintRowMenu(btn, html){'*'function openRowMenu(btn, repoId){'*"{ act:'wt',   label:'▤ Worktrees' }"*"{ act:'reap', label:'↻ Orphans' }"*'function openWsMenu(btn){ openMenuAt(btn, WS_MENU_ACTS); }'*) : ;; *) fail "the Workspace ⋯ must reuse the .rmenu opener (one painter, many item lists) — never a second menu system";; esac
 F_WSWIRE="\$('wsMore').addEventListener('click', function(e){ e.stopPropagation(); openWsMenu(this); });"
 case "$CKPT" in *"$F_WSWIRE"*) : ;; *) fail "#wsMore is static markup — wire it once, like the links it replaced";; esac
 # 항목은 기존 핸들러를 그대로 부른다(재구현 금지)
@@ -2447,12 +2449,62 @@ case "$CKPT" in *"var MENU_BTN_SEL = '[data-more],[data-menu]';"*) : ;; *) fail 
 pass "v5.28 F1: the Workspace ⋯ reuses #rowMenu (same painter · Escape/outside close) and opens the same two sheets"
 
 # F2 — 섹션 액션은 툴바와 같은 말을 쓴다. 판 제목도 그 항목과 같은 말을 쓴다.
-case "$CKPT" in *'<span class="t">↻ Orphans</span>'*'<span class="t">▤ Reclaim worktrees</span>'*'>Tidy…</span>'*'＋ Session</span>'*) : ;; *) fail "the reap/worktree sheet titles and the Scratch actions must read English (↻ Orphans · ▤ Reclaim worktrees · Tidy… · ＋ Session)";; esac
+# (G2 이후 Scratch 의 두 액션은 인라인 링크가 아니라 그 섹션 ⋯ 메뉴의 항목이다 — 말은 그대로 영어다.)
+case "$CKPT" in *'<span class="t">↻ Orphans</span>'*'<span class="t">▤ Reclaim worktrees</span>'*"{ act:'newsession', label:'＋ Session' }"*"{ act:'scrub', label:'Tidy…' }"*) : ;; *) fail "the reap/worktree sheet titles and the Scratch actions must read English (↻ Orphans · ▤ Reclaim worktrees · ＋ Session · Tidy…)";; esac
 case "$CKPT" in *'↻ 고아 터미널'*) fail "the workspace/reap surfaces must no longer label themselves 고아 터미널";; *) : ;; esac
 case "$CKPT" in *'＋ 새 세션'*) fail "the Scratch new-session action must read ＋ Session";; *) : ;; esac
 # repo 행 메뉴는 이 패스의 범위 밖이다 — 한국어 그대로 살아 있어야 한다
 case "$CKPT" in *"label:'등록 해제'"*) : ;; *) fail "F2 must not touch the repo-row menu copy (out of scope)";; esac
 pass "v5.28 F2: section actions + maintenance sheet titles speak English (repo-row menu copy untouched)"
+
+# ── v5.28 Part G — 모든 헤더가 같은 모양이다: 이름 하나와 ⋯ 하나 ──
+# 한 줄로 줄이면: **액션은 ⋯ 뒤에 살고, 상태(● live)와 주 이동(← Board)은 열린 자리에 남는다.**
+# 그리고 프로젝트는 이제 보드에 가지 않고 코크핏에서 태어난다(같은 창구, 다른 자리).
+# 파일 순서대로 본다: 상단바 마크업 → 시트 마크업 → 트리 헤더 → 공유 메뉴 → 항목 배선 → 피커 로직.
+
+# G4(마크업) — 오른쪽은 ● live → ⋯ → ← Board. 인라인 ∗/◎ 는 그 ⋯ 안으로 들어갔다.
+case "$CKPT" in *'<span class="ws" id="ws">'*'id="topMore" data-menu="top"'*'id="attnPop"'*'class="toggle" href="/"'*'</header>'*) : ;; *) fail "the top bar must read ● live → ⋯ → ← Board (status and Board stay in the open)";; esac
+case "$CKPT" in *'id="secretsBtn"'*) fail "the inline ∗ Secrets button must leave the header — it lives behind the top-bar ⋯";; *) : ;; esac
+case "$CKPT" in *'id="attnBtn"'*) fail "the inline ◎ toggle must leave the header — it lives behind the top-bar ⋯";; *) : ;; esac
+# 팝오버는 다시 짓지 않았다: 같은 판·같은 앵커(#apWrap)·같은 행들이 그대로 있다
+case "$CKPT" in *'id="apWrap"'*'id="attnSound"'*'id="attnNotify"'*'id="attnOnBoth"'*) : ;; *) fail "the attention popover itself must survive G4 — only its trigger moved";; esac
+# 사라진 id 로 가는 배선이 하나라도 남으면 코크핏 스크립트가 통째로 죽는다(빈 화면)
+case "$CKPT" in *"\$('attnBtn')"*|*"\$('secretsBtn')"*) fail "a dangling listener/updater on a removed header id would throw at load";; *) : ;; esac
+case "$CKPT" in *'id="wstext"'*) : ;; *) fail "the ● live status text must stay visible in the top bar";; esac
+pass "v5.28 G4: the top bar keeps ● live and ← Board in the open and folds ∗ Secrets · ◎ Notifications behind one ⋯ (popover reused, no dangling ids)"
+
+# G5(마크업+로직) — 프로젝트 추가 시트. 기존 .pick 껍데기 그대로, 경로는 절대 타이핑하지 않는다.
+case "$CKPT" in *'id="projModal"'*'＋ Add project'*'id="projPath"'*'id="projList"'*'id="projRegHere"'*) : ;; *) fail "the cockpit add-project sheet (.pick shell) is missing";; esac
+case "$CKPT" in *'function openAddProject()'*"fetch('/api/browse'"*'data-projreg='*'data-projnew='*) : ;; *) fail "the picker must navigate with GET /api/browse and offer Register / Start here per row (click, never a typed path)";; esac
+case "$CKPT" in *"projPost('/api/repos', full"*"projPost('/api/repos/new', full"*) : ;; *) fail "Register must POST /api/repos and Start here POST /api/repos/new — the board's own endpoints, no new transport";; esac
+case "$CKPT" in *'machineSlug:machineSlug()'*) : ;; *) fail "the picker must register on the rail's current machine (machineSlug())";; esac
+case "$CKPT" in *'closeAddProject(); await hydrate(); toast('*) : ;; *) fail "a registered project must close the sheet, refresh the tree, and say so";; esac
+pass "v5.28 G5: add-project picker (browse → Register / Start here) reuses /api/browse + /api/repos(+/new) and lands the repo in the tree"
+
+# G2/G3(트리 헤더) — Scratch·Projects 도 같은 모양이 됐다: 이름 하나와 ⋯ 하나.
+case "$CKPT" in *'<span>Scratch</span><span class="lacts">'*'data-menu="scratch"'*) : ;; *) fail "the Scratch header must be the name + one ⋯";; esac
+case "$CKPT" in *'data-scrub="1"'*|*'data-newsession="1"'*) fail "the Scratch actions must live behind its ⋯ — no inline links in the header";; *) : ;; esac
+case "$CKPT" in *'열린 세션 없음 — ⋯ 에서 ＋ Session'*) : ;; *) fail "the Scratch empty state must point at the ⋯";; esac
+case "$CKPT" in *'<span>Projects</span><span class="lacts">'*'data-menu="projects"'*) : ;; *) fail "the Projects header must be the name + one ⋯";; esac
+case "$CKPT" in *'보드에서 추가하세요'*) fail "the Projects empty state must stop deferring to the board — a project can be born here now";; *) : ;; esac
+case "$CKPT" in *'등록된 repo 가 없습니다 — ⋯ 에서 ＋ Add project'*) : ;; *) fail "the Projects empty state must point at the ⋯";; esac
+# Scratch·Projects 는 델타마다 다시 그려진다 → 정적 리스너가 아니라 위임이고, 열려 있던 메뉴는 새 버튼으로 주인을 옮긴다
+G_TREEDLG="var sm = e.target.closest('[data-menu]');"
+case "$CKPT" in *"$G_TREEDLG"*'openSecMenu(sm); return;'*) : ;; *) fail "the tree's section ⋯ must be wired by delegation (it is repainted on every delta)";; esac
+case "$CKPT" in *"rowMenuOwner.hasAttribute('data-menu') && !document.contains(rowMenuOwner)"*) : ;; *) fail "a tree repaint must re-point an open section ⋯ instead of dropping it (and must not touch the static ones)";; esac
+pass "v5.28 G2/G3: Scratch and Projects headers are a name + one ⋯ (delegated, repaint-safe) and both empty states point at it"
+
+# G1/G6(공유 메뉴 + 정직) — ⋯ 는 여럿, 판은 하나. 항목은 전부 **이미 있는 핸들러**를 부른다.
+case "$CKPT" in *'function openMenuAt(btn, acts, repoId){'*'function openRowMenu(btn, repoId){ openMenuAt(btn, ROW_MENU_ACTS, repoId); }'*'function openWsMenu(btn){ openMenuAt(btn, WS_MENU_ACTS); }'*'var SEC_MENU_ACTS = {'*'function openSecMenu(btn){'*) : ;; *) fail "every ⋯ must open the one shared menu through openMenuAt — one painter, many item lists";; esac
+case "$CKPT" in *"{ act:'newsession', label:'＋ Session' }"*"{ act:'addproject', label:'＋ Add project…' }"*"{ act:'secrets',    label:'∗ Secrets' }"*) : ;; *) fail "the three new item lists (scratch · projects · top) are missing";; esac
+case "$CKPT" in *"else if (act==='newsession') openSession();"*"else if (act==='scrub') openScrub();"*"else if (act==='addproject') openAddProject();"*"else if (act==='secrets') openSecrets();"*'setTimeout(function(){ setAttnPop(true); }, 0);'*) : ;; *) fail "every new ⋯ item must call an existing handler (openSession/openScrub/openAddProject/openSecrets/setAttnPop)";; esac
+# 정적 ⋯ 둘(#wsMore·#topMore)은 한 번만 배선한다 — 다시 그려지지 않는 마크업이다
+case "$CKPT" in *"\$('topMore').addEventListener('click', function(e){ e.stopPropagation(); openSecMenu(this); });"*) : ;; *) fail "#topMore is static markup — wire it once, like the buttons it replaced";; esac
+# 닫기·키보드 계약은 Part D-rail 이 세운 그대로다(메뉴가 늘어도 규칙은 하나)
+case "$CKPT" in *'role="menuitem"'*) : ;; *) fail "shared ⋯ menu items must stay role=menuitem";; esac
+case "$CKPT" in *'first.focus()'*) : ;; *) fail "the shared ⋯ menu must still focus its first item on open";; esac
+case "$CKPT" in *"var MENU_BTN_SEL = '[data-more],[data-menu]';"*) : ;; *) fail "the outside-click/focusout guards must keep recognizing every ⋯ button";; esac
+pass "v5.28 G1/G6: one menu mechanism behind every ⋯ — existing handlers and endpoints only, no new transport, no new colors"
 
 # v5.28 A5 서버 절반 — 웹훅. 코크핏이 닫혀 있을 때 유일하게 남는 신호다.
 # 실제로 터미널을 붙이고 tmux 세션을 죽여 onExit → 'exited' 전이를 만든 뒤, 리스너가 받은 본문을 본다.
