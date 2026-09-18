@@ -295,6 +295,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .pick-row .ic{width:14px;text-align:center;color:var(--faint)}
   .pick-row.up .ic{color:var(--muted)}
   .pick-row .rp{margin-left:auto;font-size:9px;color:var(--brand);border:1px solid rgba(78,201,176,.3);border-radius:999px;padding:0 6px}
+  /* v5.28 G5 — 폴더 행 안의 인라인 액션(Register · Start here). 보드의 .btn 을 끌어오지 않는다(토큰만). */
+  .pick-row .pbtn{margin-left:auto;flex:none;font-family:var(--mono);font-size:10.5px;line-height:1;color:var(--muted);
+    background:none;border:1px solid var(--line-hi);border-radius:5px;padding:4px 7px;cursor:pointer}
+  .pick-row .rp+.pbtn{margin-left:8px}
+  .pick-row .pbtn:hover{color:var(--brand);background:var(--surface2)}
   .pick-f{display:flex;align-items:center;gap:10px;padding:12px 15px;border-top:1px solid var(--line)}
   .pick-f .go{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:9px 15px;cursor:pointer}
   .pick-f .home{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer}
@@ -398,13 +403,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .lock{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .lock:hover{color:var(--brand)}
   .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
-  /* white-space:nowrap — 좁은 레일에서 섹션 액션이 단어 중간에 접히던 것 방지(2026-09-18) */
-  .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none;white-space:nowrap}
   /* 섹션 라벨에 액션이 둘 이상이면 한 묶음으로 — 양쪽 끝으로 흩어지지 않게(.tact+.tact 와 같은 이유).
      min-width:0 로 flex 아이템이 필요하면 줄어들 수 있게(넘칠 땐 각 라벨은 nowrap 이라 통째로 유지) */
   .lbl .lacts{display:flex;align-items:center;gap:10px;min-width:0}
-  /* v5.28 F1 — Workspace 헤더의 ⋯. repo 행 .tmore 와 같은 모양·같은 메뉴(#rowMenu)를 쓴다.
-     헤더는 이름과 ⋯ 하나만 이고, 유지보수 둘은 그 뒤에 산다 */
+  /* v5.28 F1/G — 섹션 헤더의 ⋯. repo 행 .tmore 와 같은 모양·같은 메뉴(#rowMenu)를 쓴다.
+     헤더는 이름과 ⋯ 하나뿐이고(Workspace·Scratch·Projects 모두), 액션은 그 뒤에 산다 */
   .lbl .tmore{font-family:var(--mono);font-size:10.5px;line-height:1;color:var(--faint);
     background:none;border:none;border-radius:5px;padding:3px 5px;cursor:pointer}
   .lbl .tmore:hover,.lbl .tmore[aria-expanded="true"]{color:var(--brand);background:var(--surface2)}
@@ -580,8 +583,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   <div class="right">
     <span class="ver" id="ver" title="로드된 cockpit 버전 (캐시 확인용)">v__COXPIT_VER__</span>
     <button type="button" class="waitchip" id="waitChip" hidden title="입력을 기다리는 에이전트 — 클릭하면 차례로 그 터미널로">◔ <span id="waitN">0</span></button>
+    <span class="ws" id="ws"><span class="dot"></span><span id="wstext" class="b-txt">connecting</span></span>
     <div class="apwrap" id="apWrap">
-      <button type="button" class="toggle" id="attnBtn" aria-haspopup="true" aria-expanded="false" title="알림 — 소리 · 브라우저 알림 · 울릴 전이">◎</button>
+      <button type="button" class="toggle" id="topMore" data-menu="top" aria-haspopup="menu" aria-expanded="false" title="더 보기 — 시크릿(env 주입) · 알림">⋯</button>
       <div class="apop" id="attnPop" hidden role="group" aria-label="알림">
         <div class="lbl"><span>알림</span></div>
         <label class="rchk" title="대기·완료 전이에 짧은 신호음"><input type="checkbox" id="attnSound" /> 소리</label>
@@ -594,8 +598,6 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <div class="apop-note">전부 기본 꺼짐. 보고 있는 탭은 자신을 울리지 않습니다.</div>
       </div>
     </div>
-    <span class="ws" id="ws"><span class="dot"></span><span id="wstext" class="b-txt">connecting</span></span>
-    <button type="button" class="toggle" id="secretsBtn" title="시크릿(API 키) 관리 — 세션에 env 로 주입">∗<span class="b-txt"> Secrets</span></button>
     <a class="toggle" href="/" title="보드(모니터) 뷰로">←<span class="b-txt"> Board</span></a>
   </div>
 </header>
@@ -707,6 +709,21 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <button class="home" id="pickHome" title="홈으로">⌂ home</button>
       <input class="pick-name" id="pickName" placeholder="세션 이름 (선택 — 비우면 폴더명)" autocomplete="off" />
       <button class="go" id="pickGo">여기서 열기</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="projModal">
+  <div class="pick" style="width:min(560px,92vw)">
+    <div class="pick-h"><span class="t">＋ Add project</span><button class="x" id="projClose" title="닫기">×</button></div>
+    <div class="pick-path" id="projPath">…</div>
+    <div class="sheet-note">폴더를 눌러 들어갑니다 — <b>경로를 칠 일은 없습니다</b>. git 폴더는 <b>Register</b>(목록에 올리기만 — 디스크의 파일은 손대지 않습니다), <b>빈 폴더</b>는 <b>Start here</b>(빈 초기 커밋 하나를 심고 등록합니다). <b>파일이 있는 폴더에는 아무것도 심지 않습니다.</b></div>
+    <div class="pick-list" id="projList"></div>
+    <div class="sheet-err" id="projErr" hidden></div>
+    <div class="pick-f">
+      <button class="home" id="projHome" title="홈으로">⌂ home</button>
+      <span id="projHint" style="flex:1;font-size:11px;color:var(--faint)">…</span>
+      <button class="go" id="projRegHere" hidden>Register this folder</button>
     </div>
   </div>
 </div>
@@ -1082,16 +1099,18 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     $('attnSound').checked = attn.sound;
     $('attnNotify').checked = attn.notify;
     Object.keys(AT_ON).forEach(function(k){ $(AT_ON[k]).classList.toggle('on', attn.on===k); });
-    $('attnBtn').classList.toggle('on', attn.sound||attn.notify);
+    // v5.28 G4 — 팝오버의 주인은 이제 상단바 ⋯ 다. 무언가 켜져 있으면 그 ⋯ 가 액센트를 든다(켜짐은 헤더에서 보여야 한다).
+    $('topMore').classList.toggle('on', attn.sound||attn.notify);
   }
+  // 판 자체는 그대로다(체크박스·세그·닫기 배선 전부) — 여는 손잡이만 상단바 ⋯ 메뉴로 옮겼다.
+  // #apWrap 안에 ⋯ 가 그대로 있으므로 앵커(position:absolute)도, 바깥클릭 가드도 예전 그대로 성립한다.
   function setAttnPop(open){
     $('attnPop').hidden = !open;
-    $('attnBtn').setAttribute('aria-expanded', open?'true':'false');
+    $('topMore').setAttribute('aria-expanded', open?'true':'false');
     if (open) $('attnSound').focus();   // 키보드로 열어도 바로 첫 행에 선다
   }
-  $('attnBtn').addEventListener('click', function(e){ e.stopPropagation(); setAttnPop($('attnPop').hidden); });
   document.addEventListener('click', function(e){ if(!$('attnPop').hidden && !$('apWrap').contains(e.target)) setAttnPop(false); });
-  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('attnPop').hidden){ e.preventDefault(); setAttnPop(false); $('attnBtn').focus(); } });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('attnPop').hidden){ e.preventDefault(); setAttnPop(false); $('topMore').focus(); } });
   $('apWrap').addEventListener('focusout', function(){
     setTimeout(function(){ if(!$('apWrap').contains(document.activeElement)) setAttnPop(false); }, 0);
   });
@@ -1186,9 +1205,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     // ── SCRATCH (자유 세션 = 아직 프로젝트가 아닌 것들) ──
     // v6.0 S1: 데이터는 그대로(kind='sessions') — 바뀐 건 이름과 어포던스다. 여기서 바로
     // 정리(S1b)하고, 여기서 바로 프로젝트로 졸업(S2)시킨다. 어지러워지는 자리에서 치울 수 있어야 한다.
+    // v5.28 G2: 헤더는 이름과 ⋯ 하나다 — 두 액션(＋ Session · Tidy…)은 그 뒤에 살고, 하는 일은 그대로다.
     html += '<div class="lbl"><span>Scratch</span><span class="lacts">'
-      + '<span class="lnk" data-scrub="1" title="정리 — 터미널이 없는 세션을 한 번에 지웁니다(폴더는 보존)">Tidy…</span>'
-      + '<span class="lnk" data-newsession="1" title="새 세션 — 폴더를 지정해 터미널 하나를 엽니다">＋ Session</span></span></div>';
+      + '<button type="button" class="tmore" data-menu="scratch" aria-haspopup="menu" aria-expanded="false"'
+      + ' title="Scratch — 새 세션(폴더 지정) · 정리(터미널 없는 세션 삭제, 폴더는 보존)">⋯</button></span></div>';
     if (sessRuns.length){
       sessRuns.forEach(function(s){
         var r=s.run; var open = tabs[r.id] ? ' open' : '';
@@ -1201,11 +1221,14 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
           + '<button class="del" data-delsession="'+r.id+'" title="세션 삭제 — 터미널만 종료, 폴더·파일은 보존">×</button></div>';
       });
     } else {
-      html += '<div class="tnode empty" style="padding-left:14px">열린 세션 없음 — ＋ Session 으로 폴더 지정</div>';
+      html += '<div class="tnode empty" style="padding-left:14px">열린 세션 없음 — ⋯ 에서 ＋ Session</div>';
     }
     html += '<div class="tree-sep"></div>';
-    html += '<div class="lbl"><span>Projects</span></div>';
-    if (!realRepos.length){ html += '<div class="tnode empty">등록된 repo 가 없습니다 — 보드에서 추가하세요.</div>'; }
+    // v5.28 G3: 같은 모양 — 이름과 ⋯ 하나. 프로젝트는 이제 보드에 가지 않고 여기서 태어난다.
+    html += '<div class="lbl"><span>Projects</span><span class="lacts">'
+      + '<button type="button" class="tmore" data-menu="projects" aria-haspopup="menu" aria-expanded="false"'
+      + ' title="프로젝트 — 폴더를 골라 등록하거나 빈 폴더에서 새로 시작">⋯</button></span></div>';
+    if (!realRepos.length){ html += '<div class="tnode empty">등록된 repo 가 없습니다 — ⋯ 에서 ＋ Add project</div>'; }
     // 프로젝트(repo) 하나 = 섹션 하나. 그 안에 작업(task) 들이 있고, 작업 아래에 세션(run) 이 달린다.
     realRepos.forEach(function(repo){
       var rk = 'repo'+repo.id;
@@ -1241,6 +1264,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var again = el.querySelector('[data-more="'+rowMenuOwner.getAttribute('data-more')+'"]');
       if (again){ again.setAttribute('aria-expanded','true'); rowMenuOwner=again; } else closeRowMenu();
     }
+    // v5.28 G — 섹션 헤더의 ⋯(Scratch·Projects)도 트리 안에 산다. 같은 규칙으로 주인을 옮긴다.
+    // (트리 밖 정적 ⋯ — #wsMore·#topMore — 는 document 에 그대로 있으므로 여기 걸리지 않는다.)
+    else if (rowMenuOwner && rowMenuOwner.hasAttribute('data-menu') && !document.contains(rowMenuOwner)){
+      var back = el.querySelector('[data-menu="'+rowMenuOwner.getAttribute('data-menu')+'"]');
+      if (back){ back.setAttribute('aria-expanded','true'); rowMenuOwner=back; } else closeRowMenu();
+    }
   }
   // 작업(task) 한 줄 + 그 아래 세션(run) 들. 이름은 작업이 갖고, run 은 역할로 읽힌다.
   function taskHTML(t, rns){
@@ -1263,8 +1292,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     return s;
   }
   $('tree').addEventListener('click', function(e){
-    if (e.target.closest('[data-newsession]')){ openSession(); return; }
-    if (e.target.closest('[data-scrub]')){ openScrub(); return; }
+    // 섹션 헤더의 ⋯ (Scratch·Projects) — 트리는 델타마다 다시 그려지므로 위임으로 받는다.
+    var sm = e.target.closest('[data-menu]');
+    if (sm){ e.stopPropagation(); openSecMenu(sm); return; }
     var pm = e.target.closest('[data-promote]');
     if (pm){ e.stopPropagation(); openPromote(+pm.dataset.promote); return; }
     // 노드 액션은 접기(data-fold)·열기(data-run) 보다 먼저 가로챈다 — 같은 행 안에 있으므로.
@@ -1292,7 +1322,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     { act:'tidy',    label:'정리…' },
     { act:'unreg',   label:'등록 해제' }
   ];
-  // 여는 자리는 하나다(#rowMenu) — repo 행이든 Workspace 헤더든 같은 판을 같은 규칙으로 띄운다.
+  // 여는 자리는 하나다(#rowMenu) — repo 행이든 어느 섹션 헤더든 같은 판을 같은 규칙으로 띄운다.
   function paintRowMenu(btn, html){
     var m=$('rowMenu');
     m.innerHTML = html;
@@ -1302,16 +1332,23 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var w=m.offsetWidth, h=m.offsetHeight;
     m.style.left = Math.max(6, Math.min(r.left, window.innerWidth - w - 6)) + 'px';
     m.style.top  = ((r.bottom + h + 6 > window.innerHeight) ? Math.max(6, r.top - h - 4) : r.bottom + 4) + 'px';
+    // ⋯ 가 넷이 됐으므로(repo 행·Workspace·섹션·상단바) 주인을 넘길 때 옛 주인의 표시를 반드시 내린다 —
+    // 안 그러면 닫힌 ⋯ 가 aria-expanded="true" 인 채 남아 브랜드색으로 떠 있는다.
+    if (rowMenuOwner && rowMenuOwner!==btn) rowMenuOwner.setAttribute('aria-expanded','false');
     btn.setAttribute('aria-expanded','true');
     rowMenuOwner=btn;
     var first=m.querySelector('button'); if(first) first.focus();
   }
-  function openRowMenu(btn, repoId){
-    if (rowMenuOwner===btn && !$('rowMenu').hidden){ closeRowMenu(); return; }
-    paintRowMenu(btn, ROW_MENU_ACTS.map(function(a){
-      return '<button type="button" role="menuitem" data-act="'+a.act+'" data-repo="'+repoId+'">'+esc(a.label)+'</button>';
+  // v5.28 G1 — ⋯ 는 여럿, 판은 하나. 어느 ⋯ 를 눌러도 같은 판이 같은 규칙으로 뜨고,
+  // 다른 것은 **항목 목록뿐**이다. 두 번째 메뉴 시스템은 만들지 않는다.
+  function openMenuAt(btn, acts, repoId){
+    if (rowMenuOwner===btn && !$('rowMenu').hidden){ closeRowMenu(); return; }   // 같은 ⋯ 를 또 누르면 토글
+    paintRowMenu(btn, acts.map(function(a){
+      return '<button type="button" role="menuitem" data-act="'+a.act+'"'
+        + (repoId==null?'':' data-repo="'+repoId+'"')+'>'+esc(a.label)+'</button>';
     }).join(''));
   }
+  function openRowMenu(btn, repoId){ openMenuAt(btn, ROW_MENU_ACTS, repoId); }
   // ── Workspace 헤더 넘침 메뉴 (v5.28 F1) ──
   // 헤더는 이름과 ⋯ 하나만 이고, 유지보수 둘은 그 뒤에 산다. 하는 일은 하나도 안 바뀐다 —
   // 같은 핸들러(openWt·openReap)를 그대로 부른다. 기계 이름은 위 칩(#mach)에 한 번만 선다.
@@ -1319,13 +1356,17 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     { act:'wt',   label:'▤ Worktrees' },
     { act:'reap', label:'↻ Orphans' }
   ];
-  function openWsMenu(btn){
-    if (rowMenuOwner===btn && !$('rowMenu').hidden){ closeRowMenu(); return; }
-    paintRowMenu(btn, WS_MENU_ACTS.map(function(a){
-      return '<button type="button" role="menuitem" data-act="'+a.act+'">'+esc(a.label)+'</button>';
-    }).join(''));
-  }
+  function openWsMenu(btn){ openMenuAt(btn, WS_MENU_ACTS); }
   $('wsMore').addEventListener('click', function(e){ e.stopPropagation(); openWsMenu(this); });
+  // ── 섹션·상단바 헤더 넘침 메뉴 (v5.28 G2·G3·G4) ──
+  // 같은 모양을 끝까지 민다: 헤더는 이름(또는 상태) 하나와 ⋯ 하나. 항목은 전부 **이미 있는 핸들러**를 부른다.
+  var SEC_MENU_ACTS = {
+    scratch:  [ { act:'newsession', label:'＋ Session' }, { act:'scrub', label:'Tidy…' } ],
+    projects: [ { act:'addproject', label:'＋ Add project…' } ],
+    top:      [ { act:'secrets',    label:'∗ Secrets' },   { act:'attn',  label:'◎ Notifications' } ]
+  };
+  function openSecMenu(btn){ openMenuAt(btn, SEC_MENU_ACTS[btn.getAttribute('data-menu')]||[]); }
+  $('topMore').addEventListener('click', function(e){ e.stopPropagation(); openSecMenu(this); });
   function closeRowMenu(){
     var m=$('rowMenu'); if(m.hidden) return;
     m.hidden=true; m.innerHTML='';
@@ -1340,9 +1381,17 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     else if (act==='newwork') openNewWork(id);
     else if (act==='tidy') openTidy(id);
     else if (act==='unreg') openUnreg(id);
+    else if (act==='newsession') openSession();
+    else if (act==='scrub') openScrub();
+    else if (act==='addproject') openAddProject();
+    else if (act==='secrets') openSecrets();
+    // 알림은 판을 다시 짓지 않는다 — 있던 팝오버를 그대로 연다. 한 틱 미루는 이유: 이 클릭이
+    // document 까지 올라가 "바깥 클릭"으로 읽히면 방금 연 판이 도로 닫힌다.
+    else if (act==='attn') setTimeout(function(){ setAttnPop(true); }, 0);
   });
   // 닫기 배선은 주의 팝오버(#attnPop)와 같은 모양이다 — 바깥 클릭 · Escape(포커스 되돌림) · 포커스 이탈.
-  // 여는 버튼은 둘 — repo 행의 ⋯([data-more])과 Workspace 헤더의 ⋯([data-menu]). 둘 다 "바깥"이 아니다.
+  // 여는 버튼은 repo 행의 ⋯([data-more])과 헤더들의 ⋯([data-menu] — Workspace·Scratch·Projects·상단바).
+  // 그중 어느 것을 누른 것도 "바깥"이 아니다(누르자마자 닫히면 토글이 성립하지 않는다).
   var MENU_BTN_SEL = '[data-more],[data-menu]';
   document.addEventListener('click', function(e){ if(!$('rowMenu').hidden && !$('rowMenu').contains(e.target) && !e.target.closest(MENU_BTN_SEL)) closeRowMenu(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('rowMenu').hidden){ e.preventDefault(); var o=rowMenuOwner; closeRowMenu(); if(o) o.focus(); } });
@@ -2871,6 +2920,68 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   $('pickName').addEventListener('keydown', function(e){ if(e.key==='Enter'){ e.preventDefault(); $('pickGo').click(); } });
   $('sessionBtn').addEventListener('click', openSession);
 
+  // ── v5.28 G5 — 코크핏에서 프로젝트 만들기(Projects ⋯ > ＋ Add project…) ──
+  // 보드의 repo 브라우저와 **같은 창구**(GET /api/browse · POST /api/repos · POST /api/repos/new)를
+  // 코크핏의 시트 껍데기로 가져온 것뿐이다. 새 전송도, 새 동작도 없다 — 옮긴 것은 "닿는 자리"다.
+  // 경로는 절대 타이핑하지 않는다: 폴더를 눌러 들어가고, git 폴더에는 Register, 빈 폴더에는 Start here.
+  var projCur='';
+  function projErr(msg){ var el=$('projErr'); if(!msg){ el.hidden=true; el.textContent=''; return; } el.textContent=msg; el.hidden=false; }
+  function openAddProject(){ $('projModal').classList.add('on'); projErr(''); projBrowse(projCur||''); }
+  function closeAddProject(){ $('projModal').classList.remove('on'); }
+  async function projBrowse(p){
+    $('projList').innerHTML = '<div class="pick-row" style="cursor:default;color:var(--faint)">불러오는 중…</div>';
+    try{
+      var res = await fetch('/api/browse'+(p?('?path='+encodeURIComponent(p)):''));
+      if(!res.ok){ $('projList').innerHTML = '<div class="pick-row" style="color:var(--failed)">'+(res.status===401?'인증이 만료됐어요 — 새로고침 후 다시 로그인':'폴더를 읽을 수 없습니다 (HTTP '+res.status+')')+'</div>'; return; }
+      var d = await res.json();
+      projCur = d.path; $('projPath').textContent = d.path;
+      // 지금 서 있는 폴더 자체가 repo 면 그 자리에서 등록할 수 있다(보드의 Register here 와 같은 규칙).
+      $('projRegHere').hidden = !d.isRepo;
+      $('projHint').textContent = d.isRepo ? '이 폴더는 git repo 입니다 — 바로 등록할 수 있습니다'
+                                           : '폴더를 눌러 들어갑니다 · git 은 Register · 빈 폴더는 Start here';
+      var html = '';
+      if (d.parent && d.parent!==d.path) html += '<div class="pick-row up" data-projgo="'+esc(d.parent)+'"><span class="ic">↑</span><span>..</span></div>';
+      (d.dirs||[]).forEach(function(x){
+        var full = d.path==='/' ? '/'+x.name : d.path+'/'+x.name;
+        html += '<div class="pick-row" data-projgo="'+esc(full)+'"><span class="ic">'+(x.isRepo?'◆':'▸')+'</span>'
+          + '<span>'+esc(x.name)+'</span>'
+          + (x.isRepo ? '<span class="rp">git</span><button type="button" class="pbtn" data-projreg="'+esc(full)+'" title="등록 — 목록에 올리기만 합니다(디스크의 파일은 그대로)">Register</button>'
+             : (x.isEmpty ? '<button type="button" class="pbtn" data-projnew="'+esc(full)+'" title="여기서 시작 — 빈 초기 커밋 하나를 심고 등록합니다">Start here</button>' : ''))
+          + '</div>';
+      });
+      if (!(d.dirs||[]).length) html += '<div class="pick-row" style="cursor:default;color:var(--faint)">하위 폴더 없음</div>';
+      $('projList').innerHTML = html;
+    }catch(e){ $('projList').innerHTML = '<div class="pick-row" style="color:var(--failed)">폴더를 읽을 수 없습니다</div>'; }
+  }
+  var addingProject=false;
+  // 성공하면 트리가 곧 그 프로젝트를 든다 — hydrate 가 renderTree 를 부르므로 따로 그릴 것이 없다.
+  async function projPost(url, full, okMsg){
+    if (addingProject) return;
+    addingProject=true; projErr('');
+    try{
+      var res = await fetch(url,{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({machineSlug:machineSlug(), path:full})});
+      var j = await res.json().catch(function(){return{};});
+      if (res.ok){ closeAddProject(); await hydrate(); toast(okMsg+' · '+full); return; }
+      // 커밋이 없는 repo 는 등록이 거절된다 — 대신 어디로 가야 하는지 그 자리에서 말한다(G6: 창구는 그대로).
+      if (j.code==='NO_COMMITS') projErr('커밋이 아직 없는 repo 입니다 — Start here 로 시작하면 빈 초기 커밋을 심고 등록합니다');
+      else projErr((j.detail||j.error||('HTTP '+res.status)));
+    }catch(e){ projErr('실패: '+e); }
+    finally{ addingProject=false; }
+  }
+  function projRegister(full){ projPost('/api/repos', full, '프로젝트 등록'); }
+  function projStartHere(full){ projPost('/api/repos/new', full, '새 프로젝트 시작'); }
+  $('projList').addEventListener('click', function(e){
+    var rg=e.target.closest('[data-projreg]'); if(rg){ e.stopPropagation(); projRegister(rg.dataset.projreg); return; }
+    var nw=e.target.closest('[data-projnew]'); if(nw){ e.stopPropagation(); projStartHere(nw.dataset.projnew); return; }
+    var go=e.target.closest('[data-projgo]'); if(go){ projErr(''); projBrowse(go.dataset.projgo); }
+  });
+  $('projRegHere').addEventListener('click', function(){ if(projCur) projRegister(projCur); });
+  $('projHome').addEventListener('click', function(){ projErr(''); projBrowse(''); });
+  $('projClose').addEventListener('click', closeAddProject);
+  $('projModal').addEventListener('click', function(e){ if(e.target===this) closeAddProject(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && $('projModal').classList.contains('on')){ e.preventDefault(); closeAddProject(); } });
+
   // ── v6.0 Part T — 새 작업(＋ 새 작업) / 에이전트 추가(＋ 에이전트) ──
   // 작업 = task(이름이 사는 곳), 그 아래 세션 = run. 작업을 만들면 repo 체크아웃에
   // main 터미널(root 세션)이 바로 열리고, 에이전트는 그 작업 아래에 worktree 로 붙는다.
@@ -3057,7 +3168,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       else{ var j=await res.json().catch(function(){return{};}); toast('저장 실패: '+(j.error||res.status)); }
     }catch(e){ toast('저장 실패: '+e); }
   }
-  $('secretsBtn').addEventListener('click', openSecrets);
+  // 여는 자리는 둘 — 상단바 ⋯ 메뉴의 ∗ Secrets(v5.28 G4)와 ⌘K 팔레트. 헤더의 인라인 버튼은 그 메뉴로 들어갔다.
   $('secretsClose').addEventListener('click', closeSecrets);
   $('secretsModal').addEventListener('click', function(e){ if(e.target===this) closeSecrets(); });
   $('secAdd').addEventListener('click', addSecret);
