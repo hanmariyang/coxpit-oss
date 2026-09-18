@@ -2309,11 +2309,11 @@ case "$INJ_CHK" in INJECT_OK) : ;; *) fail "injection must only FILL the compose
 pass "cockpit v5.28 C3: exact fence + ~16KB cap/truncation + /api/fs reuse; inject fills the input and never auto-sends"
 
 # 손댄 파일은 주석까지 ASCII 여야 한다(위 게이트는 **서빙된 HTML** 만 훑는다 — 백엔드 모듈은 못 잡는다).
-# 이번 커밋이 건드린 것은 cockpit.ts 하나지만, 규칙은 새 모듈이 생겨도 같다.
+# 코크핏에 끼워 넣는 모듈도 같은 규칙이다 — v5.28 E 가 공유 humanize 를 여기로 옮겼으므로 함께 훑는다.
 EMJ=$(node -e '
 const fs=require("fs");
 const rx=/[\u{1F000}-\u{1FAFF}\u{2699}\u{26A0}\u{2B50}]/u;
-const files=["src/cockpit.ts"];
+const files=["src/cockpit.ts","src/humanize.ts"];
 let bad=[];
 for(const f of files){ const s=fs.readFileSync(process.argv[1]+"/"+f,"utf8").split("\n");
   s.forEach((l,i)=>{ if(rx.test(l)) bad.push(f+":"+(i+1)); }); }
@@ -2321,6 +2321,100 @@ console.log(bad.length?bad.join(" "):"ASCII_OK");
 ' "$ROOT")
 case "$EMJ" in ASCII_OK) : ;; *) fail "emoji in a touched source file (comments included) — mono glyphs only: $EMJ";; esac
 pass "v5.28 C: touched sources stay emoji-free at the source level (comments included), not just in the served HTML"
+
+# ── v5.28 Part E — 활동 페인(run activity view) ──
+# 한 줄로 줄이면: **돌고 있는 에이전트를 누르면 하고 있는 일이 보여야 한다.**
+# 헤드리스 run 의 tmux 는 빈 worktree 셸이라 클릭이 엉뚱한 것을 열었다 — 진짜 작업은 이미 파싱된
+# 이벤트 스트림에 있다. 그래서 지켜야 할 것은 셋뿐이다:
+#   ① 터미널을 빼앗지 않는다(한 번 눌러 돌아가고, PTY 는 그때 비로소 만들어진다)
+#   ② 없는 상태를 지어내지 않는다(비면 starting…, waiting 은 Part A 가 준 것만)
+#   ③ 에이전트 run 에만 뜬다(손 세션·워크벤치는 진짜 셸이라 터미널이 옳다)
+# 파일 순서대로 본다: 스타일 → 탭 모드 → 헤더 토글 → 붙이기 → 배선 → 페인 로직.
+
+# E1 — 탭은 runId 하나로 키를 잡으니 두 번째 탭이 아니라 **모드**를 갖는다. 기본값은 에이전트 여부가 정한다.
+case "$CKPT" in *'function ensureTab(runId)'*'mode:defaultTabMode(runId)'*"if (t.mode==='terminal') ensureTerm(t);"*) : ;; *) fail "the run tab must carry a mode and build the PTY only when that mode is 'terminal'";; esac
+case "$CKPT" in *'function ensureTerm(t){'*'if (t.term) return t;'*) : ;; *) fail "the terminal must be built by ensureTerm and reused once built (instant switch back)";; esac
+case "$CKPT" in *'function runIsAgent(runId)'*'if(runIsSession(runId)) return false;'*"r.agent!=='session' && r.agent!=='workbench'"*) : ;; *) fail "an agent run = not a hand session (runIsSession) and not a bare workbench";; esac
+case "$CKPT" in *"function defaultTabMode(runId){ return runIsAgent(runId) ? 'activity' : 'terminal'; }"*) : ;; *) fail "the default mode must branch on runIsAgent — an agent run opens activity, a session still opens the terminal";; esac
+# 날 PTY 는 **늦게** 생긴다: ensureTab 안에 new Terminal 이 있으면 안 된다.
+LAZY=$(printf '%s' "$CKPT" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const i=b.indexOf("function ensureTab(runId){");
+  if(i<0) return console.log("NO_ENSURETAB");
+  const body=b.slice(i, b.indexOf("\n  }", i));
+  if(/new window.Terminal\(/.test(body)) return console.log("EAGER_TERMINAL");
+  if(!/if \(t.mode===.terminal.\) ensureTerm\(t\);/.test(body)) return console.log("NO_LAZY_BRANCH");
+  const k=b.indexOf("function ensureTerm(t){");
+  if(k<0) return console.log("NO_ENSURETERM");
+  if(!/if \(t.term\) return t;/.test(b.slice(k, k+300))) return console.log("NOT_RETAINED");
+  console.log("LAZY_OK");
+});')
+case "$LAZY" in LAZY_OK) : ;; *) fail "the PTY must be created lazily (only on terminal mode) and retained afterwards: $LAZY";; esac
+# 헤더 토글 — 에이전트 run 에만. 요청바 세그(.modes/.mode)를 페인 크기로 줄여 쓸 뿐, 새 컴포넌트가 아니다.
+case "$CKPT" in *'runIsAgent(node.tab)'*'class="modes acttog"'*) : ;; *) fail "the Activity|Terminal toggle is drawn only for agent runs (hand sessions keep the terminal, no toggle)";; esac
+case "$CKPT" in *'data-pmode="activity"'*'>Activity</button>'*'data-pmode="terminal"'*'>Terminal</button>'*) : ;; *) fail "the pane header needs an Activity | Terminal toggle";; esac
+case "$CKPT" in *".leaf-h .modes{padding:1px"*) : ;; *) fail "the toggle must reuse the existing .modes/.mode seg (sized down), not a new control";; esac
+# 붙이기 — 활동 모드의 페인은 PTY 없이 선다
+case "$CKPT" in *"if(t.mode==='activity'){ body.appendChild(actHostOf(t)); renderActivity(t); return; }"*'ensureTerm(t); body.appendChild(t.host);'*) : ;; *) fail "attachHosts must render the activity pane without creating a PTY";; esac
+# 배선 — 토글과 'Open terminal' 둘 다 그 페인의 모드를 뒤집는다
+case "$CKPT" in *"e.target.closest('[data-pmode]')"*"setTabMode(tabKeyOf(pmBtn.getAttribute('data-prun')), pmBtn.getAttribute('data-pmode'))"*) : ;; *) fail "the toggle must flip the focused run pane's mode";; esac
+case "$CKPT" in *"e.target.closest('[data-actterm]')"*"setTabMode(tabKeyOf(atBtn.getAttribute('data-actterm')), 'terminal')"*) : ;; *) fail "Open terminal must switch this pane to terminal mode (the terminal is one click away)";; esac
+pass "cockpit v5.28 E1: the run tab gains a mode (agent → activity · session → terminal), the PTY is lazy + retained, Activity|Terminal flips it"
+
+# E2 — 다섯 켜. 상태 칩은 Part A 의 네 토큰을 그대로 빌린다(대기 = --blocked, 새 색 없음).
+case "$CKPT" in *'.act-chip.as-working{color:var(--running)}'*'.act-chip.as-waiting{color:var(--blocked)}'*'.act-chip.as-idle{color:var(--faint)}'*'.act-chip.as-exited{color:var(--done)}'*) : ;; *) fail "the state chip must reuse Part A's four tokens (waiting = var(--blocked)), never a new color";; esac
+case "$CKPT" in *'.act-chip:empty{display:none}'*) : ;; *) fail "no agent state = no chip (the client never fabricates a state)";; esac
+# ① 헤더 ② 지금 ③ 타임라인 ④ 변경 요약 ⑤ 액션바 — 위에서 아래로, 한 판에
+case "$CKPT" in *'function activityHTML(runId)'*'class="anm"'*'data-role="actchip"'*'data-role="actnow"'*'data-role="acttl"'*'data-role="actfiles"'*'class="act-bar"'*) : ;; *) fail "the activity pane must render header → Now → timeline → change summary → action bar";; esac
+case "$CKPT" in *'function actNowText'*"return live ? 'starting…'"*'latestActivity(runId)'*) : ;; *) fail "the Now line is latestActivity, and says starting… while the stream is still empty (never invented)";; esac
+# 타임라인 = 공유 humanize 를 r.events 에 그대로. 새 줄은 아래에 잇고, 꼬리에 붙어 있을 때만 따라간다.
+case "$CKPT" in *'function actPaintTimeline'*'humanLines((r&&r.events)'*'el.appendChild(d)'*'if(t._tlPinned){ el.scrollTop=el.scrollHeight;'*) : ;; *) fail "the timeline must be the shared humanize over r.events, appended at the bottom, auto-scrolling only while pinned to the tail";; esac
+case "$CKPT" in *'data-role="actjump"'*'최신으로'*) : ;; *) fail "a scrolled-up timeline needs a jump-to-latest affordance";; esac
+# 변경 요약 = filesChanged N + 접힌 diff(이미 있는 창구·렌더러·공백 토글 그대로)
+case "$CKPT" in *'function actFilesText(runId)'*"return 'filesChanged '"*'data-role="actfiles"'*) : ;; *) fail "the change summary must state filesChanged N";; esac
+case "$CKPT" in *'function actLoadDiff'*"fetch('/api/runs/'+runId+'/diff')"*'diffHTML(d.diff'*) : ;; *) fail "the diff peek must reuse /api/runs/:id/diff + the existing diff renderer";; esac
+case "$CKPT" in *'function actToggleWs'*'rvShowWs=!rvShowWs;'*) : ;; *) fail "the peek must share the Review whitespace toggle, not keep a second preference";; esac
+# 액션바 = Open terminal · Steer… · (대기면) Part C 빠른 답 · Review
+case "$CKPT" in *'data-actterm='*'Open terminal</button>'*'data-actsteer='*'Steer…</button>'*'data-role="qr"'*'data-actreview='*'Review</button>'*) : ;; *) fail "the action bar must carry Open terminal · Steer… · Review (quick replies between them)";; esac
+case "$CKPT" in *"(s==='waiting'?paneStripHTML(runId):'')"*) : ;; *) fail "the inline quick replies must be Part C's strip, gated on waiting — never rebuilt here";; esac
+case "$CKPT" in *'function actSteer'*"setMode('steer');"*) : ;; *) fail "Steer… must go through the request bar's existing steer path, not a new fetch route";; esac
+case "$CKPT" in *"function gotoBoardRun(runId){ location.href='/?run='+encodeURIComponent(runId); }"*) : ;; *) fail "Review must jump to the board run detail through the existing /?run=N deep link";; esac
+pass "cockpit v5.28 E2: header + Now + humanized timeline (tail-pinned) + filesChanged/diff peek + action bar, all from data the client already has"
+
+# 인간화는 **한 벌**이다 — 보드 타임라인과 활동 페인이 같은 함수를 쓴다(사본 금지).
+case "$BOARD_HTML" in *'function humanize(e){'*'function humanLines(events){'*) : ;; *) fail "the board timeline lost its humanize";; esac
+case "$CKPT" in *'function humanize(e){'*'function humanLines(events){'*) : ;; *) fail "the cockpit activity view must embed the same humanize";; esac
+HZ=$(node -e '
+const fs=require("fs"), root=process.argv[1];
+const n=(f)=>(fs.readFileSync(root+"/"+f,"utf8").split("function humanize(e){").length-1);
+const b=n("src/board.ts"), c=n("src/cockpit.ts"), s=n("src/humanize.ts");
+console.log((b===0&&c===0&&s===1) ? "SHARED_OK" : ("board="+b+" cockpit="+c+" shared="+s));
+' "$ROOT")
+case "$HZ" in SHARED_OK) : ;; *) fail "humanize must live in exactly one shared module (src/humanize.ts) and be embedded in both pages, never copied: $HZ";; esac
+pass "v5.28 E2: one shared humanize (src/humanize.ts) feeds both the board timeline and the activity pane"
+
+# E3 — 라이브. 이미 흐르는 것(agentstate 델타 · fleet 델타)에 얹을 뿐, 새 전송로는 없다.
+# 그리고 A4 의 규율 그대로: 그 자리만 칠하고, 절대 리하이드레이트하지 않는다.
+case "$CKPT" in *'function paintAgentState'*'paintPaneStrip(runId);'*'paintActivity(runId);'*) : ;; *) fail "an agentstate delta must repaint an open activity pane through the same targeted path";; esac
+case "$CKPT" in *'function syncPanes'*'paintActivity(l.tab);'*) : ;; *) fail "an event delta (hydrate → syncPanes) must reach an open activity pane";; esac
+case "$CKPT" in *'function paintActivity'*"t.mode!=='activity'"*'data-role=actchip'*'data-role=actnow'*'actPaintTimeline(t);'*) : ;; *) fail "the targeted paint must update the state chip + Now line + timeline of an OPEN activity pane only";; esac
+PA_CHK=$(printf '%s' "$CKPT" | node -e '
+let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{
+  const i=b.indexOf("function paintAgentState(runId, state){");
+  if(i<0) return console.log("NO_FN");
+  const body=b.slice(i, b.indexOf("\n  }", i));
+  if(!/paintActivity\(runId\);/.test(body)) return console.log("NO_ACTIVITY_PAINT");
+  if(/hydrate\(|scheduleHydrate\(|renderTree\(/.test(body)) return console.log("REHYDRATES");
+  console.log("PAINT_OK");
+});')
+case "$PA_CHK" in PAINT_OK) : ;; *) fail "paintAgentState must paint the activity pane without any rehydrate (A4 discipline): $PA_CHK";; esac
+pass "cockpit v5.28 E3: agentstate/event deltas update an open activity pane by targeted paint — no rehydrate, no new transport"
+
+# E4 — 정직. 터미널은 사라지지 않았다(이 페인은 이벤트 스트림 위의 한 켜일 뿐이다).
+case "$CKPT" in *'function connectTab'*"'/ws/term/'+t.runId"*) : ;; *) fail "the raw PTY attach must still exist — activity is a layer, not a removal";; esac
+# 상태를 짐작하는 경로는 없다: waiting 은 Part A 가 준 것만 읽고, 여기서 만들지 않는다.
+case "$CKPT" in *guessState*|*inferWaiting*|*fakeActivity*) fail "the activity view must never synthesize an agent state";; *) : ;; esac
+pass "cockpit v5.28 E4: read-first (terminal one click away), agent runs only, no fabricated state"
 
 # v5.28 A5 서버 절반 — 웹훅. 코크핏이 닫혀 있을 때 유일하게 남는 신호다.
 # 실제로 터미널을 붙이고 tmux 세션을 죽여 onExit → 'exited' 전이를 만든 뒤, 리스너가 받은 본문을 본다.
