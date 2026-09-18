@@ -1,7 +1,7 @@
 // 데몬이 서빙하는 단일 페이지 플릿 콘솔(빌드 스텝 0, 자가완결).
 // /api/fleet 로 하이드레이트 → /ws 구독 델타 → run 상세(타임라인·diff·터미널)·비교/머지.
 import { ICON_SPRITE, ICON_CSS, ICON_JS_HELPER } from './icons.js';
-import { HUMANIZE_JS } from './humanize.js';
+import { HUMANIZE_JS } from './humanize';
 
 export const BOARD_HTML = /* html */ `<!doctype html>
 <html lang="en">

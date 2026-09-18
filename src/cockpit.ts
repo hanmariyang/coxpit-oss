@@ -1,7 +1,7 @@
 // Cockpit — 터미널 우선 셸 (병행 개발, /cockpit). board.ts 처럼 자가완결 단일 HTML(빌드 0).
 // 백엔드(server 라우트·term.ts·orchestrator)는 보드와 전부 공유. Phase 5에서 데스크톱 기본을 여기로 플립.
 // Phase 2 = 워크스페이스 트리(/api/fleet 라이브) + 페인 그리드 터미널(오토타일=창분할, 각 페인 /ws/term attach).
-import { HUMANIZE_JS } from './humanize.js';
+import { HUMANIZE_JS } from './humanize';
 
 export const COCKPIT_HTML = /* html */ `<!doctype html>
 <html lang="en">
