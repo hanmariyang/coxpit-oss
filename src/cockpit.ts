@@ -3819,6 +3819,17 @@ ${HUMANIZE_JS}
             + '<span class="vout" data-vout="'+r.id+'" title="클릭=전체 출력">'+esc(txt+(out?' — '+out:''))+'</span>'
             + '<button class="rv-reverify" data-reverify="'+r.id+'">re-verify</button></div>';
         }
+        // 머지된 승자의 base 검증(J2) — 내려앉은 그 호흡의 판정을 머지를 누른 그 자리에 남긴다.
+        // 서버가 머지 응답에 실어 보낸 것만 그린다. 실패는 보고일 뿐, 머지는 그대로 서 있다.
+        var mv = mergeVerifyById[r.id]; var mvline = '';
+        if (mv && mv.status){
+          mvline = '<div class="rv-verify" data-role="mverify">'+(vbadge(mv.status)||'<span class="vbadge error">· verify</span>')
+            + '<span class="vout" data-mvout="'+r.id+'" title="클릭=전체 출력">'
+            + esc('merged · verify: '+mv.status+(mv.status==='pass'?'':' — 머지는 됐지만 검증 실패 — 로그 확인'))+'</span></div>';
+        } else if (mv){
+          mvline = '<div class="rv-verify" data-role="mverify"><span class="vout" data-vnudge="1" title="위 verify 칸으로">'
+            + esc('merged · 검증 명령이 없어요 — repo 설정에서 verifyCmd 를 지정하면 승자를 자동 검증합니다')+'</span></div>';
+        }
         col.innerHTML = '<div class="rv-col-h"><span class="st '+esc(r.status)+'" style="width:7px;height:7px;border-radius:50%;display:inline-block"></span>'
           + '<span class="rid">r'+r.id+'</span><span class="chip '+esc(r.status)+'">'+esc(r.status)+'</span>'
           // dry 후보는 열에서부터 표가 난다 — 나란히 놓고 고르는 자리가 실수가 나는 자리였다(H3).
@@ -3827,6 +3838,7 @@ ${HUMANIZE_JS}
           + '<button class="rv-merge'+(gated?' caution':'')+'" data-merge="'+r.id+'"'+(isDryRun(r)?' data-dry="1"':'')+((r.status==='merged'||!mergeable)?' disabled':'')
           + (noIso?' title="체크아웃에서 직접 작업 — 머지할 것이 없습니다(아래는 커밋 안 한 변경)"':(gated?' title="검증 미통과 — 그래도 머지"':''))+'>'+mlabel+'</button></div>'
           + vline
+          + mvline
           + '<div class="rv-diff">'+diffHTML(r.diff)+'</div>';
         col._vout = { text: r.verifyOutput||'' };
         host.appendChild(col);
@@ -3836,7 +3848,15 @@ ${HUMANIZE_JS}
     }catch(e){ host.innerHTML='<div class="rv-empty">compare 실패: '+esc(String(e))+'</div>'; }
   }
   var voutById = {};
+  /* 머지 응답이 실어 온 base 검증 결과(v5.28 J2). 다시 그려도 그 열에 남아 있게 여기 둔다. */
+  var mergeVerifyById = {};
   $('rvCols').addEventListener('click', async function(e){
+    var mo = e.target.closest('[data-mvout]');
+    if (mo){ var mvv = mergeVerifyById[mo.dataset.mvout]; var mt = (mvv&&mvv.output)||'';
+      toast(mt? mt.slice(-600) : '검증 출력 없음'); return; }
+    var nd = e.target.closest('[data-vnudge]');
+    if (nd){ $('rvVcmd').focus(); $('rvVcmd').select();
+      toast('verify 명령을 적고 save — 다음 머지부터 승자를 자동 검증합니다'); return; }
     var vo = e.target.closest('[data-vout]');
     if (vo){ var t = voutById[vo.dataset.vout]||''; toast(t? t.slice(-600) : '검증 출력 없음'); return; }
     var rv = e.target.closest('[data-reverify]');
@@ -3852,7 +3872,13 @@ ${HUMANIZE_JS}
     try{
       var res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});
       var j = await res.json().catch(function(){return{};});
-      if (res.ok){ toast('r'+rid+' merge 완료'); await hydrate(); if (rvTaskId!=null) loadCompare(rvTaskId); }
+      if (res.ok){
+        // 검증은 머지 다음의 한 호흡이지 머지의 조건이 아니다 — 실패해도 되돌리지 않고 말만 한다(J1/J3).
+        mergeVerifyById[rid] = (j && j.verify) || { status:'', output:'' };
+        var mvs = mergeVerifyById[rid].status;
+        toast('r'+rid+' merge 완료'+(mvs ? ' · verify: '+mvs : ' · 검증 명령 없음'));
+        await hydrate(); if (rvTaskId!=null) loadCompare(rvTaskId);
+      }
       else { toast('merge 불가: '+(j.error||j.reason||res.status)); b.disabled=false; b.textContent=prev; }
     }catch(err){ toast('merge 실패: '+err); b.disabled=false; b.textContent=prev; }
   });

@@ -733,6 +733,12 @@ export const BOARD_HTML = /* html */ `<!doctype html>
   .cmp-h .files{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
   .cmp-meta{font-family:var(--mono);font-size:11px;color:var(--faint);padding:8px 14px;border-bottom:1px solid var(--line);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--surface2)}
+  /* 머지 직후의 base 검증 한 줄 (v5.28 J2). 판정보다 안내가 길어서 여기만 줄바꿈한다 —
+     잘린 안내는 안내가 아니다. 색은 기존 상태 토큰만 쓰고 새 색은 없다. */
+  .cmp-mv{font-family:var(--mono);font-size:11px;color:var(--muted);padding:7px 14px;
+    border-bottom:1px solid var(--line);background:var(--surface2);line-height:1.55}
+  .cmp-mv .mvout{cursor:pointer}
+  .cmp-mv a{color:var(--brand)}
   .cmp-diff{overflow:auto;padding:11px 14px;flex:1;min-height:0}
   .cmp-f{padding:10px 14px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center}
   .cmp-f .msg{font-family:var(--mono);font-size:11px;color:var(--muted);flex:1;
@@ -1537,6 +1543,27 @@ function isDryRun(r){ return !!r && r.real===false; }
 function dryChip(r){
   return isDryRun(r)
     ? '<span class="dryc" title="dry run — a mock stream made these changes (not a real agent)">dry</span>' : '';
+}
+/* ── 머지 직후의 base 검증 (v5.28 J2) ──
+   승자가 내려앉은 그 호흡의 판정을, 머지를 누른 그 자리에 남긴다. 서버가 머지 응답에
+   실어 보낸 것(verify:{status,output})만 그린다 — 클라이언트는 아무것도 추측하지 않는다.
+   색은 기존 상태 토큰 그대로(pass=done · fail/error=failed), 새 색 없음. */
+const mergeVerifyByRun = {};
+function mergeVerifyHTML(rid){
+  const v = mergeVerifyByRun[rid]; if (!v) return '';
+  if (!v.status){
+    return '<div class="cmp-mv">merged · 검증 명령이 없어요 — repo 설정에서 verifyCmd 를 지정하면 승자를 자동 검증합니다 '
+      + '<a href="/cockpit" target="_blank" rel="noopener">verifyCmd 설정</a></div>';
+  }
+  const col = statusColor(v.status==='pass' ? 'done' : 'failed');
+  return '<div class="cmp-mv"><span class="mvout" data-mvout="'+rid+'" style="color:'+col+'"'
+    + ' title="click to see the verify output">merged · verify: '+esc(v.status)+'</span>'
+    + (v.status==='pass' ? '' : ' 머지는 됐지만 검증 실패 — 로그 확인') + '</div>';
+}
+/* 검증은 보고일 뿐 — 실패해도 머지는 서 있다. 토스트의 어조만 달라진다. */
+function mergeVerifyToast(v){
+  if (!v || !v.status) return { suffix: ' · 검증 명령 없음 — repo 의 verifyCmd 를 지정하면 자동 검증', level: 'ok' };
+  return { suffix: ' · verify: '+v.status, level: v.status==='pass' ? 'ok' : 'error' };
 }
 /* 모의를 진짜처럼 base 로 넘기지 않게 — 아는 dry 에만 한 번 묻는다. */
 function confirmDryMerge(n){
@@ -2736,6 +2763,8 @@ async function paintCompare(){
       + '<div class="cmp-h"><span class="rid">r'+r.id+'</span>'+chipHTML(r.status)+dryChip(r)
       + '<span class="files">'+files+' file'+(files===1?'':'s')+'</span></div>'
       + '<div class="cmp-meta" title="'+esc(summary)+'">'+(summary?esc(summary):'—')+'</div>'
+      // 머지한 열은 그 판정을 계속 달고 있다 — 다시 그려도 지워지지 않게 여기서 그린다(J2).
+      + mergeVerifyHTML(r.id)
       + '<div class="cmp-diff"><pre class="diff">'+diffHTML(r.diff||'')+'</pre></div>'
       + '<div class="cmp-f"><span class="msg" id="cmpMsg-'+r.id+'">'
       + (r.prUrl ? '<a href="'+esc(r.prUrl)+'" target="_blank" rel="noopener">PR '+ic('external-link')+' '+esc(r.prUrl.split('/').slice(-1)[0])+'</a>' : '')
@@ -2773,6 +2802,13 @@ async function driftNote(rid){
   }catch(e){ return ''; }
 }
 $('cmpBody').addEventListener('click', async (e)=>{
+  // 머지 검증 꼬리 — 기존 verify-output 보기와 같은 방식(전문은 토스트로)
+  const mvo = e.target.closest('[data-mvout]');
+  if (mvo){
+    const v = mergeVerifyByRun[mvo.dataset.mvout];
+    toast((v && v.output) ? v.output.slice(-600) : 'no verify output');
+    return;
+  }
   const prBtn = e.target.closest('button[data-pr]');
   if (prBtn){
     const rid = Number(prBtn.dataset.pr);
@@ -2810,7 +2846,13 @@ $('cmpBody').addEventListener('click', async (e)=>{
   const j = await res.json().catch(()=>({detail:'merge failed'}));
   const msg = $('cmpMsg-'+rid);
   if (msg) msg.textContent = j.detail || (res.ok?'merged':'failed');
-  if (res.ok){ toast('r'+rid+' merged to base', 'ok'); await paintCompare(); hydrate(); }
+  if (res.ok){
+    // 머지는 이미 섰다 — verify 는 그 위에 얹는 판정이지 되돌리는 신호가 아니다(J1/J3).
+    mergeVerifyByRun[rid] = j.verify || { status:'', output:'' };
+    const vt = mergeVerifyToast(j.verify);
+    toast('r'+rid+' merged to base'+vt.suffix, vt.level);
+    await paintCompare(); hydrate();
+  }
   else { toast('merge: '+(j.detail||res.status), 'error'); btn.disabled = false; }
 });
 $('cmpClose').addEventListener('click', ()=>{ cmpTaskId=null; $('cmpOverlay').classList.remove('open'); });
@@ -3145,7 +3187,12 @@ async function roomRunAction(act, rid){
     if (!yes) return;
     const res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});
     const j = await res.json().catch(()=>({detail:'merge failed'}));
-    if (res.ok){ toast('r'+rid+' merged to base', 'ok'); await roomLoad(); hydrate(); }
+    if (res.ok){
+      mergeVerifyByRun[rid] = j.verify || { status:'', output:'' };
+      const vt = mergeVerifyToast(j.verify);
+      toast('r'+rid+' merged to base'+vt.suffix, vt.level);
+      await roomLoad(); hydrate();
+    }
     else toast('merge: '+(j.detail||res.status), 'error');
     return;
   }
