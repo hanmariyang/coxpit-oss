@@ -1333,6 +1333,18 @@ const runs = new Map();      // runId -> run object
 const tasks = new Map();     // taskId -> task
 const groups = new Map();    // groupId -> {id, kind, title}
 let repos = [], machines = [], captures = [];
+/* v5.28 I — 보드는 에이전트 작업의 열람실이다. 자유 터미널 세션은 run 이 아니므로
+   여기 서지 않는다(세션의 집은 코크핏이고, 거기선 그대로 산다). sessions 버킷
+   (repo.kind==='sessions') 에 속한 repo·task·run 은 보드 상태에 아예 들이지 않는다 —
+   하이드레이트·WS 델타·단건 fetch 전부 같은 문을 지난다. */
+let sessionRepoIds = new Set();    // kind==='sessions' 인 repo id (머신마다 하나)
+let sessionRepoNames = new Set();  // 아카이브 행엔 repoId 가 없다 — 거기선 이름이 유일한 열쇠
+let sessionTaskIds = new Set();    // 그 버킷에 담긴 task id
+let sessionRunIds = new Set();     // 그 task 들의 run id (taskId 없는 상태 패치 델타용)
+const isSessionRepo = (repoId) => sessionRepoIds.has(repoId);
+const isSessionTask = (taskId) => sessionTaskIds.has(taskId);
+// run 객체와 WS 델타를 모두 받는다(델타는 runId, 객체는 id).
+const isSessionRun = (r) => !!r && (sessionRunIds.has(r.runId ?? r.id) || isSessionTask(r.taskId));
 // v5.0 rail — 선택된 repo 로 보드 스코프(client-side). null = All repositories.
 let selectedRepo = null;
 try { const s = localStorage.getItem('coxpit.repo'); selectedRepo = s ? Number(s) : null; } catch {}
@@ -1712,7 +1724,7 @@ $('dbList').addEventListener('click', (e)=>{
   // documents include closed/archived runs not in the live map — seed a minimal run+task so the modal renders
   if (!runs.has(id)){
     const dr = (dbData||[]).find(r=>r.runId===id);
-    if (dr){
+    if (dr && !isSessionTask(dr.taskId)){   // v5.28 I
       runs.set(id, { id, taskId: dr.taskId, status: dr.status, branch:'', filesChanged:0, events:[], prUrl: dr.prUrl });
       if (!tasks.has(dr.taskId)) tasks.set(dr.taskId, { id: dr.taskId, title: dr.title, status:'closed', repoId:0 });
     }
@@ -1869,7 +1881,9 @@ async function archFetch(reset){
   try{
     const j = await fetch(url).then(x=>x.json());
     archTotal = j.total||0;
-    const rows = (j.rows||[]).map(archRowHTML).join('');
+    // v5.28 I — 닫힌 세션도 보드의 아카이브엔 서지 않는다. 행엔 repoId 가 없어 이름으로 거른다
+    //   (페이지 진행은 서버가 준 행 수 그대로 — 거른 것 때문에 다음 장을 놓치지 않게).
+    const rows = (j.rows||[]).filter(row => !sessionRepoNames.has(row.repoName)).map(archRowHTML).join('');
     if (reset) $('archList').innerHTML = rows || '<div class="arch-empty">no closed tasks match</div>';
     else $('archList').insertAdjacentHTML('beforeend', rows);
     archOffset += (j.rows||[]).length;
@@ -1886,6 +1900,7 @@ $('archList').addEventListener('click', async (e)=>{
   try{
     const j = await fetch('/api/tasks/'+tid).then(x=>x.json());
     if (!j.task || !(j.runs||[]).length){ toast('task has no runs', 'error'); return; }
+    if (isSessionRepo(j.task.repoId)) return;   // v5.28 I — 세션은 보드가 열지 않는다
     tasks.set(j.task.id, j.task);
     j.runs.forEach(rn => { if(!runs.has(rn.id)) runs.set(rn.id, { ...rn, events: [] }); });
     openModal(j.runs.map(r=>r.id).sort((a,b)=>a-b)[0]);
@@ -2013,6 +2028,7 @@ function cardHTML(r){
 function flash(id){ const el=$('card-'+id); if(el){ el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } }
 
 function upsertRun(patch){
+  if (isSessionRun(patch)) return;   // v5.28 I — 세션은 보드 상태에 들어오지 않는다(마지막 문)
   const cur = runs.get(patch.runId ?? patch.id) || { id: patch.runId ?? patch.id, events: [] };
   Object.assign(cur, patch, { id: cur.id, events: cur.events });
   if (patch.runId) cur.id = patch.runId;
@@ -2021,14 +2037,21 @@ function upsertRun(patch){
 
 async function hydrate(){
   const r = await fetch('/api/fleet?view=active').then(x=>x.json());
-  machines = r.machines||[]; repos = r.repos||[]; captures = r.captures||[];
+  // v5.28 I — 거르는 기준부터 다시 세운다(repo 목록이 바뀌면 세션 집합도 같이 바뀐다).
+  const allRepos = r.repos||[];
+  const sessionRepos = allRepos.filter(x => x.kind === 'sessions');
+  sessionRepoIds = new Set(sessionRepos.map(x => x.id));
+  sessionRepoNames = new Set(sessionRepos.map(x => x.name));
+  sessionTaskIds = new Set((r.tasks||[]).filter(t => isSessionRepo(t.repoId)).map(t => t.id));
+  sessionRunIds = new Set((r.runs||[]).filter(rn => isSessionTask(rn.taskId)).map(rn => rn.id));
+  machines = r.machines||[]; repos = allRepos.filter(x => !isSessionRepo(x.id)); captures = r.captures||[];
   if (r.counts){ const n = r.counts.closedTasks||0; $('navArchiveN').textContent = n ? String(n) : ''; }
   tasks.clear();
-  (r.tasks||[]).forEach(t => tasks.set(t.id, t));
+  (r.tasks||[]).forEach(t => { if (!isSessionTask(t.id)) tasks.set(t.id, t); });
   groups.clear();
   (r.groups||[]).forEach(g => groups.set(g.id, g));
   runs.clear();
-  (r.runs||[]).forEach(rn => runs.set(rn.id, { ...rn, events: rn.events||[] }));
+  (r.runs||[]).forEach(rn => { if (!isSessionRun(rn)) runs.set(rn.id, { ...rn, events: rn.events||[] }); });
   if (r.daemon) {
     const d = r.daemon;
     if (d.port) daemonPort = d.port;
@@ -2101,6 +2124,7 @@ function railCounts(){
   // repoId → { active, attn } — /api/fleet active runs 를 client-side 로 그룹
   const m = new Map();
   for (const r of runs.values()){
+    if (isSessionRun(r)) continue;   // v5.28 I — 세션은 세지 않는다(배지도 스코프도)
     const t = tasks.get(r.taskId); if (!t) continue;
     const rec = m.get(t.repoId) || { active:0, attn:false };
     rec.active++;
@@ -2256,6 +2280,11 @@ function connectWS(){
       const known = runs.has(rid);
       // 아카이브된(맵에 없는) run 의 뒤늦은 echo 는 무시 — 신규는 항상 pending 으로 먼저 온다.
       if (!known && ev.status && ev.status!=='pending') return;
+      // v5.28 I — 보드가 열려 있는 사이 시작된 Scratch 세션은 여기서 멈춘다.
+      if (isSessionRun(ev)) return;
+      // 정체를 모르는 새 task 의 첫 델타는 넣지 않고 하이드레이트에 맡긴다 — 세션이면 그대로
+      //   걸러지고, 에이전트 run 이면 같은 하이드레이트가 곧 세운다(잠깐 떴다 사라지지 않게).
+      if (!known && ev.taskId!=null && !tasks.has(ev.taskId)){ hydrate(); return; }
       upsertRun(ev);
       if (!known && ev.taskId==null){ hydrate(); return; }
       if (ev.taskId!=null && !tasks.has(ev.taskId)) hydrate(); // 통합 태스크 등 신규 태스크 동기화
@@ -2268,6 +2297,7 @@ function connectWS(){
       r.events = r.events||[]; r.events.push({ kind:ev.kind, payload:ev.payload });
       render(); flash(ev.runId); paintModal();
     } else if (ev.type==='task'){
+      if (isSessionTask(ev.taskId) || isSessionRepo(ev.repoId)) return;   // v5.28 I
       const t = tasks.get(ev.taskId);
       // repoId 는 v6.0 S2 승격(재부모화)으로 바뀐다 — 안 받으면 repo 스코프가 다음 하이드레이트까지 어긋난다.
       if (t){ if (ev.status!=null) t.status = ev.status; if (ev.groupId!=null) t.groupId = ev.groupId; if (ev.repoId!=null) t.repoId = ev.repoId; render(); paintModal(); } else { hydrate(); }
@@ -3043,7 +3073,7 @@ $('roomChips').addEventListener('click',(e)=>{
   closeRoom();
   if (runs.has(rid)) openModal(rid);
   else { // 아카이브 등 맵에 없는 run — 태스크로 하이드레이트 후 연다
-    fetch('/api/runs/'+rid).then(x=>x.json()).then(d=>{ if(d.run){ runs.set(rid, {...d.run, events:d.events||[]}); openModal(rid); } }).catch(()=>{});
+    fetch('/api/runs/'+rid).then(x=>x.json()).then(d=>{ if(d.run && !isSessionRun(d.run)){ runs.set(rid, {...d.run, events:d.events||[]}); openModal(rid); } }).catch(()=>{});   // v5.28 I
   }
 });
 $('roomClose').addEventListener('click', closeRoom);
@@ -3086,7 +3116,7 @@ async function roomRunAction(act, rid){
   if (act==='open'){
     closeRoom();
     if (runs.has(rid)) openModal(rid);
-    else fetch('/api/runs/'+rid).then(x=>x.json()).then(d=>{ if(d.run){ runs.set(rid,{...d.run,events:d.events||[]}); openModal(rid); } }).catch(()=>{});
+    else fetch('/api/runs/'+rid).then(x=>x.json()).then(d=>{ if(d.run && !isSessionRun(d.run)){ runs.set(rid,{...d.run,events:d.events||[]}); openModal(rid); } }).catch(()=>{});   // v5.28 I
     return;
   }
   if (act==='fix'){ // 펼치고 steer 입력에 포커스
@@ -3515,7 +3545,7 @@ $('taskForm').addEventListener('submit', async (e)=>{
   const t = await fetch('/api/tasks',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({repoId,title,prompt:$('taskPrompt').value,designCaptureId:capId,outputs})}).then(x=>x.json());
   if (!t.ok){ toast('task create failed', 'error'); return; }
-  tasks.set(t.task.id, t.task);
+  if (!isSessionRepo(t.task.repoId)) tasks.set(t.task.id, t.task);   // v5.28 I
   const model = $('taskModel').value.trim();
   await fetch('/api/tasks/'+t.task.id+'/run',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({count:Number($('taskCount').value)||1, real: $('taskReal').checked, agent: selAgent, model})});
