@@ -1,6 +1,8 @@
 // Cockpit — 터미널 우선 셸 (병행 개발, /cockpit). board.ts 처럼 자가완결 단일 HTML(빌드 0).
 // 백엔드(server 라우트·term.ts·orchestrator)는 보드와 전부 공유. Phase 5에서 데스크톱 기본을 여기로 플립.
 // Phase 2 = 워크스페이스 트리(/api/fleet 라이브) + 페인 그리드 터미널(오토타일=창분할, 각 페인 /ws/term attach).
+import { HUMANIZE_JS } from './humanize.js';
+
 export const COCKPIT_HTML = /* html */ `<!doctype html>
 <html lang="en">
 <head>
@@ -335,14 +337,61 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .qr{display:inline-flex;align-items:center;gap:3px;flex:none}
   .leaf-h .qr:empty{display:none}
   /* 빠른 답은 대기의 색(--blocked)을 빌린다 — 칩·미머지 표식과 같은 주의색, 새 색 없음 */
-  .leaf-h .qbtn{font-family:var(--mono);font-size:10px;color:var(--blocked);background:none;
+  /* (v5.28 E — 같은 알약이 활동 페인 액션바에도 그대로 선다. 규칙은 안 바꾸고 선택자만 넓힌다) */
+  .act-bar .qbtn,.leaf-h .qbtn{font-family:var(--mono);font-size:10px;color:var(--blocked);background:none;
     border:1px solid var(--line-hi);border-radius:999px;padding:1px 7px;cursor:pointer;white-space:nowrap}
-  .leaf-h .qbtn:hover,.leaf-h .qbtn:focus-visible{color:var(--ink);border-color:var(--blocked)}
-  .leaf-h .qbtn.qadd{color:var(--faint);padding:1px 6px}
+  .act-bar .qbtn:hover,.act-bar .qbtn:focus-visible,.leaf-h .qbtn:hover,.leaf-h .qbtn:focus-visible{color:var(--ink);border-color:var(--blocked)}
+  .act-bar .qbtn.qadd,.leaf-h .qbtn.qadd{color:var(--faint);padding:1px 6px}
   /* 시작·이어서는 부름이 아니라 제안이라 더 조용하다(--muted 위 --line) */
   .leaf-h .sbtn{font-family:var(--mono);font-size:10px;color:var(--muted);background:none;
     border:1px solid var(--line);border-radius:999px;padding:1px 7px;cursor:pointer;white-space:nowrap}
   .leaf-h .sbtn:hover,.leaf-h .sbtn:focus-visible{color:var(--brand);border-color:var(--line-hi)}
+  /* ── v5.28 E — 활동 페인(Activity) ──
+     에이전트 run 을 누르면 빈 worktree 셸이 아니라 **지금 하고 있는 일**이 열린다.
+     읽는 자리라 조용하다: 색을 갖는 곳은 상태 칩과 "지금" 한 줄뿐이고, 둘 다 이미 있는 토큰이다.
+     터미널은 사라지지 않는다 — 액션바 첫 버튼이 그 자리로 되돌린다(E4). */
+  .act-host{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--bg);font-family:var(--mono);font-size:11.5px}
+  .act-h{display:flex;align-items:center;gap:8px;flex:none;padding:9px 12px 8px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .act-h .anm{color:var(--ink);font-size:12.5px;white-space:nowrap}
+  .act-h .apath{color:var(--faint);flex:1;min-width:60px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .act-h .ameta{color:var(--faint);font-size:10.5px;white-space:nowrap}
+  /* 상태 칩 — Part A 의 네 상태를 **같은 토큰**으로(working/waiting/idle/exited). 새 색 없음.
+     상태가 없으면 :empty 가 자리를 지운다 — 없는 상태를 지어내지 않는다는 규칙의 표면 쪽 절반. */
+  .act-chip{font-size:9px;text-transform:uppercase;letter-spacing:.04em;padding:1px 7px;border-radius:999px;
+    border:1px solid currentColor;white-space:nowrap}
+  .act-chip:empty{display:none}
+  .act-chip.as-working{color:var(--running)}
+  .act-chip.as-waiting{color:var(--blocked)}
+  .act-chip.as-idle{color:var(--faint)}
+  .act-chip.as-exited{color:var(--done)}
+  /* "지금" 한 줄 — 가장 알고 싶은 답이라 이 페인에서 제일 크다 */
+  .act-now{flex:none;padding:10px 12px;color:var(--brand);font-size:15px;border-bottom:1px solid var(--line);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .act-tlwrap{flex:1;min-height:0;position:relative;display:flex}
+  .act-tl{flex:1;min-height:0;overflow:auto;padding:8px 12px;line-height:1.55}
+  .act-l{display:flex;gap:9px;padding:1px 0}
+  .act-l .ak{color:var(--faint);flex:none;min-width:44px;text-align:right}
+  .act-l .at{color:var(--muted);white-space:pre-wrap;word-break:break-word;min-width:0}
+  .act-empty{color:var(--faint);padding:8px 12px}
+  /* 꼬리에 붙어 있을 때만 따라 내려간다 — 위로 올렸으면 멈추고, 돌아갈 길을 하나 띄운다 */
+  .act-jump{position:absolute;right:16px;bottom:10px;font-family:var(--mono);font-size:10px;
+    color:var(--brand-ink);background:var(--brand);border:none;border-radius:999px;padding:3px 10px;cursor:pointer}
+  .act-jump[hidden]{display:none}
+  .act-chg{flex:none;border-top:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  .act-chg-h{display:flex;align-items:center;gap:8px;padding:6px 12px;color:var(--muted)}
+  .act-chg-h .afiles{color:var(--faint)}
+  .act-chg .rv-diff{max-height:210px;border-top:1px solid var(--line)}
+  .act-bar{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 12px;
+    border-top:1px solid var(--line);background:var(--surface)}
+  .act-bar .abtn{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;
+    border:1px solid var(--line);border-radius:7px;padding:4px 10px;cursor:pointer;white-space:nowrap}
+  .act-bar .abtn:hover,.act-bar .abtn:focus-visible{color:var(--ink);border-color:var(--line-hi)}
+  .act-bar .abtn.prim{color:var(--brand-ink);background:var(--brand);border-color:var(--brand)}
+  .act-bar .qr{display:inline-flex;align-items:center;gap:3px}
+  .act-bar .qr:empty{display:none}
+  /* Activity | Terminal — 요청바의 .modes/.mode 세그를 페인 헤더 크기로만 줄여 쓴다(새 컴포넌트 없음) */
+  .leaf-h .modes{padding:1px;border-radius:6px;flex:none}
+  .leaf-h .mode{font-size:9.5px;padding:1px 6px}
   .leaf-h .bsel{display:none;color:var(--faint);border:none;background:none;cursor:pointer;font-size:11px;padding:0 2px}
   body.bcastmode .leaf-h .bsel{display:inline-block}   /* 브로드캐스트 모드에서만 대상 선택 토글 노출 */
   .leaf-h .bsel.on{color:var(--open)}
@@ -944,6 +993,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var row=$('tree').querySelector('.tnode[data-run="'+runId+'"] .st');
     if (row){ var r=runById[runId]; row.className='st '+((r&&r.status)||'')+(cls?' '+cls:''); }
     paintPaneStrip(runId);   // 페인 헤더 스트립도 같은 표적 칠하기 — waiting 이면 빠른 답, 없으면 시작/이어서(C1·C2)
+    paintActivity(runId);    // 열려 있는 활동 페인의 상태 칩·"지금" 줄·타임라인도 그 자리만(E3)
     updateWaitChip();
     raiseAttention(runId, prev, state);   // 점·칩은 항상 켜져 있고, 소리/알림만 취향을 탄다
   }
@@ -1319,8 +1369,20 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   // 탭 라벨 = 역할 하나(작업 이름은 트리가 이미 보여준다).
   function tabName(runId){ return runLabel(runId); }
 
+  // 탭은 runId 하나로 키를 잡는다 — 한 run 이 두 탭이 될 수 없으니, 대신 **모드**를 갖는다(v5.28 E1).
+  // 에이전트 run 은 활동 페인으로 열리고, 날 PTY 는 사람이 Terminal 로 넘길 때 비로소 만들어진다.
   function ensureTab(runId){
     if (tabs[runId]) return tabs[runId];
+    var t={ runId:runId, name:tabName(runId), mode:defaultTabMode(runId), term:null, fit:null, ws:null, retry:0,
+            closing:false, host:null, ro:null, opened:false, connected:false, search:null, actHost:null };
+    tabs[runId]=t; tabOrder.push(runId);
+    if (t.mode==='terminal') ensureTerm(t);
+    return t;   // open·connect 는 attachHosts 에서(Phase 2 순서: open → connect)
+  }
+  // 터미널 실체(호스트 DOM + xterm + 애드온). 활동 페인에서 넘어오면 여기서 처음 생기고, 그 뒤로는 유지된다.
+  function ensureTerm(t){
+    if (t.term) return t;
+    var runId=t.runId;
     var host=document.createElement('div'); host.className='term-host';
     var term=new window.Terminal({
       fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Apple SD Gothic Neo', 'Noto Sans KR', monospace",
@@ -1400,9 +1462,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       return true;
     });
     // term.open 은 host 가 DOM 에 붙은 뒤(attachHosts) 최초 1회 — detached 에서 open 하면 렌더러가 안 뜬다.
-    var t={ runId:runId, name:tabName(runId), term:term, fit:fit, ws:null, retry:0, closing:false, host:host, ro:null, opened:false, connected:false, search:search };
+    t.term=term; t.fit=fit; t.host=host; t.search=search; t.opened=false; t.connected=false;
     term.onData(function(d){ if(t.ws&&t.ws.readyState===1) t.ws.send(JSON.stringify({t:'i',d:d})); });
-    tabs[runId]=t; tabOrder.push(runId);
     return t;   // open·connect 는 attachHosts 에서(Phase 2 순서: open → connect)
   }
 
@@ -1580,7 +1641,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
 
   function fitTab(t){ if(!t||!t.fit||!t.term) return; try{ t.fit.fit(); if(t.ws&&t.ws.readyState===1) t.ws.send(JSON.stringify({t:'r',cols:t.term.cols,rows:t.term.rows})); }catch(e){} }
-  function fitAllVisible(){ eachLeaf(layout,function(l){ if(l.tab!=null && tabs[l.tab] && tabs[l.tab].kind!=='viewer' && tabs[l.tab].host.isConnected) fitTab(tabs[l.tab]); }); }
+  function fitAllVisible(){ eachLeaf(layout,function(l){ var t=l.tab!=null?tabs[l.tab]:null; if(t && t.kind!=='viewer' && t.term && t.host && t.host.isConnected) fitTab(t); }); }
 
   // ── 탭 바 렌더(터미널 없음 — 언제든 안전) ──
   function renderTabs(){
@@ -1617,6 +1678,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
           ? '<span class="st vdoc">▤</span><span class="nm">'+esc(t.name)+'</span>'
             + zoomBtn + '<button class="x" title="이 페인 닫기(뷰어 유지)">×</button>'
           : '<span class="st '+esc(r?r.status:'')+'"></span><span class="nm">'+esc(t.name)+'</span>'
+            // v5.28 E1 — 이 페인이 무엇을 보여줄지. 에이전트 run 에만 뜬다(손 세션·워크벤치는 터미널 그대로).
+            + (runIsAgent(node.tab)
+              ? '<span class="modes acttog" data-role="mtog">'
+                + '<button type="button" class="mode'+(t.mode==='activity'?' on':'')+'" data-pmode="activity" data-prun="'+node.tab+'" title="이 에이전트가 지금 하고 있는 일 (이벤트 스트림)">Activity</button>'
+                + '<button type="button" class="mode'+(t.mode!=='activity'?' on':'')+'" data-pmode="terminal" data-prun="'+node.tab+'" title="이 run 의 worktree 셸 (날 터미널)">Terminal</button></span>'
+              : '')
             + '<span data-role="act" class="pane-act">'+esc(latestActivity(node.tab))+'</span>'
             // v5.28 C1·C2 — 이 페인의 에이전트 상태가 정하는 스트립. 상태가 바뀌면 이 자리만 다시 칠한다.
             + '<span data-role="qr" class="qr" data-qrun="'+node.tab+'">'+paneStripHTML(node.tab)+'</span>'
@@ -1642,8 +1709,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     el.appendChild(a); el.appendChild(g); el.appendChild(b); return el;
   }
   // host 를 DOM 에 붙이고, 최초 1회 open → connect(Phase 2 순서). fit 은 render 의 rAF 에서.
-  function attachHosts(){ eachLeaf(layout,function(l){ if(l.tab==null||!tabs[l.tab]) return; var t=tabs[l.tab]; var body=$('panes').querySelector('[data-leafbody="'+l.id+'"]'); if(!body) return; body.appendChild(t.host);
-    if(t.kind==='viewer') return;   // 뷰어는 DOM 만 붙이면 끝(터미널 open/connect 없음)
+  function attachHosts(){ eachLeaf(layout,function(l){ if(l.tab==null||!tabs[l.tab]) return; var t=tabs[l.tab]; var body=$('panes').querySelector('[data-leafbody="'+l.id+'"]'); if(!body) return;
+    if(t.kind==='viewer'){ body.appendChild(t.host); return; }   // 뷰어는 DOM 만 붙이면 끝(터미널 open/connect 없음)
+    // 활동 페인(v5.28 E) — PTY 를 만들지 않는다. 터미널은 사람이 Terminal 을 누를 때 생긴다.
+    if(t.mode==='activity'){ body.appendChild(actHostOf(t)); renderActivity(t); return; }
+    ensureTerm(t); body.appendChild(t.host);
     if(!t.opened){ try{ t.term.open(t.host); t.opened=true; }catch(e){} }
     if(!t.connected){ t.connected=true; connectTab(t); }
   }); }
@@ -1814,6 +1884,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var chip=head.querySelector('[data-role=chip]'); if(chip){ chip.className='chip '+r.status; chip.textContent=r.status; }
       var vslot=head.querySelector('[data-role=vslot]'); if(vslot) vslot.innerHTML=vbadge(r.verifyStatus);
       var act=head.querySelector('[data-role=act]'); if(act) act.textContent=latestActivity(l.tab);
+      // 이벤트 델타가 실린 하이드레이트 — 열려 있는 활동 페인은 **새 줄만 이어붙인다**(통째로 다시 그리지 않는다, E3)
+      paintActivity(l.tab);
     });
   }
 
@@ -1890,6 +1962,22 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     if (injBtn){ e.stopPropagation(); var il=findLeaf(injBtn.getAttribute('data-inject')); if(il&&il.tab!=null){ setLeafFocus(il.id); openInjMenu(injBtn, il.tab); } return; }
     var lockBtn=e.target.closest('[data-lock]');
     if (lockBtn){ e.stopPropagation(); startSecretSend(lockBtn.getAttribute('data-lock'), lockBtn); return; }
+    // v5.28 E — 활동 페인. 모드 전환(Activity|Terminal) + 페인 안의 읽기/행동 버튼들.
+    var pmBtn=e.target.closest('[data-pmode]');
+    if (pmBtn){ e.stopPropagation(); setTabMode(tabKeyOf(pmBtn.getAttribute('data-prun')), pmBtn.getAttribute('data-pmode')); return; }
+    var atBtn=e.target.closest('[data-actterm]');
+    if (atBtn){ e.stopPropagation(); setTabMode(tabKeyOf(atBtn.getAttribute('data-actterm')), 'terminal'); return; }
+    var asteerBtn=e.target.closest('[data-actsteer]');
+    if (asteerBtn){ e.stopPropagation(); actSteer(tabKeyOf(asteerBtn.getAttribute('data-actsteer'))); return; }
+    var arevBtn=e.target.closest('[data-actreview]');
+    if (arevBtn){ e.stopPropagation(); gotoBoardRun(arevBtn.getAttribute('data-actreview')); return; }
+    var adiffBtn=e.target.closest('[data-actdiff]');
+    if (adiffBtn){ e.stopPropagation(); actToggleDiff(tabKeyOf(adiffBtn.getAttribute('data-actdiff'))); return; }
+    var awsBtn=e.target.closest('[data-actws]');
+    if (awsBtn){ e.stopPropagation(); actToggleWs(tabKeyOf(awsBtn.getAttribute('data-actws'))); return; }
+    var ajBtn=e.target.closest('[data-actjump]');
+    if (ajBtn){ e.stopPropagation(); var jt=tabs[tabKeyOf(ajBtn.getAttribute('data-actjump'))];
+      if(jt && jt.actHost){ var jel=jt.actHost.querySelector('[data-role=acttl]'); if(jel){ jt._tlPinned=true; jel.scrollTop=jel.scrollHeight; } ajBtn.hidden=true; } return; }
     var leaf=e.target.closest('[data-leaf]'); if(!leaf) return;
     if (e.target.closest('.leaf-h .x')){ closeSlot(leaf.dataset.leaf); return; }
     setLeafFocus(leaf.dataset.leaf);
@@ -2067,7 +2155,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   // ── 모바일 터미널 입력바 — 조합 완료 텍스트를 통째로 포커스 탭의 PTY 로(IME 안전) ──
   function focusedWs(){ var rid=focusedRunId(); return (rid!=null && tabs[rid]) ? tabs[rid].ws : null; }
   function termSendRaw(d){ var ws=focusedWs(); if(ws && ws.readyState===1) ws.send(JSON.stringify({t:'i',d:d})); }
-  function termSendLine(){ var inp=$('termInput'); var v=inp.value; if(!v){ termSendRaw('\\r'); return; } termSendRaw(v+'\\r'); inp.value=''; inp.focus(); }
+  function termSendLine(){ var inp=$('termInput'); var v=inp.value;
+    // 활동 페인에는 아직 PTY 가 없다 — 친 글을 조용히 삼키지 않고 길을 알려 준다(v5.28 E4).
+    var frid=focusedRunId(); var ft=(frid!=null)?tabs[frid]:null;
+    if(ft && ft.kind!=='viewer' && ft.mode==='activity'){ toast('이 페인은 Activity 입니다 — Open terminal 을 누르면 입력할 수 있어요'); return; }
+    if(!v){ termSendRaw('\\r'); return; } termSendRaw(v+'\\r'); inp.value=''; inp.focus(); }
   $('termSend').addEventListener('click', termSendLine);
   $('termInput').addEventListener('keydown', function(e){ if(e.isComposing) return; if(e.key==='Enter'){ e.preventDefault(); termSendLine(); } });
   // 멀티라인 붙여넣기(D-io) — 한 줄 <input> 은 개행을 삼킨다. 개행이 있으면 기본동작을 막고
@@ -3220,11 +3312,183 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('injMenu').hidden){ e.preventDefault(); var o=injMenuOwner; closeInjMenu(); if(o) o.focus(); } });
   window.addEventListener('resize', closeInjMenu);
 
+  // ══ v5.28 Part E — 활동 페인(run activity view) ═════════════════════════════
+  // 돌고 있는 에이전트를 눌렀을 때 보여야 하는 것은 **그 에이전트가 하고 있는 일**이다.
+  // 헤드리스 run 의 tmux 는 빈 worktree 셸이고(에이전트는 떨어져 나가 돈다), 진짜 작업은
+  // 이미 파싱돼 있는 이벤트 스트림(r.events · latestActivity · Part A agentstate)에 있다.
+  // 이 페인은 그것을 **읽을 뿐**이다 — 새 창구도, 새 색도, 새 상태도 만들지 않는다.
+  //   ① 터미널은 없어지지 않는다(액션바 첫 버튼이 한 번에 되돌린다)
+  //   ② 없는 것은 지어내지 않는다(아직 이벤트가 없으면 starting…)
+  //   ③ 에이전트 run 에만 뜬다(손 세션·워크벤치는 진짜 셸이라 터미널이 옳다)
+
+  // 보드 타임라인과 **같은 한 벌**(src/humanize.ts) — 같은 줄을 같은 규칙으로. 사본을 만들지 않는다.
+${HUMANIZE_JS}
+
+  // 에이전트 run = 이벤트 스트림을 가진 run. 자유 세션·손 터미널(agent='session')·워크벤치는 아니다.
+  function runIsAgent(runId){
+    if(runId==null || isViewer(runId)) return false;
+    var r=runById[runId]; if(!r) return false;
+    if(runIsSession(runId)) return false;
+    return r.agent!=='session' && r.agent!=='workbench';
+  }
+  // 탭이 열릴 때의 기본 모드(E1). 모르는 run 은 오늘과 똑같이 터미널이다.
+  function defaultTabMode(runId){ return runIsAgent(runId) ? 'activity' : 'terminal'; }
+  function actHostOf(t){
+    if(!t.actHost){ var h=document.createElement('div'); h.className='act-host'; t.actHost=h; }
+    return t.actHost;
+  }
+  // 모드 전환 — 터미널은 **여기서 처음** 만들어지고(lazy), 한 번 만든 뒤로는 계속 산다(되돌아오기는 즉시).
+  function setTabMode(runId, mode){
+    var t=tabs[runId]; if(!t || t.kind==='viewer') return;
+    var want=(mode==='terminal')?'terminal':'activity';
+    if(t.mode===want) return;
+    t.mode=want;
+    if(want==='terminal') ensureTerm(t);
+    render();
+  }
+
+  // "지금" 한 줄 — 파싱된 스트림에서 온 것만. 아직 아무 이벤트도 없으면 지어내지 않고 starting… 이라 말한다.
+  function actNowText(runId){
+    var r=runById[runId]; if(!r) return '';
+    var live=(r.status==='running'||r.status==='pending'||r.status==='preparing');
+    if(!(r.events||[]).length) return live ? 'starting…' : String(r.status||'');
+    return latestActivity(runId) || String(r.status||'');
+  }
+  function actPath(runId){
+    var r=runById[runId]; if(!r) return '';
+    var task=taskById[r.taskId]; var rp=task&&repoById[task.repoId];
+    return (rp?rp.name:'?')+' ▸ '+((task&&task.title)||('task '+(r.taskId!=null?r.taskId:'?')));
+  }
+  // 모델 · 브랜치. 브랜치가 없는 run 은 없다고 말한다(in-place — 트리 행·Review 와 같은 표기).
+  function actMeta(runId){
+    var r=runById[runId]; if(!r) return '';
+    var bits=[]; if(r.model) bits.push(r.model);
+    bits.push(r.branch || 'in-place');
+    return bits.join(' · ');
+  }
+  function actFilesText(runId){ var r=runById[runId]; return 'filesChanged '+((r&&r.filesChanged)||0); }
+
+  function activityHTML(runId){
+    var s=agentStateOf(runId);
+    return '<div class="act-h">'
+      + '<span class="anm">'+esc(runLabel(runId))+'</span>'
+      + '<span class="apath">'+esc(actPath(runId))+'</span>'
+      + '<span class="act-chip '+asClass(s)+'" data-role="actchip">'+esc(s)+'</span>'
+      + '<span class="ameta">'+esc(actMeta(runId))+'</span>'
+      + '</div>'
+      + '<div class="act-now" data-role="actnow">'+esc(actNowText(runId))+'</div>'
+      + '<div class="act-tlwrap"><div class="act-tl" data-role="acttl"></div>'
+      +   '<button type="button" class="act-jump" data-role="actjump" data-actjump="'+runId+'" hidden>최신으로 ↓</button></div>'
+      + '<div class="act-chg"><div class="act-chg-h">'
+      +   '<span class="afiles" data-role="actfiles">'+esc(actFilesText(runId))+'</span>'
+      +   '<button type="button" class="abtn" data-actdiff="'+runId+'" title="지금까지의 변경(diff) — Review 와 같은 렌더러">변경 미리보기</button>'
+      +   '<button type="button" class="rv-ws" data-actws="'+runId+'" title="공백 표시(스페이스·탭)" hidden>␣ 공백</button>'
+      +   '</div><div class="rv-diff" data-role="actdiffbody" hidden></div></div>'
+      + '<div class="act-bar">'
+      +   '<button type="button" class="abtn prim" data-actterm="'+runId+'" title="이 페인을 날 터미널(worktree 셸)로 — 언제든 한 번에 돌아옵니다">Open terminal</button>'
+      +   '<button type="button" class="abtn" data-actsteer="'+runId+'" title="이 run 에 후속 지시 (요청바 Steer 경로 그대로)">Steer…</button>'
+      // 대기 중일 때만 Part C 빠른 답이 그대로 선다 — 여기서 새로 만들지 않는다.
+      // 자리 이름은 data-arun 이다(헤더 스트립의 data-qrun 과 달라서, paintPaneStrip 이 이 칸을 덧칠하지 않는다).
+      +   '<span class="qr" data-role="qr" data-arun="'+runId+'">'+(s==='waiting'?paneStripHTML(runId):'')+'</span>'
+      +   '<button type="button" class="abtn" data-actreview="'+runId+'" title="보드의 run 상세로 (전체 타임라인·산출물)">Review</button>'
+      + '</div>';
+  }
+  function renderActivity(t){
+    var h=actHostOf(t);
+    h.innerHTML=activityHTML(t.runId);
+    t._tlKeys=null; t._tlPinned=true;
+    var tl=h.querySelector('[data-role=acttl]');
+    if(tl) tl.addEventListener('scroll', function(){
+      var atEnd=(tl.scrollHeight - tl.scrollTop - tl.clientHeight) < 24;
+      t._tlPinned=atEnd;
+      var j=h.querySelector('[data-role=actjump]'); if(j) j.hidden=atEnd;
+    });
+    actPaintTimeline(t);
+    if(t._diffOpen){ var db=h.querySelector('[data-actdiff]'); if(db) db.textContent='변경 접기'; actLoadDiff(t.runId); }
+  }
+  function actKey(h){ return h.k+'\\u0000'+h.t; }
+  // 새 줄은 **아래에 잇는다**. 통째로 다시 그리는 것은 이을 자리를 못 찾았을 때뿐이다
+  // (이벤트 창이 40개로 밀려 앞이 잘린 경우). 꼬리에 붙어 있을 때만 따라 내려간다.
+  function actPaintTimeline(t){
+    var h=t.actHost; if(!h) return;
+    var el=h.querySelector('[data-role=acttl]'); if(!el) return;
+    var r=runById[t.runId];
+    var lines=humanLines((r&&r.events)||[]);
+    var prev=t._tlKeys, start=0;
+    if(!prev || !prev.length){ el.innerHTML=''; prev=[]; }
+    else {
+      var last=prev[prev.length-1], at=-1;
+      for(var i=lines.length-1;i>=0;i--){ if(actKey(lines[i])===last){ at=i; break; } }
+      if(at<0){ el.innerHTML=''; prev=[]; } else start=at+1;
+    }
+    for(var j=start;j<lines.length;j++){
+      var d=document.createElement('div'); d.className='act-l';
+      d.innerHTML='<span class="ak">'+esc(lines[j].k)+'</span><span class="at">'+esc(lines[j].t)+'</span>';
+      el.appendChild(d); prev.push(actKey(lines[j]));
+    }
+    t._tlKeys=prev;
+    var jb=h.querySelector('[data-role=actjump]');
+    if(!prev.length){ el.innerHTML='<div class="act-empty">아직 이벤트가 없습니다 — starting…</div>'; if(jb) jb.hidden=true; return; }
+    if(t._tlPinned){ el.scrollTop=el.scrollHeight; if(jb) jb.hidden=true; }
+    else if(start<lines.length && jb) jb.hidden=false;
+  }
+  // 델타 한 건 = 열려 있는 활동 페인의 그 자리만 고쳐 칠한다(리하이드레이트 없음 — A4 규율 그대로).
+  function paintActivity(runId){
+    var t=tabs[runId]; if(!t || t.kind==='viewer' || t.mode!=='activity' || !t.actHost) return;
+    var h=t.actHost, s=agentStateOf(runId);
+    var chip=h.querySelector('[data-role=actchip]'); if(chip){ chip.className='act-chip '+asClass(s); chip.textContent=s; }
+    var now=h.querySelector('[data-role=actnow]'); if(now) now.textContent=actNowText(runId);
+    var files=h.querySelector('[data-role=actfiles]'); if(files) files.textContent=actFilesText(runId);
+    var qr=h.querySelector('[data-role=qr]'); if(qr) qr.innerHTML=(s==='waiting')?paneStripHTML(runId):'';
+    actPaintTimeline(t);
+  }
+  // 변경 미리보기 — Review 가 쓰는 그 창구(/api/runs/:id/diff)와 그 렌더러(diffHTML·공백 토글) 그대로.
+  function actLoadDiff(runId){
+    var t=tabs[runId]; if(!t||!t.actHost) return;
+    var body=t.actHost.querySelector('[data-role=actdiffbody]'); if(!body) return;
+    body.hidden=false; body.textContent='불러오는 중…';
+    var wsBtn=t.actHost.querySelector('[data-actws]'); if(wsBtn){ wsBtn.hidden=false; wsBtn.classList.toggle('on', rvShowWs); }
+    fetch('/api/runs/'+runId+'/diff').then(function(x){ return x.json(); }).then(function(d){
+      if(tabs[runId]!==t || !t._diffOpen) return;
+      if(d && d.ok) body.innerHTML=diffHTML(d.diff||'');
+      else body.textContent=(d&&d.stat)||'worktree 가 없어 diff 를 볼 수 없습니다';
+    }).catch(function(){ body.textContent='diff 를 가져오지 못했습니다'; });
+  }
+  function actToggleDiff(runId){
+    var t=tabs[runId]; if(!t||!t.actHost) return;
+    t._diffOpen=!t._diffOpen;
+    var btn=t.actHost.querySelector('[data-actdiff]'); if(btn) btn.textContent=t._diffOpen?'변경 접기':'변경 미리보기';
+    if(t._diffOpen){ actLoadDiff(runId); return; }
+    var body=t.actHost.querySelector('[data-role=actdiffbody]'); if(body){ body.hidden=true; body.innerHTML=''; }
+    var wsBtn=t.actHost.querySelector('[data-actws]'); if(wsBtn) wsBtn.hidden=true;
+  }
+  // 공백 표시는 Review 와 **같은 취향 하나**를 나눠 쓴다(두 군데서 따로 기억하지 않는다).
+  function actToggleWs(runId){
+    rvShowWs=!rvShowWs;
+    try{ $('rvWs').classList.toggle('on', rvShowWs); }catch(e){}
+    var t=tabs[runId];
+    if(t && t.actHost){ var b=t.actHost.querySelector('[data-actws]'); if(b) b.classList.toggle('on', rvShowWs); }
+    if(t && t._diffOpen) actLoadDiff(runId);
+    if(reviewOn && rvTaskId!=null) loadCompare(rvTaskId);
+  }
+  // Steer… = 요청바의 steer 경로 그대로(새 창구 없음). 빈 지시는 보내지 않고 작성칸에 세워 준다.
+  function actSteer(runId){
+    var l=null; eachLeaf(layout,function(x){ if(l==null && x.tab===runId) l=x; });
+    if(l) setLeafFocus(l.id);
+    setMode('steer');
+    try{ $('reqInput').focus(); }catch(e){}
+    toast('r'+runId+' 에 이어서 보낼 지시를 적고 ⏎');
+  }
+  // Review = 보드의 run 상세. 이미 있는 /?run=N 딥링크로 갈 뿐, 코크핏이 상세를 다시 그리지 않는다.
+  function gotoBoardRun(runId){ location.href='/?run='+encodeURIComponent(runId); }
+
   // ── 요청바: New(팬아웃) / Steer / Broadcast ──
   var reqMode = 'new';
   function setMode(m){
     reqMode = m;
-    Array.prototype.forEach.call(document.querySelectorAll('.mode'), function(b){ b.classList.toggle('on', b.dataset.mode===m); });
+    // 요청바의 세그만 — 같은 .mode 알갱이를 쓰는 다른 세그(시트의 provider·place, 페인의 Activity|Terminal)는
+    // 자기 'on' 을 스스로 들고 있다. data-mode 를 가진 것만 만진다.
+    Array.prototype.forEach.call(document.querySelectorAll('.mode[data-mode]'), function(b){ b.classList.toggle('on', b.dataset.mode===m); });
     var go=$('reqGo'), inp=$('reqInput');
     $('newCtl').style.display = m==='new'?'inline-flex':'none';
     $('reqTgt').style.display = m==='new'?'none':'inline';
