@@ -2935,5 +2935,108 @@ case "$I_DESIGN" in *'Board session exclusion (v5.28 I)'*"sessionRepoIds"*'zero 
 curl -s -X DELETE "$B/api/runs/$ISRUN" >/dev/null
 pass "v5.28 I2: board-only — the cockpit still shows Scratch, /api/fleet is unchanged, and DESIGN.md carries the rule"
 
+# ── v5.28 Part J — 승자는 내려앉은 그 호흡에 검증된다 ─────────────────────────────
+# 공용 도구: 새 repo 하나 만들고 등록해 id 를 돌려준다(전부 dry, 크레딧 0).
+j_new_repo(){
+  local dir="$1"
+  mkdir -p "$dir"; git -C "$dir" init -q -b main
+  printf 'seed\n' > "$dir/README.md"; git -C "$dir" add -A
+  git -C "$dir" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q -m init
+  local body
+  body=$(curl -sf -X POST "$B/api/repos" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$dir\"}") \
+    || fail "Part J: repo register failed for $dir"
+  echo "$body" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).repo.id))'
+}
+# dry run 하나를 발사하고 정착할 때까지 기다린 뒤 run id 를 돌려준다.
+j_settled_run(){
+  local rid="$1" title="$2" t tid run st
+  t=$(curl -sf -X POST "$B/api/tasks" -H 'content-type: application/json' -d "{\"repoId\":$rid,\"title\":\"$title\",\"prompt\":\"x\"}") \
+    || fail "Part J: task create failed ($title)"
+  tid=$(echo "$t" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).task.id))')
+  curl -sf -X POST "$B/api/tasks/$tid/run" -H 'content-type: application/json' -d '{"count":1}' >/dev/null \
+    || fail "Part J: run launch failed ($title)"
+  run=$(curl -s "$B/api/tasks/$tid" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runs[0].id))')
+  st=""
+  for i in $(seq 1 80); do
+    st=$(curl -s "$B/api/runs/$run" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).run.status))')
+    case "$st" in done|failed|stopped) break;; esac
+    sleep 0.5
+  done
+  [ "$st" = "done" ] || fail "Part J: the run did not settle done ($title, got '$st')"
+  echo "$run"
+}
+
+# J1(통과) — verifyCmd 가 base 에서 돌았다는 것을 두 겹으로 본다:
+#  ① 머지 전에는 base 에 없던 파일을 본다(worktree 가 아니라 머지된 base 여야 통과)
+#  ② 실행 위치를 적어두게 해서, 그 자리가 서버가 들고 있는 repo.path 와 같은지 대조한다
+JREPO="$WORK/j-verify"
+JPWD="$WORK/j-verify-where.txt"
+JRID=$(j_new_repo "$JREPO")
+JVCMD="test -f COXPIT_DRYRUN.txt && pwd > '$JPWD'"
+JVJSON=$(JV="$JVCMD" node -e 'process.stdout.write(JSON.stringify({verifyCmd:process.env.JV}))')
+JP=$(curl -s -X PATCH "$B/api/repos/$JRID" -H 'content-type: application/json' -d "$JVJSON")
+case "$JP" in *'"ok":true'*) : ;; *) fail "Part J: verifyCmd PATCH failed: $JP";; esac
+if [ -f "$JREPO/COXPIT_DRYRUN.txt" ]; then fail "Part J: the base marker must not exist before the merge"; fi
+JRUN=$(j_settled_run "$JRID" "j-pass")
+# 정착 자동검증(worktree 에서 도는 쪽)이 다 쓸 때까지 기다렸다 지운다 —
+# 그래야 이 파일에 다음으로 적히는 자리는 머지 뒤 base 검증이 도는 자리 하나뿐이다.
+for i in $(seq 1 40); do [ -f "$JPWD" ] && break; sleep 0.25; done
+rm -f "$JPWD"
+JM=$(curl -s -X POST "$B/api/runs/$JRUN/merge")
+case "$JM" in *'"ok":true'*) : ;; *) fail "Part J: merge should succeed: $JM";; esac
+case "$JM" in *'"verify":{"status":"pass"'*) : ;; *) fail "Part J: the merge response must carry verify.status pass (verifyCmd run on the merged base): $JM";; esac
+[ -f "$JREPO/COXPIT_DRYRUN.txt" ] || fail "Part J: the merge did not land on the base"
+[ -f "$JPWD" ] || fail "Part J: the post-merge verify never ran"
+JWHERE=$(cat "$JPWD")
+JPATH=$(curl -s "$B/api/repos" | JRID="$JRID" node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{const r=JSON.parse(b).repos.find(x=>String(x.id)===process.env.JRID);if(!r)throw new Error("repo missing");console.log(r.path)})')
+[ "$JWHERE" = "$JPATH" ] || fail "Part J: verify ran at '$JWHERE' — it must run on the merged base checkout '$JPATH', never a worktree"
+pass "v5.28 J1: merging a winner runs the repo's verifyCmd on the merged base (cwd = repo.path) and reports it in the merge response (pass)"
+
+# J1(실패) — 떨어지는 verifyCmd 는 보고일 뿐이다: 머지는 ok:true 로 서 있고 run 은 merged 그대로,
+# 꼬리는 응답에 실려 온다. 되돌리는 경로는 없다(J3).
+JFREPO="$WORK/j-verify-fail"
+JFRID=$(j_new_repo "$JFREPO")
+JFP=$(curl -s -X PATCH "$B/api/repos/$JFRID" -H 'content-type: application/json' -d '{"verifyCmd":"echo boom; exit 3"}')
+case "$JFP" in *'"ok":true'*) : ;; *) fail "Part J: failing verifyCmd PATCH failed: $JFP";; esac
+JFRUN=$(j_settled_run "$JFRID" "j-fail")
+JFM=$(curl -s -X POST "$B/api/runs/$JFRUN/merge")
+case "$JFM" in *'"ok":true'*) : ;; *) fail "Part J: a failing verify must not fail the merge: $JFM";; esac
+case "$JFM" in *'"verify":{"status":"fail"'*) : ;; *) fail "Part J: verify.status should be fail: $JFM";; esac
+case "$JFM" in *boom*) : ;; *) fail "Part J: the verify tail must ride the merge response: $JFM";; esac
+JFST=$(curl -s "$B/api/runs/$JFRUN" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).run.status))')
+[ "$JFST" = "merged" ] || fail "Part J: a failing verify must never un-merge (run status '$JFST')"
+[ -f "$JFREPO/COXPIT_DRYRUN.txt" ] || fail "Part J: the merge must stand after a failing verify"
+pass "v5.28 J1/J3: a failing verify reports and never un-merges (ok:true · status merged · tail carried)"
+
+# J1(없음) — verifyCmd 가 없으면 아무 명령도 추측하지 않는다: status '' 의 no-op, 그리고 크래시 없음.
+JNREPO="$WORK/j-noverify"
+JNRID=$(j_new_repo "$JNREPO")
+JNRUN=$(j_settled_run "$JNRID" "j-none")
+JNM=$(curl -s -X POST "$B/api/runs/$JNRUN/merge")
+case "$JNM" in *'"ok":true'*) : ;; *) fail "Part J: merge without a verifyCmd should still succeed: $JNM";; esac
+case "$JNM" in *'"verify":{"status":"","output":""}'*) : ;; *) fail "Part J: no verifyCmd must be a no-op (verify.status ''), never a guessed command: $JNM";; esac
+pass "v5.28 J1: no verifyCmd → the merge response carries an empty verify block (nothing is guessed, nothing crashes)"
+
+# J2(코크핏 Review) — 머지 응답이 실어 온 판정을 머지를 누른 그 자리에 남기고,
+# 명령이 없으면 조용히 넘어가지 않고 기존 setter(#rvVcmd → PATCH /api/repos/:id)로 안내한다.
+# 마커는 파일 순서 그대로: 그리는 자리 → 저장하는 자리 → 머지 응답을 받는 자리.
+case "$CKPT" in *'var mv = mergeVerifyById[r.id]'*'data-mvout="'*'머지는 됐지만 검증 실패 — 로그 확인'*) : ;; *) fail "cockpit Review must draw the post-merge verify verdict on the merged column";; esac
+case "$CKPT" in *'data-vnudge="1"'*'검증 명령이 없어요 — repo 설정에서 verifyCmd 를 지정하면 승자를 자동 검증합니다'*) : ;; *) fail "cockpit Review must nudge toward verifyCmd when the repo has none";; esac
+case "$CKPT" in *'var mergeVerifyById = {}'*"\$('rvVcmd').focus()"*'mergeVerifyById[rid] = (j && j.verify)'*) : ;; *) fail "cockpit must store the merge response's verify block and point the nudge at the existing verifyCmd setter";; esac
+# 기존 verify 렌더를 그대로 쓴다 — 새 배지도 새 색도 만들지 않는다.
+case "$CKPT" in *'(vbadge(mv.status)||'*) : ;; *) fail "the post-merge line must reuse vbadge() — the semantic pass/fail treatment already in the system";; esac
+pass "v5.28 J2: cockpit Review shows merged · verify: pass|fail on the merged column (vbadge reused) + the no-verifyCmd nudge"
+
+# J2(보드 compare) — 같은 판정이 보드의 머지 자리에도 남는다. 안내 한 줄은 잘리면 안 되므로
+# 유일하게 새로 생긴 규칙 .cmp-mv 만 두고, 색은 기존 상태 토큰(--s-done/--s-failed)을 쓴다.
+case "$BOARD_HTML" in *'.cmp-mv{'*'const mergeVerifyByRun = {};'*'function mergeVerifyHTML(rid)'*) : ;; *) fail "board compare must carry the post-merge verify line";; esac
+case "$BOARD_HTML" in *'검증 명령이 없어요 — repo 설정에서 verifyCmd 를 지정하면 승자를 자동 검증합니다'*'<a href="/cockpit"'*) : ;; *) fail "the board's no-verifyCmd nudge must link to the existing verifyCmd setter";; esac
+case "$BOARD_HTML" in *"statusColor(v.status==='pass' ? 'done' : 'failed')"*'머지는 됐지만 검증 실패 — 로그 확인'*) : ;; *) fail "the board verdict must reuse the existing status tokens (pass=done · fail=failed) — no new color";; esac
+case "$BOARD_HTML" in *'+ mergeVerifyHTML(r.id)'*'data-mvout'*'mergeVerifyByRun[rid] = j.verify'*) : ;; *) fail "the board must persist the verdict across repaints and open the tail from the line";; esac
+# 컴포넌트 표는 같은 커밋에서 갱신된다(DESIGN.md 는 강제되는 계약이다).
+J_DESIGN=$(cat "$ROOT/DESIGN.md")
+case "$J_DESIGN" in *'Post-merge verify line (v5.28 J)'*'verifyBase'*'Zero new colors'*) : ;; *) fail "DESIGN.md must record the post-merge verify surfacing in the same commit";; esac
+pass "v5.28 J2/J3: board compare carries the same verdict + nudge, reusing existing status tokens, and DESIGN.md carries the rule"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

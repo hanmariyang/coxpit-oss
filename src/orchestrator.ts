@@ -610,6 +610,17 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
 }
 
 /**
+ * verify 러너 — 명령 한 번, 꼬리 한 줌. 어디서 돌리든 판정 규칙은 하나여야 해서
+ * verifyRun(run 의 worktree)·verifyBase(머지된 base)가 이 함수를 같이 쓴다.
+ */
+async function runVerifyCmd(cmd: string, cwd: string, machine: MachineTarget): Promise<{ status: string; output: string }> {
+  const r = await runShellOn(machine, `cd ${shq(cwd)} && ( ${cmd} )`, 180000);
+  const merged = [r.stdout, r.stderr].filter(Boolean).join('\n').trim();
+  const output = merged.length > 6000 ? '…' + merged.slice(-6000) : merged;
+  return { status: r.ok ? 'pass' : r.code === -1 ? 'error' : 'fail', output };
+}
+
+/**
  * Verify in-loop — repo.verifyCmd 를 run 의 worktree 에서 실행해 pass/fail 을 기록.
  * verifyCmd 미설정이면 상태를 비우고 no-op. 정착 훅이 자동 호출(done+변경), 수동 재검증도 지원.
  */
@@ -628,12 +639,34 @@ export async function verifyRun(runId: number): Promise<{ ok: boolean; status: s
     return { ok: false, status: 'error', detail: 'worktree missing' };
   }
   await setRun(runId, { verifyStatus: 'running', verifyOutput: '' });
-  const r = await runShellOn(ctx.machine, `cd ${shq(run.worktreePath)} && ( ${cmd} )`, 180000);
-  const merged = [r.stdout, r.stderr].filter(Boolean).join('\n').trim();
-  const tail = merged.length > 6000 ? '…' + merged.slice(-6000) : merged;
-  const status = r.ok ? 'pass' : r.code === -1 ? 'error' : 'fail';
-  await setRun(runId, { verifyStatus: status, verifyOutput: tail });
-  return { ok: true, status };
+  const v = await runVerifyCmd(cmd, run.worktreePath, ctx.machine);
+  await setRun(runId, { verifyStatus: v.status, verifyOutput: v.output });
+  return { ok: true, status: v.status };
+}
+
+/**
+ * 머지된 base 검증(v5.28 J1) — repo.verifyCmd 를 **repo.path**(머지가 막 내려앉은 기본 브랜치)에서
+ * 돌린다. 승자가 내려앉은 그 호흡에 같은 명령을 돌려 pass/fail 을 그 자리에서 말하기 위한 것이라,
+ * 지나간 worktree 가 아니라 base 를 본다.
+ * - verifyCmd 가 비어 있으면 아무 명령도 추측하지 않고 no-op(status '').
+ * - best-effort — 실패는 보고일 뿐, 머지를 되돌리지 않는다.
+ */
+export async function verifyBase(repoId: number): Promise<{ status: string; output: string }> {
+  const none = { status: '', output: '' };
+  const rp = await db.select().from(repos).where(eq(repos.id, repoId)).limit(1);
+  const repo = rp[0];
+  if (!repo) return none;
+  const cmd = (repo.verifyCmd ?? '').trim();
+  if (!cmd) return none;
+  const mr = await db.select().from(machines).where(eq(machines.id, repo.machineId)).limit(1);
+  const m = mr[0];
+  if (!m) return none;
+  const machine: MachineTarget = { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser };
+  try {
+    return await runVerifyCmd(cmd, repo.path, machine);
+  } catch (e) {
+    return { status: 'error', output: String(e).slice(0, 300) };
+  }
 }
 
 /**
@@ -1514,6 +1547,8 @@ export interface IntegrateResult {
   detail?: string;
   integrationTaskId?: number;
   integrationRunId?: number;
+  /** 머지된 건에 한해 base 검증 결과(v5.28 J1). verifyCmd 가 없으면 status ''. */
+  verify?: { status: string; output: string };
 }
 
 /**
@@ -1531,7 +1566,13 @@ export async function integrateRuns(runIds: number[], real?: boolean): Promise<I
     if (run.status === 'merged') { results.push({ runId: id, status: 'skipped', detail: 'already merged' }); continue; }
 
     const m = await mergeRun(id);
-    if (m.ok) { results.push({ runId: id, status: 'merged' }); continue; }
+    if (m.ok) {
+      // 내려앉은 그 호흡에 base 를 검증한다(J1) — 실패해도 머지는 그대로 서 있고, 보고만 된다.
+      const mc = await loadContext(id);
+      const verify = mc ? await verifyBase(mc.repoId) : { status: '', output: '' };
+      results.push({ runId: id, status: 'merged', verify });
+      continue;
+    }
     if (!m.conflict) { results.push({ runId: id, status: 'skipped', detail: m.detail }); continue; }
 
     // 충돌 → 통합 태스크 자동 발사 (에이전트가 머지를 대신 푼다)
