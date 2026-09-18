@@ -115,4 +115,6 @@ export async function ensureSchema(): Promise<void> {
   try { await client.execute("ALTER TABLE repos ADD COLUMN kind TEXT NOT NULL DEFAULT 'git'"); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN title TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
   try { await client.execute('ALTER TABLE agent_runs ADD COLUMN in_place INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
+  // DEFAULT 1 = 기존 run 은 real 로 남는다. 모르는 과거를 dry 로 칠하지 않기 위한 기본값이다(v5.28 H1).
+  try { await client.execute('ALTER TABLE agent_runs ADD COLUMN real INTEGER NOT NULL DEFAULT 1'); } catch { /* exists */ }
 }

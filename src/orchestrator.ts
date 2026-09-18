@@ -344,10 +344,10 @@ export async function spawnSubtasks(parentRunId: number, title: string, prompt: 
   const runIds: number[] = [];
   for (let i = 0; i < n; i++) {
     const rIns = await db.insert(agentRuns).values({
-      taskId: task.id, machineId: pr.machineId, agent: pr.agent, model: pr.model, status: 'pending',
+      taskId: task.id, machineId: pr.machineId, agent: pr.agent, model: pr.model, status: 'pending', real,
     }).returning();
     const run = rIns[0]!;
-    broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, branch: '', filesChanged: 0 });
+    broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, real, branch: '', filesChanged: 0 });
     void launchRun(run.id, real);
     runIds.push(run.id);
   }
@@ -484,7 +484,9 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
   const session = `coxpit-r${runId}`;
 
   try {
-    await setRun(runId, { status: 'preparing', branch, worktreePath: wtPath, tmuxWindow: session, startedAt: new Date() });
+    // real 은 여기서 각인한다 — 명령을 고르는 그 값이 곧 run 의 사실이다(v5.28 H1).
+    // 'preparing' 에 실어 두면 worktree 단계에서 넘어져도 "이 run 은 모의였다"가 남는다.
+    await setRun(runId, { status: 'preparing', real: !!useReal, branch, worktreePath: wtPath, tmuxWindow: session, startedAt: new Date() });
 
     // 1) worktree 생성(격리 브랜치) — in-place 는 건너뛴다(격리가 없는 것이 요점).
     if (!inPlace) {
@@ -1267,9 +1269,9 @@ export async function launchGroupTask(
   const machineId = rp[0]!.machineId;
   const tIns = await db.insert(tasks).values({ repoId, title: title.slice(0, 140), prompt, groupId }).returning();
   const task = tIns[0]!;
-  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId, agent: 'claude-code', status: 'pending' }).returning();
+  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId, agent: 'claude-code', status: 'pending', real }).returning();
   const run = rIns[0]!;
-  broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, branch: '', filesChanged: 0 });
+  broadcast({ type: 'run', runId: run.id, taskId: task.id, status: 'pending', agent: run.agent, real, branch: '', filesChanged: 0 });
   void launchRun(run.id, real);
   return { id: task.id, title: task.title, runId: run.id };
 }
@@ -1544,9 +1546,9 @@ export async function integrateRuns(runIds: number[], real?: boolean): Promise<I
       `Do not modify files unrelated to the conflicts.`;
     const tIns = await db.insert(tasks).values({ repoId: ctx.repoId, title, prompt }).returning();
     const newTask = tIns[0]!;
-    const rIns = await db.insert(agentRuns).values({ taskId: newTask.id, machineId: ctx.machineId, agent: 'claude-code', status: 'pending' }).returning();
+    const rIns = await db.insert(agentRuns).values({ taskId: newTask.id, machineId: ctx.machineId, agent: 'claude-code', status: 'pending', real: real ?? true }).returning();
     const newRun = rIns[0]!;
-    broadcast({ type: 'run', runId: newRun.id, taskId: newTask.id, status: 'pending', agent: newRun.agent, branch: '', filesChanged: 0 });
+    broadcast({ type: 'run', runId: newRun.id, taskId: newTask.id, status: 'pending', agent: newRun.agent, real: real ?? true, branch: '', filesChanged: 0 });
     void launchRun(newRun.id, real ?? true);
     results.push({ runId: id, status: 'conflict', detail: m.detail, integrationTaskId: newTask.id, integrationRunId: newRun.id });
   }

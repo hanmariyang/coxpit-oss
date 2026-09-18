@@ -383,7 +383,8 @@ export async function buildServer(): Promise<FastifyInstance> {
       machines: ms, repos: rs, tasks: ts, captures: dcs, groups: gs,
       runs: rns.map((r) => {
         const sig = noopSignal(r.status, r.filesChanged, r.exitSummary, taskOut.get(r.taskId) ?? '[]');
-        return { ...r, events: (byRun.get(r.id) ?? []).slice(-EVENT_CAP), noop: sig.noop, noopReason: sig.reason };
+        // real 은 언제나 불리언으로 나간다 — 클라이언트는 real===false 하나만 보고 dry 칩을 그린다.
+        return { ...r, real: !!r.real, events: (byRun.get(r.id) ?? []).slice(-EVENT_CAP), noop: sig.noop, noopReason: sig.reason };
       }),
       counts: { activeTasks: activeTasks.length, closedTasks: closedCount },
       // 지금 터미널이 붙어 있는 run 의 에이전트 상태(runId → {state,detail,ts}).
@@ -500,7 +501,7 @@ export async function buildServer(): Promise<FastifyInstance> {
         taskId: t.id, title: t.title, repoName: repoName.get(t.repoId) ?? '?',
         groupTitle: t.groupId != null ? grpTitle.get(t.groupId) ?? null : null,
         closedAt: t.closedAt ? Math.floor(t.closedAt.getTime() / 1000) : (t.createdAt ? Math.floor(t.createdAt.getTime() / 1000) : 0),
-        runs: rs.map((r) => ({ id: r.id, status: r.status, filesChanged: r.filesChanged, agent: r.agent, model: r.model })),
+        runs: rs.map((r) => ({ id: r.id, status: r.status, filesChanged: r.filesChanged, agent: r.agent, model: r.model, real: !!r.real })),
       });
     }
     // status 필터가 있으면 total 은 근사(페이지 내 필터) — UI 는 rows 로만 판단하니 total0 유지.
@@ -958,7 +959,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     const tr = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     if (!tr[0]) return reply.code(404).send({ error: 'not found' });
     const runs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, id));
-    return { task: tr[0], runs };
+    return { task: tr[0], runs: runs.map((r) => ({ ...r, real: !!r.real })) };
   });
 
   // 태스크 이름 변경(=세션 이름 변경) + v6.0 S2 승격(repoId 재부모화).
@@ -1089,16 +1090,19 @@ export async function buildServer(): Promise<FastifyInstance> {
         });
       }
     }
+    // dry/real 은 run 의 성질이다 — 만들 때부터 각인한다(v5.28 H1). body 가 말이 없으면
+    // launchRun 이 쓰게 될 그 기본값(config.agent.real)을 그대로 쓴다: 행과 명령이 갈리면 안 된다.
+    const useReal = b.real === undefined ? config.agent.real : !!b.real;
     const created: Array<typeof agentRuns.$inferSelect> = [];
     for (let i = 0; i < count; i++) {
       const ins = await db.insert(agentRuns)
-        .values({ taskId: id, machineId: rp[0].machineId, agent, model, title, inPlace, status: 'pending' })
+        .values({ taskId: id, machineId: rp[0].machineId, agent, model, title, inPlace, status: 'pending', real: useReal })
         .returning();
       created.push(ins[0]!);
     }
     // 보드가 taskId 를 알도록 생성 브로드캐스트 후 백그라운드 시작.
     for (const r of created) {
-      broadcast({ type: 'run', runId: r.id, taskId: id, status: 'pending', agent, title, inPlace, branch: '', filesChanged: 0 });
+      broadcast({ type: 'run', runId: r.id, taskId: id, status: 'pending', agent, title, inPlace, real: useReal, branch: '', filesChanged: 0 });
       void launchRun(r.id, b.real);
     }
     return reply.code(202).send({ ok: true, runs: created.map((r) => ({ id: r.id, status: r.status })) });
@@ -1124,7 +1128,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     const runsOut = [];
     for (const r of trs) {
       const d = await getRunDiff(r.id);
-      runsOut.push({ ...r, diff: d.ok ? d.diff : '', stat: d.ok ? d.stat : d.stat });
+      runsOut.push({ ...r, real: !!r.real, diff: d.ok ? d.diff : '', stat: d.ok ? d.stat : d.stat });
     }
     return { task: tr[0], runs: runsOut };
   });
@@ -1165,7 +1169,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     const events = await db.select().from(agentEvents).where(eq(agentEvents.runId, id));
-    return { run: rr[0], events };
+    return { run: { ...rr[0], real: !!rr[0].real }, events };
   });
 
   // v6.0 T4 — run 의 역할 이름 변경(탭 더블클릭). title 만 받는다.
@@ -1445,6 +1449,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     const runs = g.rows.map(({ run, task }) => ({
       runId: run.id, taskId: task.id, title: task.title, status: run.status,
       agent: run.agent, model: run.model, branch: run.branch, filesChanged: run.filesChanged,
+      real: !!run.real,
       live: isRunLive(run.id), steerable: isSteerable(run),
       // 수렴 콕핏 결정 행용: 태스크 닫힘 여부 + worktree 생존(터미널 가드·머지 가능성 판단).
       taskStatus: task.status, hasWorktree: !!run.worktreePath,

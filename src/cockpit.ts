@@ -329,6 +329,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .pane-act{font-family:var(--mono);font-size:10px;color:var(--brand);opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px}
   .leaf-h .pane-act:empty{display:none}
   .tnode.run .ract{margin-left:6px;font-size:10px;color:var(--brand);opacity:.85}
+  /* v5.28 H2 — dry(모의) run 표식. 낱말 하나("dry")를 기존 작은 칩 모양에 얹을 뿐,
+     색은 하나도 새로 만들지 않는다(--faint 글자 + --line-hi 테두리). 진짜 run 에는 아무것도 안 붙는다. */
+  .dryc{flex:none;font-family:var(--mono);font-size:9px;line-height:1.7;letter-spacing:.04em;
+    color:var(--faint);border:1px solid var(--line-hi);border-radius:4px;padding:0 4px;white-space:nowrap}
   .leaf-h .zoom{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .zoom:hover{color:var(--brand)}
   .leaf-h .pact{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
@@ -928,6 +932,18 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   </div>
 </div>
 
+<div class="modal" id="cfmModal">
+  <div class="pick" style="width:min(460px,92vw)">
+    <div class="pick-h"><span class="t" id="cfmTitle">확인</span><button class="x" id="cfmX" title="닫기">×</button></div>
+    <div class="sheet-note" id="cfmMsg"></div>
+    <div class="sheet-body"><div class="sheet-tradeoff" id="cfmSub"></div></div>
+    <div class="pick-f">
+      <button type="button" class="home" id="cfmCancel">취소</button>
+      <button type="button" class="go" id="cfmOk">확인</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="palette">
   <div class="pal">
     <input id="palInput" placeholder="이동·명령 검색 (⌘K)  ·  세션·run·프로젝트·명령" autocomplete="off" spellcheck="false" />
@@ -965,6 +981,37 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     t.classList.add('show'); clearTimeout(toast._h);
     toast._h=setTimeout(function(){ t.classList.remove('show'); }, act?7000:2600);
   }
+  // ── 확인 대화상자 (보드의 confirmUI 와 같은 계약: promise 로 true/false) ──
+  // 결정은 여기서, 결과는 토스트에서. 네이티브 confirm 은 쓰지 않는다(DESIGN.md) — 뼈대는
+  // 이미 있는 .pick 시트 그대로라 새 컴포넌트도, 새 색도 없다.
+  var cfmResolve = null;
+  function confirmUI(message, opts){
+    opts = opts || {};
+    $('cfmTitle').textContent = opts.title || '확인';
+    $('cfmMsg').textContent = message;
+    $('cfmSub').textContent = opts.sub || '';
+    $('cfmOk').textContent = opts.okLabel || '확인';
+    $('cfmModal').classList.add('on');
+    setTimeout(function(){ try{ $('cfmOk').focus(); }catch(e){} }, 30);
+    return new Promise(function(resolve){ cfmResolve = resolve; });
+  }
+  function cfmClose(v){
+    $('cfmModal').classList.remove('on');
+    if (cfmResolve){ var r=cfmResolve; cfmResolve=null; r(v); }
+  }
+  $('cfmOk').addEventListener('click', function(){ cfmClose(true); });
+  $('cfmCancel').addEventListener('click', function(){ cfmClose(false); });
+  $('cfmX').addEventListener('click', function(){ cfmClose(false); });
+  $('cfmModal').addEventListener('click', function(e){ if(e.target===$('cfmModal')) cfmClose(false); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape' && $('cfmModal').classList.contains('on')){ e.preventDefault(); cfmClose(false); } });
+  // dry 머지 게이트 (v5.28 H3) — 모의 한 번은 말없이 지나가지 않는다.
+  function confirmDryMerge(n){
+    return confirmUI('이 run 은 dry (모의)입니다 — 정말 머지할까요?', {
+      title: 'dry run 머지',
+      sub: (n>1 ? '고른 '+n+'개가 dry 입니다. ' : '') + 'dry run 의 변경은 모의 스트림이 만든 것입니다 — 진짜 작업이 아닙니다.',
+      okLabel: '그래도 머지',
+    });
+  }
   var V_GLYPH = { pass:'✓ verify', fail:'✗ verify', running:'⋯ verify', error:'! verify' };
   function vbadge(status){ if (!status || !V_GLYPH[status]) return ''; return '<span class="vbadge '+status+'" data-role="vbadge">'+V_GLYPH[status]+'</span>'; }
   // 라이브 상태 — run 의 최신 이벤트에서 "지금 뭐 하는지"(도구명/사고)를 뽑는다. 실행 중일 때만.
@@ -993,6 +1040,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function repoOfRun(runId){ var r=runById[runId]; var t=r&&taskById[r.taskId]; return t?t.repoId:null; }
   function runIsSession(runId){ var r=runById[runId]; var t=r&&taskById[r.taskId]; var rp=t&&repoById[t.repoId]; return !!(rp&&rp.kind==='sessions'); }
 
+  // ── dry(모의) run 표식 (v5.28 H2) ──
+  // 판정은 한 줄뿐이다: **real===false 인 것만** dry 다. undefined(마이그레이션 이전·아직 안 온
+  // 델타)는 모르는 것이지 dry 가 아니다 — 모르는 것을 모의라고 부르면 그게 거짓 경보다.
+  function isDryRun(r){ return !!r && r.real===false; }
+  function dryChip(r){ return isDryRun(r) ? '<span class="dryc" title="dry run — 모의 스트림이 만든 변경입니다(진짜 에이전트가 아닙니다)">dry</span>' : ''; }
   // ── 에이전트 상태 (v5.28 A4) ──
   // 서버가 터미널 출력에서 읽어 보내준 거친 상태만 담는다. 여기 없는 run 은 점이 없다 —
   // 클라이언트는 상태를 짐작하지도, 전이를 지어내지도 않는다(spec A6). 'unknown'(첫 출력 전)도 담지 않는다.
@@ -1288,6 +1340,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       var tip = 'r'+r.id+' · '+r.status+(r.inPlace?' · repo 체크아웃에서 직접 작업(격리 없음)':'');
       // 점 하나에 두 층 — 에이전트 상태가 살아 있으면 그게 이기고, 없으면 지금까지의 run 상태 그대로.
       s += '<div class="tnode run'+open+'" data-run="'+r.id+'" title="'+esc(tip)+'"><span class="st '+esc(r.status)+' '+asClass(agentStateOf(r.id))+'"></span>'
+        + dryChip(r)
         + '<span class="n">'+esc(runTreeName(r.id))+'</span>'+(act?'<span class="ract">'+esc(act)+'</span>':'')
         + '<span class="meta">r'+r.id+esc(ip)+'</span></div>';
     });
@@ -3516,6 +3569,7 @@ ${HUMANIZE_JS}
       + '<span class="anm">'+esc(runLabel(runId))+'</span>'
       + '<span class="apath">'+esc(actPath(runId))+'</span>'
       + '<span class="act-chip '+asClass(s)+'" data-role="actchip">'+esc(s)+'</span>'
+      + dryChip(runById[runId])
       + '<span class="ameta">'+esc(actMeta(runId))+'</span>'
       + '</div>'
       + '<div class="act-now" data-role="actnow">'+esc(actNowText(runId))+'</div>'
@@ -3767,8 +3821,10 @@ ${HUMANIZE_JS}
         }
         col.innerHTML = '<div class="rv-col-h"><span class="st '+esc(r.status)+'" style="width:7px;height:7px;border-radius:50%;display:inline-block"></span>'
           + '<span class="rid">r'+r.id+'</span><span class="chip '+esc(r.status)+'">'+esc(r.status)+'</span>'
+          // dry 후보는 열에서부터 표가 난다 — 나란히 놓고 고르는 자리가 실수가 나는 자리였다(H3).
+          + dryChip(r)
           + '<span class="stat">'+esc(st)+'</span>'
-          + '<button class="rv-merge'+(gated?' caution':'')+'" data-merge="'+r.id+'"'+((r.status==='merged'||!mergeable)?' disabled':'')
+          + '<button class="rv-merge'+(gated?' caution':'')+'" data-merge="'+r.id+'"'+(isDryRun(r)?' data-dry="1"':'')+((r.status==='merged'||!mergeable)?' disabled':'')
           + (noIso?' title="체크아웃에서 직접 작업 — 머지할 것이 없습니다(아래는 커밋 안 한 변경)"':(gated?' title="검증 미통과 — 그래도 머지"':''))+'>'+mlabel+'</button></div>'
           + vline
           + '<div class="rv-diff">'+diffHTML(r.diff)+'</div>';
@@ -3789,7 +3845,10 @@ ${HUMANIZE_JS}
       catch(err){ toast('재검증 실패: '+err); rv.disabled=false; rv.textContent='re-verify'; }
       return; }
     var b = e.target.closest('[data-merge]'); if (!b) return;
-    var rid = b.dataset.merge; var prev=b.textContent; b.disabled=true; b.textContent='merging…';
+    var rid = b.dataset.merge;
+    // 모의가 진짜인 척 base 로 넘어가지 않게 — 아는 dry 에만 한 번 묻는다(H3).
+    if (b.getAttribute('data-dry')==='1' && !(await confirmDryMerge(1))) return;
+    var prev=b.textContent; b.disabled=true; b.textContent='merging…';
     try{
       var res = await fetch('/api/runs/'+rid+'/merge',{method:'POST'});
       var j = await res.json().catch(function(){return{};});
