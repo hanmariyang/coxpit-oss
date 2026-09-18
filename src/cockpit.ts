@@ -398,11 +398,16 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .leaf-h .lock{color:var(--faint);border:none;background:none;cursor:pointer;font-size:12px;padding:0 2px}
   .leaf-h .lock:hover{color:var(--brand)}
   .leaf-h .sendkey{font:inherit;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid var(--brand);border-radius:5px;padding:1px 6px;width:150px;outline:none}
-  /* white-space:nowrap — 좁은 레일에서 "고아 터미널"이 "고아 터미 / 널"로 단어 중간에 접히던 것 방지(2026-09-18) */
+  /* white-space:nowrap — 좁은 레일에서 섹션 액션이 단어 중간에 접히던 것 방지(2026-09-18) */
   .lbl .lnk{color:var(--brand);cursor:pointer;font-size:10px;letter-spacing:0;text-transform:none;white-space:nowrap}
   /* 섹션 라벨에 액션이 둘 이상이면 한 묶음으로 — 양쪽 끝으로 흩어지지 않게(.tact+.tact 와 같은 이유).
      min-width:0 로 flex 아이템이 필요하면 줄어들 수 있게(넘칠 땐 각 라벨은 nowrap 이라 통째로 유지) */
   .lbl .lacts{display:flex;align-items:center;gap:10px;min-width:0}
+  /* v5.28 F1 — Workspace 헤더의 ⋯. repo 행 .tmore 와 같은 모양·같은 메뉴(#rowMenu)를 쓴다.
+     헤더는 이름과 ⋯ 하나만 이고, 유지보수 둘은 그 뒤에 산다 */
+  .lbl .tmore{font-family:var(--mono);font-size:10.5px;line-height:1;color:var(--faint);
+    background:none;border:none;border-radius:5px;padding:3px 5px;cursor:pointer}
+  .lbl .tmore:hover,.lbl .tmore[aria-expanded="true"]{color:var(--brand);background:var(--surface2)}
   /* v6.0 S1 — Scratch 안내문은 제거함(의뢰자 요청 2026-09-17). .tree-note 미사용 */
   .tnode.session{padding-left:20px;cursor:pointer} .tnode.session:hover{background:var(--surface)}
   .tnode.session.open{background:var(--brand-dim);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(78,201,176,.22)}
@@ -598,7 +603,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <div class="scrim" id="scrim"></div>
 <div class="layout" id="layout">
   <aside class="rail" id="rail">
-    <div class="lbl"><span>Workspace</span><span class="lacts"><span class="lnk" id="wtBtn" title="worktree 회수 — 끝난 run 이 남긴 .coxpit-worktrees 폴더의 총량을 보고 되찾습니다(미머지 산출물은 표시만 하고 미리 고르지 않습니다)">▤ worktree</span><span class="lnk" id="reapBtn" title="고아 터미널 — run 기록이 없는 coxpit-r* tmux 세션을 찾아 정리합니다(유지보수: 보드의 Reclaim 과 같은 가족)">↻ 고아 터미널</span><span id="machName" style="color:var(--faint)">local</span></span></div>
+    <div class="lbl"><span>Workspace</span><span class="lacts"><button type="button" class="tmore" id="wsMore" data-menu="ws" aria-haspopup="menu" aria-expanded="false" title="유지보수 — worktree 회수 · 고아 tmux 세션 정리">⋯</button></span></div>
     <div id="tree"></div>
     <div class="railfoot">클릭한 run·세션은 <b>탭</b>으로 열립니다 · split 으로 페인을 나란히 배치</div>
   </aside>
@@ -807,7 +812,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
 <div class="modal" id="reapModal">
   <div class="pick" style="width:min(560px,92vw)">
-    <div class="pick-h"><span class="t">↻ 고아 터미널</span><button class="x" id="reapClose" title="닫기">×</button></div>
+    <div class="pick-h"><span class="t">↻ Orphans</span><button class="x" id="reapClose" title="닫기">×</button></div>
     <div class="sheet-note">run 기록이 사라졌는데 남아 있는 <b>coxpit-r* tmux 세션</b>들입니다 — <b>살아 있는 run 의 세션은 여기 오르지 않습니다</b>. 빈 셸만 미리 체크했고, <b>무언가 돌고 있는 세션은 표시만 하고 절대 미리 고르지 않습니다</b>. 종료되는 것은 터미널뿐, 폴더·파일은 그대로입니다.</div>
     <div class="pick-list" id="reapList"></div>
     <div class="pick-f">
@@ -819,7 +824,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 
 <div class="modal" id="wtModal">
   <div class="pick" style="width:min(600px,92vw)">
-    <div class="pick-h"><span class="t">▤ worktree 회수</span><button class="x" id="wtClose" title="닫기">×</button></div>
+    <div class="pick-h"><span class="t">▤ Reclaim worktrees</span><button class="x" id="wtClose" title="닫기">×</button></div>
     <div class="pick-path" id="wtTotal">…</div>
     <div class="sheet-note">끝난 run 이 남긴 <b>격리 worktree</b>입니다 — 하나에 node_modules 가 통째로 들어 있어 수백 MB씩 쌓입니다. <b>돌고 있는 run 은 여기 오르지 않습니다.</b> 머지됐거나 export·PR 로 빠져나간 것은 미리 체크했고, <b>아직 아무 데도 없는 변경(미머지)은 표시만 하고 절대 미리 고르지 않습니다</b> — 그 worktree 가 <b>유일한 사본</b>이라 지우면 그 변경은 사라집니다. repo 체크아웃과 그 파일은 그대로입니다.</div>
     <div class="pick-list" id="wtList"></div>
@@ -1116,7 +1121,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       (d.runs||[]).forEach(function(r){ runById[r.id]=r; });
       (d.tasks||[]).forEach(function(t){ taskById[t.id]=t; });
       (d.repos||[]).forEach(function(r){ repoById[r.id]=r; });
-      if (d.machines && d.machines[0]) { $('mach').textContent = d.machines[0].slug; $('machName').textContent = d.machines[0].slug; }
+      // 기계 이름은 위 칩(#mach) 한 곳에만 산다 — v5.28 F1 에서 Workspace 헤더의 사본은 걷어냈다
+      if (d.machines && d.machines[0]) { $('mach').textContent = d.machines[0].slug; }
       // 에이전트 상태 씨앗 — 갓 뜬(또는 재연결한) 코크핏이 다음 델타를 기다리지 않게. 맵은 서버가 준 것으로 통째 교체한다
       // (터미널이 떨어진 run 은 서버 맵에서 빠지므로 여기서 자연히 사라진다).
       agentState={}; var asm=d.agentStates||{};
@@ -1181,8 +1187,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     // v6.0 S1: 데이터는 그대로(kind='sessions') — 바뀐 건 이름과 어포던스다. 여기서 바로
     // 정리(S1b)하고, 여기서 바로 프로젝트로 졸업(S2)시킨다. 어지러워지는 자리에서 치울 수 있어야 한다.
     html += '<div class="lbl"><span>Scratch</span><span class="lacts">'
-      + '<span class="lnk" data-scrub="1" title="정리 — 터미널이 없는 세션을 한 번에 지웁니다(폴더는 보존)">정리…</span>'
-      + '<span class="lnk" data-newsession="1">＋ 새 세션</span></span></div>';
+      + '<span class="lnk" data-scrub="1" title="정리 — 터미널이 없는 세션을 한 번에 지웁니다(폴더는 보존)">Tidy…</span>'
+      + '<span class="lnk" data-newsession="1" title="새 세션 — 폴더를 지정해 터미널 하나를 엽니다">＋ Session</span></span></div>';
     if (sessRuns.length){
       sessRuns.forEach(function(s){
         var r=s.run; var open = tabs[r.id] ? ' open' : '';
@@ -1230,7 +1236,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     el.innerHTML = html;
     // 열려 있던 ⋯ 메뉴는 트리가 다시 그려져도 살아 있어야 한다(델타마다 닫히면 못 누른다) —
     // 같은 repo 의 새 버튼으로 주인을 옮기고, 그 행이 사라졌으면 그때 닫는다.
-    if (rowMenuOwner){
+    // (Workspace 헤더의 ⋯(#wsMore)는 트리 밖 정적 마크업이라 다시 그려지지 않는다 — 건드리지 않는다.)
+    if (rowMenuOwner && rowMenuOwner.hasAttribute('data-more')){
       var again = el.querySelector('[data-more="'+rowMenuOwner.getAttribute('data-more')+'"]');
       if (again){ again.setAttribute('aria-expanded','true'); rowMenuOwner=again; } else closeRowMenu();
     }
@@ -1285,12 +1292,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     { act:'tidy',    label:'정리…' },
     { act:'unreg',   label:'등록 해제' }
   ];
-  function openRowMenu(btn, repoId){
+  // 여는 자리는 하나다(#rowMenu) — repo 행이든 Workspace 헤더든 같은 판을 같은 규칙으로 띄운다.
+  function paintRowMenu(btn, html){
     var m=$('rowMenu');
-    if (rowMenuOwner===btn && !m.hidden){ closeRowMenu(); return; }
-    m.innerHTML = ROW_MENU_ACTS.map(function(a){
-      return '<button type="button" role="menuitem" data-act="'+a.act+'" data-repo="'+repoId+'">'+esc(a.label)+'</button>';
-    }).join('');
+    m.innerHTML = html;
     m.hidden=false;
     // 버튼 아래 왼쪽 정렬, 화면 밖으로 나가면 안쪽으로 당긴다(fixed 좌표라 레일 스크롤과 무관).
     var r=btn.getBoundingClientRect();
@@ -1301,6 +1306,26 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     rowMenuOwner=btn;
     var first=m.querySelector('button'); if(first) first.focus();
   }
+  function openRowMenu(btn, repoId){
+    if (rowMenuOwner===btn && !$('rowMenu').hidden){ closeRowMenu(); return; }
+    paintRowMenu(btn, ROW_MENU_ACTS.map(function(a){
+      return '<button type="button" role="menuitem" data-act="'+a.act+'" data-repo="'+repoId+'">'+esc(a.label)+'</button>';
+    }).join(''));
+  }
+  // ── Workspace 헤더 넘침 메뉴 (v5.28 F1) ──
+  // 헤더는 이름과 ⋯ 하나만 이고, 유지보수 둘은 그 뒤에 산다. 하는 일은 하나도 안 바뀐다 —
+  // 같은 핸들러(openWt·openReap)를 그대로 부른다. 기계 이름은 위 칩(#mach)에 한 번만 선다.
+  var WS_MENU_ACTS = [
+    { act:'wt',   label:'▤ Worktrees' },
+    { act:'reap', label:'↻ Orphans' }
+  ];
+  function openWsMenu(btn){
+    if (rowMenuOwner===btn && !$('rowMenu').hidden){ closeRowMenu(); return; }
+    paintRowMenu(btn, WS_MENU_ACTS.map(function(a){
+      return '<button type="button" role="menuitem" data-act="'+a.act+'">'+esc(a.label)+'</button>';
+    }).join(''));
+  }
+  $('wsMore').addEventListener('click', function(e){ e.stopPropagation(); openWsMenu(this); });
   function closeRowMenu(){
     var m=$('rowMenu'); if(m.hidden) return;
     m.hidden=true; m.innerHTML='';
@@ -1310,19 +1335,23 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     var b=e.target.closest('button[data-act]'); if(!b) return;
     var id=+b.dataset.repo, act=b.dataset.act;
     closeRowMenu();
-    if (act==='newwork') openNewWork(id);
+    if (act==='wt') openWt();
+    else if (act==='reap') openReap();
+    else if (act==='newwork') openNewWork(id);
     else if (act==='tidy') openTidy(id);
     else if (act==='unreg') openUnreg(id);
   });
   // 닫기 배선은 주의 팝오버(#attnPop)와 같은 모양이다 — 바깥 클릭 · Escape(포커스 되돌림) · 포커스 이탈.
-  document.addEventListener('click', function(e){ if(!$('rowMenu').hidden && !$('rowMenu').contains(e.target) && !e.target.closest('[data-more]')) closeRowMenu(); });
+  // 여는 버튼은 둘 — repo 행의 ⋯([data-more])과 Workspace 헤더의 ⋯([data-menu]). 둘 다 "바깥"이 아니다.
+  var MENU_BTN_SEL = '[data-more],[data-menu]';
+  document.addEventListener('click', function(e){ if(!$('rowMenu').hidden && !$('rowMenu').contains(e.target) && !e.target.closest(MENU_BTN_SEL)) closeRowMenu(); });
   document.addEventListener('keydown', function(e){ if(e.key==='Escape' && !$('rowMenu').hidden){ e.preventDefault(); var o=rowMenuOwner; closeRowMenu(); if(o) o.focus(); } });
   $('rowMenu').addEventListener('focusout', function(){
     // ⋯ 로 포커스가 돌아간 경우는 닫지 않는다 — 안 그러면 두 번째 클릭이 토글이 아니라 재개방이 된다
     // (mousedown 이 먼저 포커스를 옮기고, 그 focusout 이 닫아버린 뒤 click 이 다시 연다).
     setTimeout(function(){
       var a=document.activeElement;
-      if(!$('rowMenu').hidden && !$('rowMenu').contains(a) && !(a && a.closest && a.closest('[data-more]'))) closeRowMenu();
+      if(!$('rowMenu').hidden && !$('rowMenu').contains(a) && !(a && a.closest && a.closest(MENU_BTN_SEL))) closeRowMenu();
     }, 0);
   });
   window.addEventListener('resize', closeRowMenu);
@@ -2567,7 +2596,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   function reapCount(){ var n=0; Object.keys(reapSel).forEach(function(k){ if(reapSel[k]) n++; }); return n; }
   function renderReap(){
     $('reapList').innerHTML = reapRows.length ? reapRows.map(reapRowHTML).join('')
-      : '<div class="pick-row" style="cursor:default;color:var(--faint)">고아 터미널이 없습니다 — 남은 tmux 세션은 모두 아는 run 의 것입니다</div>';
+      : '<div class="pick-row" style="cursor:default;color:var(--faint)">No orphans — every remaining tmux session belongs to a known run</div>';
     var n=reapCount(), busy=0;
     reapRows.forEach(function(x){ if(!x.idle) busy++; });
     $('reapHint').textContent = reapRows.length
@@ -2599,12 +2628,12 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         body:JSON.stringify({sessions:names})});
       var j=await res.json().catch(function(){return{};});
       if (!res.ok){ toast('종료 실패: '+(j.detail||j.error||('HTTP '+res.status))); }
-      else { toast('고아 터미널 '+(j.count||0)+'개 종료됨'+((j.skipped&&j.skipped.length)?(' · 건너뜀 '+j.skipped.length+'개'):'')); }
+      else { toast('Orphans '+(j.count||0)+'개 종료됨'+((j.skipped&&j.skipped.length)?(' · 건너뜀 '+j.skipped.length+'개'):'')); }
     }catch(e){ toast('종료 실패: '+e); }
     finally{ reaping=false; }
     await loadReap();
   }
-  $('reapBtn').addEventListener('click', openReap);
+  // 여는 입구는 Workspace 헤더의 ⋯ 메뉴 하나다(v5.28 F1) — 인라인 링크는 사라졌다.
   $('reapClose').addEventListener('click', closeReap);
   $('reapModal').addEventListener('click', function(e){ if(e.target===this) closeReap(); });
   $('reapGo').addEventListener('click', runReap);
@@ -2674,7 +2703,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     await hydrate();
     await loadWt();
   }
-  $('wtBtn').addEventListener('click', openWt);
+  // 여는 입구는 Workspace 헤더의 ⋯ 메뉴 하나다(v5.28 F1) — 인라인 링크는 사라졌다.
   $('wtClose').addEventListener('click', closeWt);
   $('wtModal').addEventListener('click', function(e){ if(e.target===this) closeWt(); });
   $('wtGo').addEventListener('click', runWt);

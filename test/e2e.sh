@@ -293,8 +293,8 @@ case "$CKPT" in *'.scrub-row{'*'.scrub-fold{'*) : ;; *) fail "cockpit Scratch st
 case "$CKPT" in *'id="scrubModal"'*'폴더와 파일은 언제나 그대로 보존'*'선택되지도 지워지지도 않습니다'*'id="scrubList"'*'id="scrubGo"'*) : ;; *) fail "cockpit Scratch cleanup sheet must state the folder is preserved and that folded sessions are untouched";; esac
 # 승격 메뉴 — 등록 / 이동 두 길
 case "$CKPT" in *'id="promoModal"'*'data-promo="register"'*'>프로젝트로 등록<'*'data-promo="move"'*'>프로젝트로 이동<'*) : ;; *) fail "cockpit promotion menu (프로젝트로 등록 / 프로젝트로 이동) missing";; esac
-# 라벨 = Scratch + 한 줄 카피(트리 목소리 그대로) + 정리… + 행마다 ⇧ 승격
-case "$CKPT" in *'<span>Scratch</span>'*'data-scrub="1"'*'>정리…</span>'*'data-promote='*) : ;; *) fail "cockpit Scratch section needs the reframe label + 정리… + per-session promote";; esac
+# 라벨 = Scratch + 한 줄 카피(트리 목소리 그대로) + Tidy…(v5.28 F2) + 행마다 ⇧ 승격
+case "$CKPT" in *'<span>Scratch</span>'*'data-scrub="1"'*'>Tidy…</span>'*'data-promote='*) : ;; *) fail "cockpit Scratch section needs the reframe label + Tidy… + per-session promote";; esac
 # 오래된 세션은 접기만 한다 — 접는 것은 훑기 위한 장치이지 지우는 장치가 아니다
 case "$CKPT" in *'SCRUB_STALE_DAYS = 14'*'data-scrubold="1"'*'오래된 세션 '*'접힌 것은 지워지지 않습니다'*) : ;; *) fail "cockpit Scratch cleanup must fold >14d-quiet sessions without deleting anything";; esac
 # 지우는 길은 기존 세션 삭제 하나 — 한 건이든 정리 판이든 같은 DELETE /api/runs/:id 를 지난다
@@ -346,8 +346,9 @@ pass "v6.0 Part B: ⌘K reaches Board/Archive/Workrooms (board's own setView via
 # v6.0 T6 — 어질러지는 자리에서 치운다. 프로젝트 노드의 등록 해제·묵은 작업 정리 + 고아 터미널 수거.
 # 파일 순서대로: 행 스타일 → 레일의 ↻ 링크 → 세 판 → repo 행 어포던스 → 로직.
 case "$CKPT" in *'.scrub-row .swarn{'*'.scrub-row.risky .snm{'*) : ;; *) fail "cockpit T6 hygiene row styles (.swarn flag / .risky row) missing";; esac
-# 수거는 보드의 Reclaim 과 같은 유지보수 가족 — 코크핏엔 아이콘 스프라이트가 없으니 모노 ↻ 로 선다
-case "$CKPT" in *'id="reapBtn"'*'↻ 고아 터미널'*) : ;; *) fail "cockpit orphan-tmux reaper link (mono ↻ on the Workspace label) missing";; esac
+# 수거는 보드의 Reclaim 과 같은 유지보수 가족 — 코크핏엔 아이콘 스프라이트가 없으니 모노 ↻ 로 선다.
+# v5.28 F 이후 그 ↻ 는 Workspace 헤더의 ⋯ 메뉴 항목이다(라벨은 영어, 하는 일은 그대로).
+case "$CKPT" in *"label:'↻ Orphans'"*) : ;; *) fail "cockpit orphan-tmux reaper entry (mono ↻ in the Workspace ⋯ menu) missing";; esac
 # 정리 판: 정착한 작업만 · worktree 는 걷히고 repo 체크아웃은 남는다 · 미머지는 미리 체크하지 않는다
 case "$CKPT" in *'id="tidyModal"'*'묵은 작업 정리'*'터미널이 살아 있는 작업은 목록에 없습니다'*'repo 체크아웃과 그 파일은 그대로'*'미머지 표시가 붙은 것은 미리 체크하지 않습니다'*'id="tidyList"'*'id="tidyGo"'*) : ;; *) fail "cockpit stale-work cleanup sheet must state what it closes, what survives on disk, and that risky rows are not preselected";; esac
 # 등록 해제 판: 등록만 뺀다 — 디스크의 폴더는 그대로, 다시 등록은 클릭 한 번 + 열린 작업의 close 가드 합산
@@ -376,14 +377,18 @@ case "$CKPT" in *'class="tnode repo"'*'class="n"'*'class="meta"'*'data-newwork='
 case "$CKPT" in *'<button class="tact" data-tidy='*) fail "정리… must live in the ⋯ menu, not as an always-present flex:none button on the repo row";; *) : ;; esac
 case "$CKPT" in *'<button class="tact" data-unreg='*) fail "등록 해제 must live in the ⋯ menu, not as an always-present flex:none button on the repo row";; *) : ;; esac
 # 메뉴는 클릭으로 열린다(hover 가 없는 모바일도 닿는다)·Escape/바깥클릭이 닫는다·키보드로 잡힌다
-case "$CKPT" in *'function openRowMenu'*'role="menuitem"'*'first.focus()'*'function closeRowMenu'*) : ;; *) fail "the ⋯ menu must open on click and be keyboard-focusable (hover-independent for touch)";; esac
+# (Part F extracted a shared menu helper, so these 4 no longer sit in a fixed order — assert presence, not sequence.)
+case "$CKPT" in *'function openRowMenu'*) : ;; *) fail "the ⋯ menu opener (openRowMenu) is missing";; esac
+case "$CKPT" in *'function closeRowMenu'*) : ;; *) fail "the ⋯ menu closer (closeRowMenu) is missing";; esac
+case "$CKPT" in *'role="menuitem"'*) : ;; *) fail "the ⋯ menu items must be role=menuitem";; esac
+case "$CKPT" in *'first.focus()'*) : ;; *) fail "the ⋯ menu must be keyboard-focusable on open (first.focus())";; esac
 D_MENUESC="if(e.key==='Escape' && !\$('rowMenu').hidden){ e.preventDefault(); var o=rowMenuOwner; closeRowMenu(); if(o) o.focus(); }"
 case "$CKPT" in *"$D_MENUESC"*) : ;; *) fail "Escape must close the ⋯ menu and hand focus back to the ⋯ button";; esac
 pass "v5.28 D-rail: repo row keeps the name's width — 정리…/등록 해제 collapse into one always-visible ⋯ menu (click-opened, Escape-closed)"
 
 # v6.0 T6b — 디스크 빚을 보이게 하고, 되찾을 수 있게 하되, 유일한 사본은 놀라서 사라지지 않게.
 # 파일 순서대로: 레일의 ▤ 링크 → 회수 판(한 줄 판독 + 규칙) → 로직(미리 체크 규칙 · 언제나 runIds).
-case "$CKPT" in *'id="wtBtn"'*'▤ worktree'*) : ;; *) fail "cockpit worktree-reclaim link (mono ▤ on the Workspace label) missing";; esac
+case "$CKPT" in *"label:'▤ Worktrees'"*) : ;; *) fail "cockpit worktree-reclaim entry (mono ▤ in the Workspace ⋯ menu) missing";; esac
 # 판이 열리면 **먼저 숫자**(개수·총량), 그 다음 빗자루 — 볼 수 없는 것은 관리할 수 없다
 case "$CKPT" in *'id="wtModal"'*'id="wtTotal"'*'돌고 있는 run 은 여기 오르지 않습니다'*'표시만 하고 절대 미리 고르지 않습니다'*'유일한 사본'*'id="wtList"'*'id="wtGo"'*) : ;; *) fail "cockpit worktree sheet must lead with the disk readout and state the sole-copy rule";; esac
 case "$CKPT" in *'function wtRowHTML'*'if(!x.reclaimRisk) wtSel[x.runId]=true;'*'body:JSON.stringify({runIds:ids})'*) : ;; *) fail "the worktree sheet must preselect only non-risky rows and always post explicit runIds";; esac
@@ -2415,6 +2420,39 @@ case "$CKPT" in *'function connectTab'*"'/ws/term/'+t.runId"*) : ;; *) fail "the
 # 상태를 짐작하는 경로는 없다: waiting 은 Part A 가 준 것만 읽고, 여기서 만들지 않는다.
 case "$CKPT" in *guessState*|*inferWaiting*|*fakeActivity*) fail "the activity view must never synthesize an agent state";; *) : ;; esac
 pass "cockpit v5.28 E4: read-first (terminal one click away), agent runs only, no fabricated state"
+
+# ── v5.28 Part F — 레일 헤더 정리 + 영어 라벨. 순전히 배치와 말이다(동작 불변).
+# F1 — Workspace 헤더는 이름과 ⋯ 하나만 든다. 인라인 ▤/↻ 와 기계 이름 사본은 떠났다.
+case "$CKPT" in *'<div class="lbl"><span>Workspace</span><span class="lacts"><button type="button" class="tmore" id="wsMore"'*) : ;; *) fail "the Workspace header must be the name + one ⋯ (#wsMore)";; esac
+case "$CKPT" in *'id="machName"'*) fail "the duplicated machine name must leave the Workspace header — the top-bar #mach chip already says it";; *) : ;; esac
+case "$CKPT" in *'id="wtBtn"'*) fail "the inline ▤ worktree link must leave the Workspace header (it lives behind ⋯)";; *) : ;; esac
+case "$CKPT" in *'id="reapBtn"'*) fail "the inline ↻ orphan link must leave the Workspace header (it lives behind ⋯)";; *) : ;; esac
+# 기계 이름은 사라진 게 아니라 한 번만 선다 — 위 칩은 그대로고, 갱신도 그 하나만 건드린다
+case "$CKPT" in *'<span id="mach">local</span>'*) : ;; *) fail "the top-bar machine chip (#mach) must survive — F1 removes the duplicate, not the name";; esac
+F_MACHSET="if (d.machines && d.machines[0]) { \$('mach').textContent = d.machines[0].slug; }"
+case "$CKPT" in *"$F_MACHSET"*) : ;; *) fail "the machine updater must touch #mach only (a dangling #machName write would throw)";; esac
+pass "v5.28 F1: the Workspace header carries its name and one ⋯ — no inline worktree/orphan link, no second 'local'"
+
+# F1 배선 — 두 번째 메뉴가 아니라 두 번째 **항목 목록**이다: 같은 #rowMenu, 같은 여는 함수, 같은 핸들러.
+# 트리 repaint 의 주인 재지정은 repo 행 전용이다 — 트리 밖 정적 ⋯ 를 델타마다 닫아버리면 안 된다
+case "$CKPT" in *"if (rowMenuOwner && rowMenuOwner.hasAttribute('data-more')){"*) : ;; *) fail "a tree repaint must re-point only row-owned menus — the static Workspace ⋯ must not be yanked by a WS delta";; esac
+# 파일 순서대로: 공통 페인터 → repo 열기 → Workspace 항목 → Workspace 열기 → 정적 배선.
+case "$CKPT" in *'function paintRowMenu(btn, html){'*'function openRowMenu(btn, repoId){'*"{ act:'wt',   label:'▤ Worktrees' }"*"{ act:'reap', label:'↻ Orphans' }"*'function openWsMenu(btn){'*'paintRowMenu(btn, WS_MENU_ACTS'*) : ;; *) fail "the Workspace ⋯ must reuse the .rmenu opener (one painter, two item lists) — never a second menu system";; esac
+F_WSWIRE="\$('wsMore').addEventListener('click', function(e){ e.stopPropagation(); openWsMenu(this); });"
+case "$CKPT" in *"$F_WSWIRE"*) : ;; *) fail "#wsMore is static markup — wire it once, like the links it replaced";; esac
+# 항목은 기존 핸들러를 그대로 부른다(재구현 금지)
+case "$CKPT" in *"if (act==='wt') openWt();"*"else if (act==='reap') openReap();"*) : ;; *) fail "the ⋯ items must call openWt/openReap unchanged";; esac
+# 닫기 가드는 두 ⋯ 를 모두 안다 — 여는 버튼을 누른 것은 "바깥"이 아니다
+case "$CKPT" in *"var MENU_BTN_SEL = '[data-more],[data-menu]';"*) : ;; *) fail "the outside-click/focusout guards must recognize both ⋯ buttons";; esac
+pass "v5.28 F1: the Workspace ⋯ reuses #rowMenu (same painter · Escape/outside close) and opens the same two sheets"
+
+# F2 — 섹션 액션은 툴바와 같은 말을 쓴다. 판 제목도 그 항목과 같은 말을 쓴다.
+case "$CKPT" in *'<span class="t">↻ Orphans</span>'*'<span class="t">▤ Reclaim worktrees</span>'*'>Tidy…</span>'*'＋ Session</span>'*) : ;; *) fail "the reap/worktree sheet titles and the Scratch actions must read English (↻ Orphans · ▤ Reclaim worktrees · Tidy… · ＋ Session)";; esac
+case "$CKPT" in *'↻ 고아 터미널'*) fail "the workspace/reap surfaces must no longer label themselves 고아 터미널";; *) : ;; esac
+case "$CKPT" in *'＋ 새 세션'*) fail "the Scratch new-session action must read ＋ Session";; *) : ;; esac
+# repo 행 메뉴는 이 패스의 범위 밖이다 — 한국어 그대로 살아 있어야 한다
+case "$CKPT" in *"label:'등록 해제'"*) : ;; *) fail "F2 must not touch the repo-row menu copy (out of scope)";; esac
+pass "v5.28 F2: section actions + maintenance sheet titles speak English (repo-row menu copy untouched)"
 
 # v5.28 A5 서버 절반 — 웹훅. 코크핏이 닫혀 있을 때 유일하게 남는 신호다.
 # 실제로 터미널을 붙이고 tmux 세션을 죽여 onExit → 'exited' 전이를 만든 뒤, 리스너가 받은 본문을 본다.
