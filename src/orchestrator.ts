@@ -132,6 +132,19 @@ export async function secretEnvArgs(): Promise<string> {
   } catch { return ''; }
 }
 
+/**
+ * coxpit 세션의 tmux 스크롤백 한도. tmux 기본값(2000줄)으로는 뷰어의 "터미널" 탭이 금방 잘린다.
+ * history-limit 은 **pane 이 만들어지는 순간**의 값이 적용된다(기존 pane 은 안 늘어난다) —
+ * new-session 뒤에 세션 옵션으로 올리면 첫 pane 에는 안 먹는다. 그래서 같은 tmux 호출 안에서
+ * 전역 옵션을 먼저 올리고 세션을 만든다(start-server 로 서버를 띄워 둬야 set -g 가 산다).
+ */
+export const TMUX_HISTORY_LIMIT = 100000;
+
+/** `tmux new-session <rest>` 대신 쓰는 셸 조각 — history-limit 을 올린 뒤 세션을 만든다. rest 는 호출부가 인용한다. */
+export function tmuxNewSession(rest: string): string {
+  return `tmux start-server \\; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \\; new-session ${rest}`;
+}
+
 // 실행 중 run 의 자식 프로세스(stop 용). stoppedRuns = 사용자가 멈춘 run 표식.
 const liveChildren = new Map<number, ChildProcess>();
 const stoppedRuns = new Set<number>();
@@ -528,7 +541,7 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     // export LANG: 이 명령이 tmux 서버를 처음 띄우는 경우(특히 원격) C 로케일로 뜨면 CJK 가 깨진다.
     const runEnv = await secretEnvArgs();
     await runShellOn(ctx.machine,
-      `export LANG=${shq(config.lang)}; tmux kill-session -t ${shq('=' + session)} 2>/dev/null; tmux new-session -d${runEnv} -s ${shq(session)} -c ${shq(wtPath)} 2>/dev/null || true`, 8000);
+      `export LANG=${shq(config.lang)}; tmux kill-session -t ${shq('=' + session)} 2>/dev/null; ${tmuxNewSession(`-d${runEnv} -s ${shq(session)} -c ${shq(wtPath)}`)} 2>/dev/null || true`, 8000);
 
     await setRun(runId, { status: 'running' });
     await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, real: useReal, ...(inPlace ? { inPlace: true } : {}) }));
@@ -840,16 +853,23 @@ export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
 
 /**
  * tmux 페인 스크롤백 스냅샷 — 모바일 "위 내용 읽기"(뷰어의 터미널 모드)용.
- * capture-pane -S -N 으로 N 줄 위부터 현재까지 텍스트를 통째로 반환(읽기 전용).
+ * capture-pane -S - 로 **히스토리 전체**(맨 처음 줄부터 현재 화면까지)를 떠서, 꼬리 N 줄만 돌려준다(읽기 전용).
+ * 예전엔 -S -N 이었는데, 세션이 tmux 기본 history-limit(2000) 으로 떠 있어 N 을 아무리 키워도 소용없었다
+ * → 세션 생성 때 한도를 올리고(tmuxNewSession), 여기선 범위를 잘라 묻지 않는다.
+ * 한계 둘(버그 아님):
+ *  - 전체 화면 TUI(claude CLI·vim·less 등)는 tmux 의 **대체 화면**을 쓴다. 대체 화면엔 스크롤백이 없어서
+ *    TUI 가 떠 있는 동안 캡처되는 건 지금 보이는 화면뿐이다. 일반 셸 출력은 전부 남는다.
+ *  - 헤드리스 에이전트 run 은 tmux 밖에서 돈다 — 그 tmux 는 빈 worktree 셸이 정상이고, 볼 곳은 "대화" 탭이다.
  */
 export async function getScrollback(runId: number, lines: number): Promise<{ ok: boolean; text: string }> {
   const info = await getRunTermInfo(runId);
   if (!info) return { ok: false, text: 'no terminal session' };
-  const n = Math.max(50, Math.min(20000, Math.floor(lines) || 3000));
+  const n = Math.max(50, Math.min(TMUX_HISTORY_LIMIT, Math.floor(lines) || TMUX_HISTORY_LIMIT));
   // capture-pane 은 '=' 접두사(정확일치) 를 pane 타깃으로 못 받는다 → 세션명 그대로(존재 시 정확일치 우선).
-  const r = await runShellOn(info.machine, `tmux capture-pane -t ${shq(info.session)} -p -S -${n}`, 15000);
+  const r = await runShellOn(info.machine, `tmux capture-pane -t ${shq(info.session)} -p -S -`, 15000);
   if (!r.ok) return { ok: false, text: (r.stderr || r.stdout).trim().slice(0, 500) };
-  return { ok: true, text: r.stdout };
+  const all = r.stdout.split('\n');
+  return { ok: true, text: all.length > n ? all.slice(-n).join('\n') : r.stdout };
 }
 
 /**
@@ -1245,10 +1265,10 @@ export async function openWorkbench(repoId: number, title: string, root = false)
     machine,
     root
       ? `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-        ` && tmux new-session -d${wbEnv} -s ${shq(session)} -c ${shq(repo.path)}`
+        ` && ${tmuxNewSession(`-d${wbEnv} -s ${shq(session)} -c ${shq(repo.path)}`)}`
       : `export LANG=${shq(config.lang)}; mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
         ` && { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-        ` && tmux new-session -d${wbEnv} -s ${shq(session)} -c ${shq(wtPath)}`,
+        ` && ${tmuxNewSession(`-d${wbEnv} -s ${shq(session)} -c ${shq(wtPath)}`)}`,
     20000,
   );
   if (!prep.ok) {
@@ -1301,7 +1321,7 @@ export async function openSessionAt(machineSlug: string, path: string, title: st
   const prep = await runShellOn(
     machine,
     `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-    ` && tmux new-session -d${sEnv} -s ${shq(session)} -c ${shq(dir)}`,
+    ` && ${tmuxNewSession(`-d${sEnv} -s ${shq(session)} -c ${shq(dir)}`)}`,
     15000,
   );
   if (!prep.ok) {

@@ -1283,10 +1283,26 @@ SBSESS="$WORK/sbsess"; mkdir -p "$SBSESS"
 SB=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$SBSESS\",\"title\":\"sb\"}")
 SBRUN=$(echo "$SB" | python3 -c 'import sys,json;print(json.load(sys.stdin)["runId"])')
 sleep 1
-tmux send-keys -t "coxpit-r$SBRUN" 'for i in $(seq 1 40); do echo "SBLINE_$i"; done' Enter 2>/dev/null
-sleep 1
-SBTEXT=$(curl -s "$B/api/runs/$SBRUN/scrollback?lines=3000")
-case "$SBTEXT" in *'"ok":true'*'SBLINE_1'*'SBLINE_40'*) : ;; *) fail "scrollback did not capture pane history: $(echo "$SBTEXT" | head -c 120)";; esac
+# 3000줄 = tmux 기본 history-limit(2000) 너머. 세션이 한도를 안 올렸거나 캡처가 범위를 자르면 SBLINE_1 이 빠진다.
+tmux send-keys -t "coxpit-r$SBRUN" 'for i in $(seq 1 3000); do echo "SBLINE_$i"; done' Enter 2>/dev/null
+SBTEXT=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  sleep 0.5
+  SBTEXT=$(curl -s "$B/api/runs/$SBRUN/scrollback")
+  case "$SBTEXT" in *'SBLINE_3000'*) break ;; esac
+done
+SBV=$(printf '%s' "$SBTEXT" | node -e '
+let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{
+  let j; try{ j=JSON.parse(s); }catch(e){ console.log("bad json"); return; }
+  if(!j.ok){ console.log("not ok"); return; }
+  const got=new Set(j.text.split("\n").map(l=>l.trim()).filter(l=>/^SBLINE_[0-9]+$/.test(l)));
+  console.log(got.has("SBLINE_1")&&got.has("SBLINE_3000")&&got.size===3000 ? "full" : "partial "+got.size);
+});')
+[ "$SBV" = full ] || fail "scrollback lost history beyond the visible screen / tmux default limit ($SBV of 3000 lines) — sessions must raise history-limit and capture with -S -"
+# lines=N 은 꼬리 N 줄로 자른다(폰 DOM 보호) — 맨 끝은 남고 맨 앞은 빠진다
+SBTAIL=$(curl -s "$B/api/runs/$SBRUN/scrollback?lines=100")
+case "$SBTAIL" in *'SBLINE_3000'*) : ;; *) fail "scrollback lines=N tail lost the newest line";; esac
+case "$SBTAIL" in *'"SBLINE_1\n'*|*'\nSBLINE_1\n'*) fail "scrollback lines=N did not trim to the tail" ;; esac
 # chat/viewer: endpoint responds ok with a turns array (turns may be empty where there is no Claude transcript, e.g. CI)
 CHATRESP=$(curl -s "$B/api/runs/$SBRUN/chat")
 case "$CHATRESP" in *'"ok":true'*'"turns"'*) : ;; *) fail "chat endpoint should return ok + turns: $(echo "$CHATRESP" | head -c 120)";; esac
@@ -1382,6 +1398,23 @@ console.log(ok?"LINKIFY_OK":o);
 ' "$WORK/cockpit-v529.html" 2>&1)
 case "$LNK" in LINKIFY_OK) : ;; *) fail "v6.4: served linkify misbehaves (escape doubling?): $LNK";; esac
 pass "v6.4: viewer rebuilt — structured lines (hln/hln-cp/hln-url/hln-path), toolbar ↵ ⌕ ↕ + findbar + FAB, one shared copyText, paths via openPathFromTerm, served linkify runs"
+
+# v6.4 수정 — 폰에서 "쓸모없다"던 두 가지. (1) 터미널 탭이 지금 화면만 보였다: tmux 기본 history-limit(2000) +
+# 캡처 범위 -S -N. (2) 뷰어가 폰에서도 가운데 작은 팝업이었다. 실제 3000줄 왕복은 위 scrollback 검사가 증명한다.
+# (1a) 모든 coxpit tmux 세션은 한도를 올리고 만든다 — 한 헬퍼로, 생성 지점마다(재기동·워크벤치·루트·자유 세션·소생)
+ORCHSRC=$(cat src/orchestrator.ts)
+case "$ORCHSRC" in *'export const TMUX_HISTORY_LIMIT = 100000'*'export function tmuxNewSession'*'tmux start-server \\; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \\; new-session ${rest}'*) : ;; *) fail "v6.4 fix: tmuxNewSession must raise the global history-limit in the SAME tmux call as new-session (a pane keeps the limit it was born with)";; esac
+[ "$(grep -c 'tmuxNewSession(`' src/orchestrator.ts)" -eq 4 ] || fail "v6.4 fix: relaunch + workbench(root/worktree) + openSessionAt must all create their tmux via tmuxNewSession"
+grep -qF 'tmuxNewSession(`-d -s ${shq(info.session)}' src/server.ts || fail "v6.4 fix: the terminal WS revive path must also create its tmux via tmuxNewSession"
+case "$(cat src/orchestrator.ts src/server.ts)" in *'&& tmux new-session'*|*'; tmux new-session'*) fail "v6.4 fix: a raw tmux new-session is left — it would come up with the 2000-line default";; *) : ;; esac
+# (1b) getScrollback 은 히스토리 전체(-S -)를 뜨고 꼬리만 자른다. 대체 화면(TUI) 한계는 주석으로 남긴다
+case "$ORCHSRC" in *'export async function getScrollback'*'Math.min(TMUX_HISTORY_LIMIT'*'capture-pane -t ${shq(info.session)} -p -S -`'*'all.slice(-n)'*) : ;; *) fail "v6.4 fix: getScrollback must capture the ENTIRE history (capture-pane -S -) and trim to the tail in node";; esac
+case "$ORCHSRC" in *'-p -S -${n}'*) fail "v6.4 fix: the old -S -N capture range is back";; *) : ;; esac
+case "$ORCHSRC" in *'대체 화면'*'export async function getScrollback'*) : ;; *) fail "v6.4 fix: document the alternate-screen (full-screen TUI) scrollback limit at getScrollback";; esac
+# (2) 폰·터치에선 뷰어가 화면 전체 — 데스크톱 크기는 CSS 로 옮겨(인라인이면 !important 없이 못 덮는다) 가운데 팝업 유지
+case "$CKPT" in *'.hist-pick{position:relative;width:min(680px,96vw);max-height:88vh}'*'.hist-lines,.hist-chat{min-height:0}'*'body.touch #histModal .hist-pick{position:fixed;inset:0;width:100%;max-width:100%;height:100%;max-height:100%;border:0;border-radius:0;padding:env(safe-area-inset-top)'*'@media (max-width:860px){'*'#histModal .hist-pick{position:fixed;inset:0;width:100%;max-width:100%;height:100%;max-height:100%;border:0;border-radius:0;padding:env(safe-area-inset-top)'*'<div class="pick hist-pick">'*) : ;; *) fail "v6.4 fix: viewer must fill the screen on touch / <=860px (inset:0 · height:100% · border-radius:0 · safe-area) and stay a centered popup on desktop";; esac
+case "$CKPT" in *'class="pick hist-pick" style='*) fail "v6.4 fix: the viewer's size must not be inline (mobile CSS cannot override it)";; *) : ;; esac
+pass "v6.4 fix: tmux sessions born with history-limit 100000 (one helper, every creation path) · scrollback = full history (-S -) tail-trimmed · viewer full-screen on phone/touch, popup on desktop"
 
 # board (the landing screen) gets the mobile app-lock; Cockpit link is a ghost icon button (matches bell/remote)
 case "$BOARD_HTML" in *'user-scalable=no'*) : ;; *) fail "board mobile viewport zoom-lock missing";; esac
