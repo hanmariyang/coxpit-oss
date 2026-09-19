@@ -1352,6 +1352,37 @@ case "$CKPT" in *'id="histBtn"'*'>뷰어<'*'id="hmChat"'*'function renderTurn'*"
 case "$CKPT" in *'ch-turn'*'ch-bubble'*) : ;; *) fail "cockpit chat bubble styles missing";; esac
 pass "cockpit viewer: 뷰어 rename + conversational (chat) view over Claude Code transcript"
 
+# v5.29 — 모바일 뷰어 재빌드(Grab & Read): <pre> 덤프 → 구조화된 줄 + 툴바(↵ ⌕ ↕) + 검색바 + 최신 FAB.
+# 순서 = 서빙 HTML 순서(CSS → 마크업 → JS).
+case "$CKPT" in *'.hln-url{'*'.hln-path{'*'.hist-fab{'*'id="histWrap"'*'id="histFind"'*'id="histJump"'*'id="histRefresh"'*'class="hist-findbar"'*'id="histLines"'*'class="hist-fab"'*) : ;; *) fail "v5.29: viewer toolbar (histWrap/histFind/histJump) + hist-findbar + #histLines + FAB markup missing";; esac
+case "$CKPT" in *'histBody'*) fail "v5.29: the old <pre> scrollback dump (#histBody) should be gone — the terminal tab renders structured lines";; *) : ;; esac
+case "$CKPT" in *'function linkify'*'class="hln-url"'*'class="hln-path"'*'function renderHistLines'*'class="hln-cp"'*'function renderTurn'*'class="hln-code"'*'class="cb-cp"'*) : ;; *) fail "v5.29: viewer line render path (linkify → renderHistLines with hln-cp → renderTurn code blocks) missing";; esac
+case "$CKPT" in *'function histClick'*'openPathFromTerm(histRid'*'function runHistFind'*'mark'*'function stepHistFind'*'function histJump'*"'coxpit.histwrap'"*) : ;; *) fail "v5.29: viewer taps (path → openPathFromTerm), find, jump, or wrap persistence missing";; esac
+# copyText = 공용 한 벌: 정의 1회, 사본(copyFallback 인라인 변수) 없음, 터미널 선택복사와 뷰어가 둘 다 부른다.
+CPT=$(node -e '
+const s=require("fs").readFileSync(process.argv[1]+"/src/cockpit.ts","utf8");
+const defs=(s.match(/function copyText\(/g)||[]).length;
+const dup=/var copyFallback\s*=/.test(s);
+const term=/var copySel=function\(\)\{[^\n]*copyText\(/.test(s);
+const view=/function histClick\(e\)\{[\s\S]*?copyText\(/.test(s);
+console.log(defs===1&&!dup&&term&&view?"COPY_OK":("defs="+defs+" dup="+dup+" term="+term+" view="+view));
+' "$ROOT")
+case "$CPT" in COPY_OK) : ;; *) fail "v5.29: copyText must be one shared helper used by terminal select-to-copy and the viewer: $CPT";; esac
+# linkify 를 served JS 에서 떼어 실제로 돌린다 — 이중 이스케이프가 틀리면 여기서 잡힌다(URL·경로·&amp; 섞임).
+printf '%s' "$CKPT" > "$WORK/cockpit-v529.html"
+LNK=$(node -e '
+const h=require("fs").readFileSync(process.argv[1],"utf8");
+const pick=(a,b)=>{const i=h.indexOf(a),j=h.indexOf(b,i);if(i<0||j<0)throw new Error("extract "+a);return h.slice(i,j);};
+const src=pick("var esc = function","\n")+"\n"+pick("var VIEW_EXT = ","\n")+"\n"+pick("var HLN_RE=","  // 터미널 탭")+"\nreturn linkify;";
+const linkify=new Function(src)();
+const o=linkify("see https://ex.com/a?b=1&c=2. then src/x.ts:12 and ~/f.md <b>");
+const ok=o.includes("data-url=\"https://ex.com/a?b=1&amp;c=2\"")&&o.includes("class=\"hln-path\" data-path=\"src/x.ts:12\"")
+  &&o.includes("data-path=\"~/f.md\"")&&o.includes("&lt;b&gt;")&&!o.includes("ex.com/a?b=1&amp;c=2.\"");
+console.log(ok?"LINKIFY_OK":o);
+' "$WORK/cockpit-v529.html" 2>&1)
+case "$LNK" in LINKIFY_OK) : ;; *) fail "v5.29: served linkify misbehaves (escape doubling?): $LNK";; esac
+pass "v5.29: viewer rebuilt — structured lines (hln/hln-cp/hln-url/hln-path), toolbar ↵ ⌕ ↕ + findbar + FAB, one shared copyText, paths via openPathFromTerm, served linkify runs"
+
 # board (the landing screen) gets the mobile app-lock; Cockpit link is a ghost icon button (matches bell/remote)
 case "$BOARD_HTML" in *'user-scalable=no'*) : ;; *) fail "board mobile viewport zoom-lock missing";; esac
 case "$BOARD_HTML" in *'class="btn-ghost sm cockpit-link"'*'#i-terminal'*) : ;; *) fail "board Cockpit link should be a ghost icon button (design-system consistent)";; esac
