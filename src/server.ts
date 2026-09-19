@@ -21,7 +21,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, getRunPwd, getSessionChat } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates, spottedPorts } from './agentstate';
 import { scanListeners, scanPort, killPid, dropCache as dropListenerCache } from './procscan';
@@ -30,6 +30,7 @@ import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
 import { BOARD_HTML } from './board';
 import { COCKPIT_HTML } from './cockpit';
+import { HUD_HTML } from './hud';
 import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText, findFiles as fsFindFiles, uploadFile as fsUploadFile, withinFilesRoot } from './files';
 import { ensureWorkDoc, readWorkDoc, writeWorkDoc, removeWorkDoc, workDocPath, workDocSize } from './workdoc';
 
@@ -251,6 +252,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
   // 터미널 우선 셸(병행 개발) — 백엔드는 보드와 공유. Phase 5에서 데스크톱 기본을 여기로 플립 예정.
   app.get('/cockpit', async (_req, reply) => reply.type('text/html').send(COCKPIT_HTML.replace(/__COXPIT_VER__/g, config.version)));
+  // HUD(v5.28 K) — 플릿을 작게 다시 내놓는 한 장. 데스크톱의 떠 있는 작은 창이 이걸 띄운다.
+  // 서빙되는 **페이지**라 /cockpit 과 같은 게이트 뒤다(무인증 예외 아님 — 헬스가 아니다).
+  app.get('/hud', async (_req, reply) => reply.type('text/html').send(HUD_HTML.replace(/__COXPIT_VER__/g, config.version)));
 
   // ─── 접근키 인증(access-key) ────────────────────────────────────
   // 요청이 tunnel/https 를 탔나 — Secure 쿠키 여부 결정용.
@@ -1266,6 +1270,25 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
     const res = await getScrollback(id, Number(q.lines) || 3000);
     if (!res.ok) return reply.code(422).send(res);
+    return res;
+  });
+
+  // 살아 있는 run 의 tmux 에 한 줄 써 넣기 (v5.28 K) — 위 scrollback 의 **쓰기 쌍둥이**.
+  // HUD 가 코크핏을 열지 않고 "대기 중인 에이전트"에게 답하는 길이다(steer 는 정착한 run 전용이라
+  // 프롬프트 앞에 서 있는 run 에는 쓸 수 없다). 보내는 것은 언제나 사람이 고른 문자열이다 —
+  // 서버는 에이전트의 질문을 읽지도, 답을 고르지도 않는다.
+  // 세션이 없으면(정리됐거나 애초에 없음) 409, 모르는 run 은 404.
+  app.post('/api/runs/:id/input', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: 'bad id' });
+    const b = (req.body ?? {}) as { text?: string };
+    const text = String(b.text ?? '');
+    if (!text.trim()) return reply.code(400).send({ error: 'text required' });
+    if (text.length > 4000) return reply.code(400).send({ error: 'text too long (max 4000)' });
+    const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
+    if (!rr[0]) return reply.code(404).send({ error: 'not found' });
+    const res = await sendRunInput(id, text);
+    if (!res.ok) return reply.code(409).send(res);
     return res;
   });
 

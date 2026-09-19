@@ -1858,6 +1858,9 @@ DPID=$!
 for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
 expect_code 401 "$B/api/machines"
 expect_code 401 "$B/api/browse"
+# v5.28 K — /hud 는 서빙되는 **페이지**라 /cockpit 과 같은 게이트 뒤다(헬스처럼 무인증 예외가 아니다)
+expect_code 401 "$B/hud"
+expect_code 401 "$B/cockpit"
 # Basic back-compat: any user, key in the password slot (no username in the UX)
 expect_code 200 -u x:pw-e2e "$B/api/machines"
 expect_code 200 -u admin:pw-e2e "$B/api/machines"
@@ -2051,13 +2054,16 @@ pass "v6.0 W2: with the data dir inside the viewer root, WORK.md is read/written
 HEXES=$(node -e "
 const fs=require('fs');const rx=/#[0-9a-fA-F]{3,8}(?![0-9a-zA-Z-])/g;
 const c=(p)=>((fs.readFileSync(p,'utf8').match(rx)||[]).length);
-console.log(c('$ROOT/src/board.ts')+' '+c('$ROOT/src/cockpit.ts')+' '+c('$ROOT/src/login.ts'));
+console.log(c('$ROOT/src/board.ts')+' '+c('$ROOT/src/cockpit.ts')+' '+c('$ROOT/src/login.ts')+' '+c('$ROOT/src/hud.ts'));
 ")
 set -- $HEXES
 [ "$1" -le 60 ] || fail "design ratchet: board.ts hard-coded colors grew ($1 > 60) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
 [ "$2" -le 46 ] || fail "design ratchet: cockpit.ts hard-coded colors grew ($2 > 46) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
 [ "$3" -le 29 ] || fail "design ratchet: login.ts hard-coded colors grew ($3 > 29) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
-pass "design ratchet: no new hard-coded colors (board $1/60 · cockpit $2/46 · login $3/29)"
+# v5.28 K — hud.ts 의 기준선은 **:root 팔레트 그대로 18개**다(코크핏에서 그대로 옮긴 토큰 블록).
+# 래칫의 일은 "나중에 새 색이 생기지 않게" 하는 것이므로, 처음 값을 여기 적립해 둔다.
+[ "$4" -le 18 ] || fail "design ratchet: hud.ts hard-coded colors grew ($4 > 18) — the hud is palette-only; use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
+pass "design ratchet: no new hard-coded colors (board $1/60 · cockpit $2/46 · login $3/29 · hud $4/18)"
 
 # pty master fd 누수 회귀(issue #9). darwin 에서 실검증, 리눅스 CI 는 self-skip(성공).
 kill "$DPID" 2>/dev/null || true; sleep 0.3
@@ -3058,6 +3064,105 @@ case "$BOARD_HTML" in *'+ mergeVerifyHTML(r.id)'*'data-mvout'*'mergeVerifyByRun[
 J_DESIGN=$(cat "$ROOT/DESIGN.md")
 case "$J_DESIGN" in *'Post-merge verify line (v5.28 J)'*'verifyBase'*'Zero new colors'*) : ;; *) fail "DESIGN.md must record the post-merge verify surfacing in the same commit";; esac
 pass "v5.28 J2/J3: board compare carries the same verdict + nudge, reusing existing status tokens, and DESIGN.md carries the rule"
+
+# ══ v5.28 Part K — HUD (`/hud`), 플릿을 **작게 다시 내놓는 한 장** ═══════════
+# 한 줄로 줄이면: 알약으로 한눈에 보고, 나를 기다리는 것부터 훑고, 하나를 목록 옆에서 파고들고,
+# 코크핏을 열지 않고 대기 중인 에이전트에게 답한다.
+# ⚠ 이 실행분은 **서빙되는 페이지까지**다 — 창(프레임리스·항상 위)·전역 단축키(K1/K2)는
+#   뒤따르는 데스크톱 작업이라 여기 없다. 페이지는 원하는 크기를 data-hud 에 적어 둘 뿐이다.
+# 마커는 파일 순서대로: 문서 뼈대 → 토큰 → 배치 상태 → 알약 → 목록 → 상세 → 배선.
+HUD=$(curl -s "$B/hud")
+case "$HUD" in *'<title>coxpit'*'hud'*) : ;; *) fail "/hud is not served";; esac
+case "$HUD" in *'__COXPIT_VER__'*) fail "the hud version placeholder must be substituted at serve time";; *) : ;; esac
+case "$HUD" in *'class="hver">v'*) : ;; *) fail "the hud should show the loaded version (cache diagnosis), like the cockpit";; esac
+# 모노·다크 — 토큰은 코크핏 팔레트 **그대로**다(새 색 0개, 래칫이 18개로 적립돼 있다).
+case "$HUD" in *'--bg:#0b0d12'*'--brand:#4ec9b0'*'--blocked:#d6a249'*) : ;; *) fail "the hud must reuse the cockpit palette verbatim (same :root token block)";; esac
+case "$HUD" in *'--mono:ui-monospace'*) : ;; *) fail "the hud is a mono instrument like the board/cockpit";; esac
+# 서빙된 /hud 에 이모지가 없어야 한다(게이트 확장 — 코크핏·로그인과 같은 규칙).
+if printf '%s' "$HUD" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "the hud contains emoji — use monochrome glyphs (design system)"; fi
+# 배치 세 상태 = 데스크톱이 나중에 창 크기를 맞출 때 읽어 갈 자리. 여기서 창을 만지지는 않는다.
+case "$HUD" in *'<html lang="en" data-hud="pill">'*'html[data-hud="pill"] #panel{display:none}'*'html[data-hud="detail"] .panel{max-width:570px}'*) : ;; *) fail "the hud must carry pill|list|detail as in-page layout states on <html data-hud> (the desktop resize hook)";; esac
+case "$HUD" in *"document.documentElement.setAttribute('data-hud', next);"*) : ;; *) fail "the layout state must be reflected on <html> so the desktop window can read the wanted size later";; esac
+case "$HUD" in *'BrowserWindow'*|*'globalShortcut'*|*'ipcRenderer'*) fail "K1/K2 (the desktop window + hotkey) are a later run — the served page must not reach for Electron";; *) : ;; esac
+# K3 — 알약: 점 + 대기 수. 대기는 기존 주의 토큰으로 맥박치고, 조용할 때는 조용하다.
+case "$HUD" in *'.st.as-working{background:var(--running)}'*'.st.as-waiting{background:var(--blocked);animation:aspulse'*'.st.as-exited{background:var(--done)}'*) : ;; *) fail "the hud state dots must be the Part A mapping verbatim (working/waiting/idle/exited)";; esac
+case "$HUD" in *'@media (prefers-reduced-motion:reduce)'*) : ;; *) fail "the waiting pulse must respect prefers-reduced-motion";; esac
+case "$HUD" in *'id="pill"'*'id="pillDots"'*'id="pillWait"'*'id="pillQuiet"'*) : ;; *) fail "the collapsed pill (dots + waiting count) is missing";; esac
+pass "v5.28 K3: /hud serves a mono, palette-only collapsed pill (state dots + waiting count, amber pulse only while something waits)"
+
+# K4 — 펼친 분류 목록: needs-you 가 앞장서고, running 은 접힌 요약, idle/session 은 숫자 한 줄.
+case "$HUD" in *'id="hudLead"'*'id="hudList"'*'id="hudDetail"'*) : ;; *) fail "the expanded triage list + side-by-side detail pane are missing";; esac
+case "$HUD" in *"' needs you'"*"'all clear'"*) : ;; *) fail "the header must lead with N needs you (amber) or all clear (green)";; esac
+case "$HUD" in *"+b.run.length+' running "*"+b.rest.length+' idle'"*) : ;; *) fail "the header must carry the compact running/idle counts";; esac
+case "$HUD" in *'<div class="lbl">needs you</div>'*'<div class="lbl">running '*"' idle / session '"*) : ;; *) fail "needs-you must lead, running follows folded, idle/sessions collapse to a count";; esac
+case "$HUD" in *'<div class="clearbox"><span class="big">all clear</span>'*) : ;; *) fail "with nothing waiting the body must be a calm all-clear summary, never an empty list";; esac
+# 키보드가 이 화면의 전부다.
+case "$HUD" in *"if(e.key==='j')"*"if(e.key==='k')"*"if(e.key==='Enter'){ e.preventDefault(); if(cur>=0) openDetail(rowIds[cur]); return; }"*) : ;; *) fail "j/k move and enter opens the detail";; esac
+case "$HUD" in *"e.key==='y'||e.key==='n'||e.key==='c'"*"agentStateOf(id)!=='waiting'"*) : ;; *) fail "y/n/c must act on the highlighted row and refuse anything that is not waiting";; esac
+pass "v5.28 K4: triage list leads with needs-you, folds running, counts the rest, all-clear when quiet, j/k/enter/y/n/c"
+
+# K5 — 행 선택 → **목록 옆** 상세. 세 변종(대기 에이전트 · 도는 에이전트 · 세션).
+case "$HUD" in *'data-role="qbox"'*'data-qr="'*'data-role="dnow"'*'data-role="dtl"'*'data-diff="'*'data-steer="'*'data-stop="'*) : ;; *) fail "the waiting/running detail must carry the question card, replies, now line, timeline, diff peek, steer and stop";; esac
+case "$HUD" in *'data-role="tail"'*'>터미널 열기<'*'data-rename="'*'data-del="'*) : ;; *) fail "the session detail must be the terminal tail + open/rename/delete (no question, no steer)";; esac
+case "$HUD" in *"function closeDetail(){"*"setLayout('list'); render();"*) : ;; *) fail "esc must close the detail and keep the list";; esac
+# 질문은 **지어내지 않는다** — 출처를 이름표로 밝히고, 못 읽으면 못 읽었다고 말한다.
+case "$HUD" in *'터미널 마지막 화면'*'마지막 말'*'무엇을 묻는지 읽지 못했습니다'*) : ;; *) fail "the waiting card must name its source and say so when the question cannot be read (never fabricate it)";; esac
+# 빠른 답은 Part C 의 계약 그대로 — 사람이 고른 **고정 문자열** 셋.
+case "$HUD" in *"{ k:'approve', label:'승인', send:'1' }"*"{ k:'cont',    label:'계속', send:'계속' }"*) : ;; *) fail "the hud quick replies must be the same fixed human-chosen literals as Part C (never read the prompt to pick an answer)";; esac
+pass "v5.28 K5: row select opens a side-by-side detail (waiting · running · session) with honest question sourcing and fixed quick replies"
+
+# K6 — 재사용만 한다: 읽기는 /api/fleet + /ws, 행동은 이미 있는 창구(새 것은 input 하나).
+case "$HUD" in *'/api/fleet?view=all'*) : ;; *) fail "the hud must read the same fleet payload the cockpit reads";; esac
+case "$HUD" in *"var s=asm[k]&&asm[k].state; if(s&&s!=='unknown') agentState[k]=s;"*) : ;; *) fail "agent states must be seeded from the fleet's agentStates map (Part A), never guessed";; esac
+case "$HUD" in *'function isDryRun(r){ return !!r && r.real===false; }'*) : ;; *) fail "the dry chip must gate on real===false only (Part H) — a falsy check would accuse unknown runs";; esac
+case "$HUD" in *"if(ev && ev.type==='agentstate'){ paintAgentState(ev.runId, ev.state); return; }"*) : ;; *) fail "an agentstate delta must paint in place — never a full rehydrate (Part A discipline)";; esac
+case "$HUD" in *"rp.kind==='sessions'"*) : ;; *) fail "the hud includes sessions as a selectable kind (unlike the board, Part I)";; esac
+case "$HUD" in *"'/api/runs/'+runId+'/scrollback?lines=60'"*"'/api/runs/'+runId+'/diff'"*"'/api/runs/'+runId+'/input'"*"'/api/runs/'+runId+'/steer'"*"'/api/runs/'+runId+'/stop'"*) : ;; *) fail "the detail actions must reuse the existing run endpoints in order (scrollback · diff · input · steer · stop)";; esac
+case "$HUD" in *"fetch('/api/tasks/'+r.taskId"*"fetch('/api/runs/'+runId, {method:'DELETE'})"*) : ;; *) fail "session rename/delete must reuse PATCH /api/tasks/:id and DELETE /api/runs/:id";; esac
+case "$HUD" in *"/cockpit?run='+encodeURIComponent(runId)"*) : ;; *) fail "the escape hatch must be the cockpit deep link /cockpit?run=N";; esac
+# humanize·latestActivity 는 **같은 한 벌**이다 — 페이지마다 사본을 두지 않는다.
+case "$HUD" in *'function humanize(e)'*'function humanLines(events)'*'function latestActivity(runId)'*'function actNowText(runId)'*) : ;; *) fail "the hud must inject the shared humanize + activity helpers";; esac
+HUD_SRC=$(cat "$ROOT/src/hud.ts")
+case "$HUD_SRC" in *"import { HUMANIZE_JS } from './humanize';"*"import { ACTIVITY_JS } from './activity';"*) : ;; *) fail "the hud must import the shared modules, not carry copies";; esac
+case "$HUD_SRC" in *'function humanize('*|*'function latestActivity('*) fail "a second copy of humanize/latestActivity in hud.ts — they live in src/humanize.ts and src/activity.ts";; *) : ;; esac
+CKPT_SRC=$(cat "$ROOT/src/cockpit.ts")
+case "$CKPT_SRC" in *"import { ACTIVITY_JS } from './activity';"*) : ;; *) fail "the cockpit must read the same shared activity module (one copy, two pages)";; esac
+case "$CKPT_SRC" in *'function latestActivity('*|*'function actNowText('*) fail "latestActivity/actNowText must live only in src/activity.ts (the humanize precedent)";; *) : ;; esac
+pass "v5.28 K6: the hud is the cockpit's data re-surfaced — shared fleet/ws/humanize/activity, existing action endpoints, sessions included"
+
+# K7 — 새 창구는 **하나**: POST /api/runs/:id/input (살아 있는 tmux 에 한 줄 = getScrollback 의 쓰기 쌍둥이).
+# 에이전트가 정말 읽는지에는 기대지 않는다 — 창구와 가드만 못박는다.
+KDIR="$WORK/k-hud-session"; mkdir -p "$KDIR"
+KS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$KDIR\",\"title\":\"hud\"}")
+KRUN=$(echo "$KS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+[ -n "$KRUN" ] || fail "Part K: the scratch session for the input endpoint was not created: $KS"
+KI=$(curl -s -X POST "$B/api/runs/$KRUN/input" -H 'content-type: application/json' -d '{"text":"# hud-e2e-ping"}')
+case "$KI" in *'"ok":true'*) : ;; *) fail "Part K: writing a line into a live tmux session should succeed: $KI";; esac
+# 빈 문자열은 보내지 않는다(사람이 아무것도 고르지 않은 것을 엔터로 바꾸지 않는다).
+expect_code 400 -X POST "$B/api/runs/$KRUN/input" -H 'content-type: application/json' -d '{"text":"   "}'
+expect_code 404 -X POST "$B/api/runs/999999/input" -H 'content-type: application/json' -d '{"text":"x"}'
+# 세션이 사라진 run 은 409 — 없는 터미널에 썼다고 하지 않는다.
+curl -s -X POST "$B/api/runs/$KRUN/cleanup" >/dev/null
+expect_code 409 -X POST "$B/api/runs/$KRUN/input" -H 'content-type: application/json' -d '{"text":"x"}'
+[ -d "$KDIR" ] || fail "Part K: the session folder must survive cleanup"
+pass "v5.28 K7: POST /api/runs/:id/input writes one line into a LIVE tmux session (empty 400 · unknown run 404 · no session 409)"
+
+# 컴포넌트 표는 같은 커밋에서 갱신된다(DESIGN.md 는 강제되는 계약이다).
+K_DESIGN=$(cat "$ROOT/DESIGN.md")
+case "$K_DESIGN" in *'HUD pill (v5.28 K3)'*'HUD triage list (v5.28 K4)'*'HUD detail pane (v5.28 K5)'*'HUD waiting card (v5.28 K5/K7)'*'HUD session tail (v5.28 K5)'*) : ;; *) fail "DESIGN.md must carry the HUD components in the same commit";; esac
+case "$K_DESIGN" in *'Zero new colors'*) : ;; *) fail "the HUD rows must state the zero-new-colors rule";; esac
+# 손댄 파일은 주석까지 ASCII 다(위 게이트는 서빙된 HTML 만 훑는다).
+K_EMJ=$(node -e '
+const fs=require("fs");
+const rx=/[\u{1F000}-\u{1FAFF}\u{2699}\u{26A0}\u{2B50}]/u;
+const files=["src/hud.ts","src/activity.ts","src/server.ts"];
+let bad=[];
+for(const f of files){ const s=fs.readFileSync(process.argv[1]+"/"+f,"utf8").split("\n");
+  s.forEach((l,i)=>{ if(rx.test(l)) bad.push(f+":"+(i+1)); }); }
+console.log(bad.length?bad.join(" "):"ASCII_OK");
+' "$ROOT")
+case "$K_EMJ" in ASCII_OK) : ;; *) fail "emoji in a Part K source file (comments included) — mono glyphs only: $K_EMJ";; esac
+pass "v5.28 K: DESIGN.md carries the HUD components and the touched sources stay emoji-free at the source level"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
