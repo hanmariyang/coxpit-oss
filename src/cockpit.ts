@@ -535,7 +535,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tkey.scroll{color:var(--brand);border-color:rgba(78,201,176,.4)}
   /* 히스토리 오버레이(읽기 전용, 자유 스크롤) — xterm·마우스모드 우회 */
   /* v6.4 — 폰에서 "집고 읽는" 뷰어: 헤더 툴바(.hv-btn) · 검색바 · 구조화된 줄(.hln) · 최신 FAB. 색은 전부 기존 토큰. */
-  .hist-pick{position:relative}
+  /* 데스크톱은 가운데 팝업. 크기를 인라인이 아니라 여기 둬야 아래 모바일 규칙이 !important 없이 덮는다 */
+  .hist-pick{position:relative;width:min(680px,96vw);max-height:88vh}
+  .hist-lines,.hist-chat{min-height:0}   /* 열 flex 자식 — 이게 없으면 줄이 늘어나 스크롤 대신 시트를 민다 */
   .hist-pick .pick-h{flex-wrap:wrap;gap:8px;padding:10px 12px}
   .hist-pick .pick-h .t{flex:1 1 90px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .hist-pick .pick-h .hist-modes{margin-left:0}
@@ -583,7 +585,13 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   body.touch .term-ibar{display:flex}
   body.touch .reqbar{display:none}
   body.touch #splitRow, body.touch #splitCol{display:none}
+  /* 뷰어는 폰·터치에서 가운데 팝업이 아니라 화면 전체 — 전체화면 터미널(.modal.term)과 같은 문법.
+     헤더 / 검색바 / 줄·대화(flex:1, 여기만 스크롤) / FAB. 노치·홈바는 safe-area 로 비킨다. 아래 @media 에 쌍둥이. */
+  body.touch #histModal .hist-pick{position:fixed;inset:0;width:100%;max-width:100%;height:100%;max-height:100%;border:0;border-radius:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  body.touch #histModal .hist-fab{bottom:calc(14px + env(safe-area-inset-bottom));right:calc(14px + env(safe-area-inset-right))}
   @media (max-width:860px){
+    #histModal .hist-pick{position:fixed;inset:0;width:100%;max-width:100%;height:100%;max-height:100%;border:0;border-radius:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+    #histModal .hist-fab{bottom:calc(14px + env(safe-area-inset-bottom));right:calc(14px + env(safe-area-inset-right))}
     /* 모바일 = 아이콘만(텍스트 라벨 숨김) + 폰트 최소화 */
     .b-txt{display:none}
     body{font-size:12px}
@@ -950,7 +958,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 </div>
 
 <div class="modal" id="histModal">
-  <div class="pick hist-pick" style="width:min(680px,96vw);max-height:88vh">
+  <div class="pick hist-pick">
     <div class="pick-h"><span class="t"><span id="histTitle">뷰어</span></span>
       <div class="hist-modes">
         <button type="button" class="hm-tab on" id="hmChat" title="Claude Code 대화로 보기">대화</button>
@@ -2439,7 +2447,8 @@ ${ACTIVITY_JS}
       }catch(e){ c.innerHTML='<div class="hist-empty">불러오기 실패</div>'; }
     } else {
       var b=$('histLines'); histRaw=[]; b.innerHTML='<div class="hist-empty">불러오는 중…</div>';
-      try{ var d2=await (await fetch('/api/runs/'+rid+'/scrollback?lines=5000')).json();
+      // 히스토리 꼬리 2만 줄 — 서버는 전체를 뜨고 여기서 폰 DOM 이 버틸 만큼만 받는다(tmux 한도는 10만 줄)
+      try{ var d2=await (await fetch('/api/runs/'+rid+'/scrollback?lines=20000')).json();
         if (d2 && d2.ok===false) b.innerHTML='<div class="hist-empty">스크롤백을 읽지 못했습니다</div>';
         else renderHistLines((d2 && d2.text) || '');
       }catch(e){ b.innerHTML='<div class="hist-empty">불러오기 실패</div>'; }

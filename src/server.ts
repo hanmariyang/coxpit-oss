@@ -21,7 +21,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates, spottedPorts } from './agentstate';
 import { scanListeners, scanPort, killPid, dropCache as dropListenerCache } from './procscan';
@@ -1302,7 +1302,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     const q = (req.query ?? {}) as { lines?: string };
     const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
     if (!rr[0]) return reply.code(404).send({ error: 'not found' });
-    const res = await getScrollback(id, Number(q.lines) || 3000);
+    const res = await getScrollback(id, Number(q.lines) || 0);   // lines 없으면 히스토리 전체
     if (!res.ok) return reply.code(422).send(res);
     return res;
   });
@@ -1906,7 +1906,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
       const wt = rr[0]?.worktreePath ?? '';
       const revive = wt
-        ? await runShellOn(info.machine, `export LANG=${shq(config.lang)}; test -d ${shq(wt)} && tmux new-session -d -s ${shq(info.session)} -c ${shq(wt)}`, 10000)
+        ? await runShellOn(info.machine, `export LANG=${shq(config.lang)}; test -d ${shq(wt)} && ${tmuxNewSession(`-d -s ${shq(info.session)} -c ${shq(wt)}`)}`, 10000)
         : { ok: false } as { ok: boolean };
       if (!revive.ok) {
         socket.send(JSON.stringify({ t: 'err', d: `tmux session '${info.session}' gone and could not be revived (worktree missing?)` }));
