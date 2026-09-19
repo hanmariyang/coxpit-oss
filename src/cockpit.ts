@@ -534,16 +534,46 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tsend{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:9px 14px;cursor:pointer;flex:0 0 auto}
   .tkey.scroll{color:var(--brand);border-color:rgba(78,201,176,.4)}
   /* 히스토리 오버레이(읽기 전용, 자유 스크롤) — xterm·마우스모드 우회 */
-  .hist-refresh{margin-left:auto;background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:13px;padding:2px 8px;cursor:pointer;font-family:var(--mono)}
-  .hist-refresh:hover{color:var(--ink);border-color:var(--line-hi)}
-  .hist-body{flex:1;margin:0;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-    padding:10px 12px;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;color:var(--ink);background:var(--bg)}
+  /* v5.29 — 폰에서 "집고 읽는" 뷰어: 헤더 툴바(.hv-btn) · 검색바 · 구조화된 줄(.hln) · 최신 FAB. 색은 전부 기존 토큰. */
+  .hist-pick{position:relative}
+  .hist-pick .pick-h{flex-wrap:wrap;gap:8px;padding:10px 12px}
+  .hist-pick .pick-h .t{flex:1 1 90px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .hist-pick .pick-h .hist-modes{margin-left:0}
+  .hv-tools{display:inline-flex;align-items:center;gap:5px;margin-left:auto}
+  .hist-pick .pick-h .x{margin-left:2px;padding:2px 6px}
+  .hv-btn{background:none;border:1px solid var(--line);border-radius:6px;color:var(--muted);font-size:13px;line-height:1;padding:5px 8px;min-width:30px;cursor:pointer;font-family:var(--mono)}
+  .hv-btn:hover{color:var(--ink);border-color:var(--line-hi)}
+  .hv-btn.on{color:var(--brand);border-color:var(--brand)}
+  .tkey.hv-main{font-weight:600;color:var(--brand);border-color:var(--brand);background:var(--brand-dim);min-width:56px}
+  .hist-findbar{display:flex;align-items:center;gap:5px;padding:7px 12px;border-bottom:1px solid var(--line);background:var(--surface2)}
+  .hist-findbar input{flex:1;min-width:0;font-family:var(--mono);font-size:16px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px;outline:none}
+  .hist-findbar input:focus{border-color:var(--brand)}
+  .hist-findbar .fc{font-family:var(--mono);font-size:10.5px;color:var(--faint);min-width:34px;text-align:center}
+  .hist-pick mark.hl{background:var(--brand-dim);color:var(--ink);border-radius:2px;outline:1px solid var(--line-hi)}
+  .hist-pick mark.hl.cur{background:var(--blocked);color:var(--bg);outline:none}
+  .hist-lines{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:6px 0 14px;background:var(--bg)}
+  .hln{display:flex;gap:8px;padding:2px 11px;cursor:pointer}
+  .hln:active{background:var(--surface)}
+  .hln-tx{flex:1;min-width:0;font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--ink);white-space:pre-wrap;word-break:break-all;user-select:text;-webkit-user-select:text;cursor:text}
+  .hlines.nowrap .hln-tx{white-space:pre;overflow-x:auto;word-break:normal}
+  .hln-cp{flex:0 0 auto;align-self:flex-start;color:var(--faint);background:none;border:0;font-family:var(--mono);font-size:12px;padding:0 4px;cursor:pointer}
+  .hln-cp:hover,.hln-cp:active{color:var(--brand)}
+  .hln-url{color:var(--running);text-decoration:underline;cursor:pointer}
+  .hln-path{color:var(--brand);text-decoration:underline;cursor:pointer}
+  .hln-code{position:relative;margin:8px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .hln-code pre{margin:0;padding:26px 11px 10px;font-family:var(--mono);font-size:11.5px;line-height:1.5;color:var(--ink);white-space:pre-wrap;word-break:break-all;user-select:text;-webkit-user-select:text}
+  .hist-chat.nowrap .hln-code pre{white-space:pre;word-break:normal}
+  .hln-code .cb-cp{position:absolute;top:4px;right:5px;font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:2px 7px;cursor:pointer}
+  .hln-code .cb-cp:active{color:var(--brand);border-color:var(--brand)}
+  .hist-fab{position:absolute;right:14px;bottom:14px;width:40px;height:40px;border-radius:50%;border:none;background:var(--brand);color:var(--brand-ink);font-family:var(--mono);font-size:17px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px var(--bg)}
+  .hist-findbar[hidden],.hist-lines[hidden],.hist-chat[hidden],.hist-fab[hidden]{display:none}   /* hidden 속성 존중 — 클래스의 display 가 UA 를 이기지 않게 */
   .hist-modes{display:inline-flex;gap:2px;margin-left:12px;border:1px solid var(--line);border-radius:7px;padding:2px}
   .hm-tab{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;border:none;border-radius:5px;padding:4px 9px;cursor:pointer}
   .hm-tab.on{background:var(--brand-dim);color:var(--ink)}
   .hist-chat{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;display:flex;flex-direction:column;gap:10px;padding:12px;background:var(--bg)}
   .ch-turn{display:flex} .ch-turn.user{justify-content:flex-end}
-  .ch-bubble{max-width:82%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.55;word-break:break-word}
+  .ch-bubble{max-width:82%;min-width:0;padding:9px 12px;border-radius:12px;font-size:13.5px;line-height:1.7;word-break:keep-all;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}
+  .ch-turn.asst .ch-bubble{max-width:100%}
   .ch-turn.user .ch-bubble{background:var(--brand-dim);color:var(--ink);border:1px solid rgba(78,201,176,.25);border-bottom-right-radius:4px}
   .ch-turn.asst .ch-bubble{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-bottom-left-radius:4px}
   .ch-tools{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
@@ -649,7 +679,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     </div>
     <div class="term-ibar" id="termIbar">
       <div class="tkeys">
-        <button type="button" class="tkey scroll" id="histBtn" title="뷰어 — 대화/터미널로 위 내용 보기(읽기 전용)">뷰어</button>
+        <button type="button" class="tkey scroll hv-main" id="histBtn" title="뷰어 — 대화/터미널로 위 내용 보기(읽기 전용)">뷰어</button>
         <button type="button" class="tkey scroll" data-k="copymode" title="터미널 안에서 스크롤 — tmux copy-mode 진입(⇞/↑ 로 위로, esc 로 나가기)">⇡ 스크롤</button>
         <button type="button" class="tkey" data-k="esc" title="Esc">esc</button>
         <button type="button" class="tkey" data-k="tab" title="Tab">tab</button>
@@ -920,16 +950,29 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 </div>
 
 <div class="modal" id="histModal">
-  <div class="pick" style="width:min(680px,96vw);max-height:88vh">
+  <div class="pick hist-pick" style="width:min(680px,96vw);max-height:88vh">
     <div class="pick-h"><span class="t"><span id="histTitle">뷰어</span></span>
       <div class="hist-modes">
         <button type="button" class="hm-tab on" id="hmChat" title="Claude Code 대화로 보기">대화</button>
         <button type="button" class="hm-tab" id="hmRaw" title="터미널 스크롤백 원문">터미널</button>
       </div>
-      <button type="button" class="hist-refresh" id="histRefresh" title="지금 시점으로 다시 불러오기">↻</button>
-      <button class="x" id="histClose" title="닫기">×</button></div>
+      <div class="hv-tools">
+        <button type="button" class="hv-btn on" id="histWrap" title="줄바꿈 켜기/끄기 (끄면 명령어를 한 줄로 옆 스크롤)">↵</button>
+        <button type="button" class="hv-btn" id="histFind" title="찾기">⌕</button>
+        <button type="button" class="hv-btn" id="histJump" title="맨위/맨아래로">↕</button>
+        <button type="button" class="hv-btn" id="histRefresh" title="지금 시점으로 다시 불러오기">↻</button>
+        <button class="x" id="histClose" title="닫기">×</button>
+      </div></div>
+    <div class="hist-findbar" id="histFindBar" hidden>
+      <input id="histFindIn" placeholder="뷰어에서 찾기" autocomplete="off" spellcheck="false" />
+      <span class="fc" id="histFindN"></span>
+      <button type="button" class="hv-btn" id="histFindPrev" title="이전 (⇧⏎)">‹</button>
+      <button type="button" class="hv-btn" id="histFindNext" title="다음 (⏎)">›</button>
+      <button type="button" class="hv-btn" id="histFindX" title="닫기 (esc)">×</button>
+    </div>
     <div class="hist-chat" id="histChat"></div>
-    <pre class="hist-body" id="histBody" style="display:none">불러오는 중…</pre>
+    <div class="hist-lines hlines" id="histLines" hidden></div>
+    <button type="button" class="hist-fab" id="histFab" title="맨아래(최신)로" hidden>↓</button>
   </div>
 </div>
 
@@ -981,6 +1024,23 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     }
     t.classList.add('show'); clearTimeout(toast._h);
     toast._h=setTimeout(function(){ t.classList.remove('show'); }, act?7000:2600);
+  }
+  // 복사 공용 헬퍼 — 터미널 선택복사와 뷰어(줄·링크·코드블록) 복사가 이 한 벌을 쓴다(v5.29).
+  // clipboard API 우선(HTTPS·PWA), 실패하면 execCommand 폴백(iOS 포함). 항상 토스트로 확인. label 생략 = '복사됨'.
+  function copyFallback(s, label){ var ok=false;
+    try{ var ta=document.createElement('textarea'); ta.value=s; ta.setAttribute('readonly',''); ta.contentEditable='true';
+      ta.style.position='fixed'; ta.style.top='-9999px'; ta.style.opacity='0'; document.body.appendChild(ta);
+      var r=document.createRange(); r.selectNodeContents(ta); var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      try{ ta.setSelectionRange(0, s.length); }catch(e){}
+      ok=document.execCommand('copy'); document.body.removeChild(ta);
+    }catch(e){ ok=false; }
+    toast(ok?((label||'복사됨')+' · '+s.length+'자'):'복사 실패 — 브라우저가 클립보드를 막았어요'); }
+  function copyText(s, label){
+    if(!s) return false;
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(s).then(function(){ toast((label||'복사됨')+' · '+s.length+'자'); }).catch(function(){ copyFallback(s, label); });
+    } else { copyFallback(s, label); }
+    return true;
   }
   // ── 확인 대화상자 (보드의 confirmUI 와 같은 계약: promise 로 true/false) ──
   // 결정은 여기서, 결과는 토스트에서. 네이티브 confirm 은 쓰지 않는다(DESIGN.md) — 뼈대는
@@ -1556,20 +1616,8 @@ ${ACTIVITY_JS}
     }catch(e){}
     // 복사 배선: xterm 은 user-select:none 이라 네이티브 선택이 없다 → term.getSelection() 을 직접 클립보드로.
     // ① 드래그 놓으면 자동 복사(select-to-copy) ② Cmd/Ctrl+C 로도 복사(선택 없으면 통과 → SIGINT).
-    // 복사: clipboard API 우선(HTTPS·PWA), 실패하면 execCommand 폴백(iOS 포함). 항상 토스트로 확인.
-    var copyFallback=function(s){ var ok=false;
-      try{ var ta=document.createElement('textarea'); ta.value=s; ta.setAttribute('readonly',''); ta.contentEditable='true';
-        ta.style.position='fixed'; ta.style.top='-9999px'; ta.style.opacity='0'; document.body.appendChild(ta);
-        var r=document.createRange(); r.selectNodeContents(ta); var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-        try{ ta.setSelectionRange(0, s.length); }catch(e){}
-        ok=document.execCommand('copy'); document.body.removeChild(ta);
-      }catch(e){ ok=false; }
-      toast(ok?('복사됨 · '+s.length+'자'):'복사 실패 — 브라우저가 클립보드를 막았어요'); };
-    var copySel=function(){ var s=''; try{ s=term.getSelection(); }catch(e){} if(!s) return false;
-      if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(s).then(function(){ toast('복사됨 · '+s.length+'자'); }).catch(function(){ copyFallback(s); });
-      } else { copyFallback(s); }
-      return true; };
+    // 복사 자체는 공용 copyText(뷰어와 같은 한 벌).
+    var copySel=function(){ var s=''; try{ s=term.getSelection(); }catch(e){} return copyText(s); };
     host.addEventListener('mouseup', function(){ copySel(); });
     host.addEventListener('touchend', function(){ copySel(); });
     term.attachCustomKeyEventHandler(function(ev){
@@ -2306,41 +2354,200 @@ ${ACTIVITY_JS}
   }); });
 
   // ── 뷰어 — 위 내용을 (대화) Claude Code 로그 / (터미널) 스크롤백 으로 읽기(읽기 전용) ──
-  var histMode='chat';
+  // v5.29: 원문을 <pre> 한 덩어리로 붓지 않는다. 줄마다 DOM(.hln)이라 줄바꿈된 링크·경로를 한 번에 집고,
+  // 줄을 통째로 복사하고, 찾고, 맨아래로 뛴다. xterm 은 입력용 그대로 두고 "읽기·집기"만 여기서 한다.
+  var histMode='chat', histRid=null, histRaw=[], histCode=[];
+  var histWrapOn = (function(){ try{ return localStorage.getItem('coxpit.histwrap')!=='0'; }catch(e){ return true; } })();
+  function histSurface(){ return histMode==='chat' ? $('histChat') : $('histLines'); }
   function openHistory(){ var rid=focusedRunId(); if(rid==null||isViewer(rid)){ toast('포커스한 세션이 없습니다'); return; } $('histModal').classList.add('on'); loadHist(); }
-  function closeHistory(){ $('histModal').classList.remove('on'); }
+  function closeHistory(){ closeHistFind(); $('histModal').classList.remove('on'); }
   function setHistMode(m){
     histMode=m; $('hmChat').classList.toggle('on',m==='chat'); $('hmRaw').classList.toggle('on',m==='raw');
-    $('histChat').style.display = m==='chat'?'flex':'none'; $('histBody').style.display = m==='raw'?'block':'none';
+    $('histChat').hidden = m!=='chat'; $('histLines').hidden = m!=='raw';
     loadHist();
   }
+  // 줄 하나 → 링크·경로를 감싼 HTML. 원문을 먼저 토막내고 토막마다 esc 한다(esc 한 문자열에 정규식을 돌리면 &amp; 가 URL 에 섞인다).
+  // 경로 규칙은 터미널 링크파이어와 같다 — 확장자 있는 토큰 · 앞 글자가 URL 조각/토큰 중간이면 제외 · 알려진 확장자거나 경로형.
+  // 한 정규식의 두 갈래라 같은 자리에서 URL 이 먼저 잡힌다(URL 우선).
+  var HLN_RE=/(https?:\\/\\/[^\\s<>"'\\x60]+)|((?:~\\/|\\.{0,2}\\/)?[\\w.\\-\\/]*\\.[A-Za-z0-9]{1,8}(?::\\d+(?::\\d+)?)?)/g;
+  function linkify(txt){
+    var s=String(txt==null?'':txt), out='', last=0, m;
+    HLN_RE.lastIndex=0;
+    while((m=HLN_RE.exec(s))){
+      var raw=m[0], at=m.index;
+      if(m[1]){
+        var url=raw.replace(/[.,;:!?)\\]}'"]+$/,'');   // 문장 끝 구두점은 링크가 아니다
+        out+=esc(s.slice(last,at))+'<a class="hln-url" data-url="'+esc(url)+'">'+esc(url)+'</a>';
+        last=at+url.length; HLN_RE.lastIndex=last; continue;
+      }
+      if(raw.indexOf('://')>=0 || raw.slice(0,2)==='//') continue;
+      var before = at>0 ? s.charAt(at-1) : ' ';
+      if(before===':' || before==='/' || /[A-Za-z0-9]/.test(before)) continue;
+      var pathPart=raw.replace(/:\\d+(?::\\d+)?$/,'');
+      var ext=(pathPart.split('.').pop()||'').toLowerCase();
+      if(!(VIEW_EXT[ext] || pathPart.indexOf('/')>=0)) continue;
+      out+=esc(s.slice(last,at))+'<span class="hln-path" data-path="'+esc(raw)+'">'+esc(raw)+'</span>';
+      last=at+raw.length;
+    }
+    return out+esc(s.slice(last));
+  }
+  // 터미널 탭 — 스크롤백을 논리적 줄 단위 DOM 으로. histRaw[i] = 그 줄의 원문(복사는 linkify 전 텍스트).
+  function renderHistLines(text){
+    var box=$('histLines');
+    var lines=String(text||'').split(/\\r?\\n/);
+    while(lines.length && !lines[lines.length-1].trim()) lines.pop();   // tmux 캡처 꼬리의 빈 줄
+    histRaw=lines;
+    if(!lines.length){ box.innerHTML='<div class="hist-empty">(스크롤백 없음)</div>'; return; }
+    var h=new Array(lines.length);
+    for(var i=0;i<lines.length;i++){
+      h[i]='<div class="hln" data-i="'+i+'"><span class="hln-tx">'+(linkify(lines[i])||' ')+'</span>'
+        +'<button type="button" class="hln-cp" title="이 줄 복사">⧉</button></div>';
+    }
+    box.innerHTML=h.join('');
+  }
+  // 대화 탭 — 코드펜스는 모노 블록(가로 스크롤 + 복사), 나머지 산문은 링크화. 펜스가 안 닫혔으면(작성 중) 끝까지 코드로.
+  var FENCE='\\x60\\x60\\x60';
+  function renderProse(s){ return linkify(s).replace(/\\n/g,'<br>'); }
   function renderTurn(t){
-    var body = esc(t.text||'').replace(/\\n/g,'<br>');
+    var s=String(t.text||''), body='', i=0;
+    for(;;){
+      var a=s.indexOf(FENCE,i); if(a<0) break;
+      var nl=s.indexOf('\\n',a+3); if(nl<0) break;
+      var b=s.indexOf(FENCE,nl+1), end=(b<0?s.length:b);
+      body+=renderProse(s.slice(i,a).replace(/\\n$/,''));
+      var code=s.slice(nl+1,end).replace(/\\n$/,'');
+      var ci=histCode.push(code)-1;
+      body+='<div class="hln-code"><button type="button" class="cb-cp" data-ci="'+ci+'" title="코드 복사">⧉ 복사</button><pre>'+esc(code)+'</pre></div>';
+      if(b<0){ i=s.length; break; }
+      i=b+3; if(s.charAt(i)==='\\n') i++;
+    }
+    body+=renderProse(s.slice(i));
     var tools = (t.tools && t.tools.length) ? '<div class="ch-tools">'+t.tools.map(function(x){return '<span class="ch-tool">'+esc(x)+'</span>';}).join('')+'</div>' : '';
     return '<div class="ch-turn '+(t.role==='user'?'user':'asst')+'"><div class="ch-bubble">'+body+tools+'</div></div>';
   }
   async function loadHist(){
-    var rid=focusedRunId(); if(rid==null) return;
+    var rid=focusedRunId(); if(rid==null) return; histRid=rid;
     var t=tabs[rid]; $('histTitle').textContent=(t?t.name:('r'+rid))+' · 뷰어';
+    clearHistMarks();
     if (histMode==='chat'){
       var c=$('histChat'); c.innerHTML='<div class="hist-empty">불러오는 중…</div>';
       try{
         var d=await (await fetch('/api/runs/'+rid+'/chat')).json();
-        if (d.turns && d.turns.length){ c.innerHTML = d.turns.map(renderTurn).join(''); c.scrollTop=c.scrollHeight; }
+        histCode=[];
+        if (d.turns && d.turns.length){ c.innerHTML = d.turns.map(renderTurn).join(''); }
         else { c.innerHTML='<div class="hist-empty">이 폴더에 Claude Code 대화 로그가 없습니다.<br>터미널 탭으로 원문을 보세요.</div>'; }
       }catch(e){ c.innerHTML='<div class="hist-empty">불러오기 실패</div>'; }
     } else {
-      var b=$('histBody'); b.textContent='불러오는 중…';
+      var b=$('histLines'); histRaw=[]; b.innerHTML='<div class="hist-empty">불러오는 중…</div>';
       try{ var d2=await (await fetch('/api/runs/'+rid+'/scrollback?lines=5000')).json();
-        b.textContent=(d2 && d2.text)?d2.text:'(스크롤백 없음)'; b.scrollTop=b.scrollHeight;
-      }catch(e){ b.textContent='불러오기 실패'; }
+        if (d2 && d2.ok===false) b.innerHTML='<div class="hist-empty">스크롤백을 읽지 못했습니다</div>';
+        else renderHistLines((d2 && d2.text) || '');
+      }catch(e){ b.innerHTML='<div class="hist-empty">불러오기 실패</div>'; }
     }
+    histToBottom();
+    if (!$('histFindBar').hidden) runHistFind();
   }
+  // 탭 vs 길게 누르기 — touchstart 좌표·시각 → touchend 가 250ms·10px 이내면 "탭". 길게 누르기·드래그는 그대로 통과(네이티브 선택).
+  // 마우스는 click 그대로. 선택이 있으면 줄 복사보다 선택을 존중한다(⧉·코드 복사 버튼은 예외 — 명시적인 누름).
+  var histTouch=null, histTapOK=true;
+  function histTouchStart(e){ var p=e.touches&&e.touches[0]; histTouch=p?{x:p.clientX,y:p.clientY,t:Date.now()}:null; histTapOK=true; }
+  function histTouchEnd(e){ var p=e.changedTouches&&e.changedTouches[0];
+    histTapOK = !!(histTouch && p && (Date.now()-histTouch.t)<250 && Math.abs(p.clientX-histTouch.x)<10 && Math.abs(p.clientY-histTouch.y)<10);
+    histTouch=null; }
+  function histHasSel(){ try{ var sel=window.getSelection(); return !!(sel && !sel.isCollapsed && String(sel).length); }catch(e){ return false; } }
+  function histClick(e){
+    if(!histTapOK){ histTapOK=true; return; }   // 롱프레스·드래그 뒤 따라오는 click 은 무시
+    var cb=e.target.closest('.cb-cp'); if(cb){ copyText(histCode[+cb.getAttribute('data-ci')]||'', '복사됨'); return; }
+    var cp=e.target.closest('.hln-cp');
+    if(!cp && histHasSel()) return;
+    var u=e.target.closest('.hln-url'); if(u){ e.preventDefault(); copyText(u.getAttribute('data-url')||'', '링크 복사됨'); return; }
+    var p=e.target.closest('.hln-path');
+    if(p){ if(histRid!=null){ var path=p.getAttribute('data-path')||''; closeHistory(); openPathFromTerm(histRid, path); } return; }
+    var ln=e.target.closest('.hln'); if(ln) copyText(histRaw[+ln.getAttribute('data-i')]||'', '줄 복사됨');
+  }
+  // 찾기(⌕) — 가져온 텍스트 위에서만(순수 클라). 버튼 글자(⧉ 등)는 매치에서 뺀다.
+  var histHits=[], histHitI=-1, histFindT=0;
+  function clearHistMarks(){
+    var ms=$('histModal').querySelectorAll('mark.hl'), pars=[];
+    for(var i=0;i<ms.length;i++){ var mk=ms[i], par=mk.parentNode; if(!par) continue; par.replaceChild(document.createTextNode(mk.textContent||''), mk); if(pars.indexOf(par)<0) pars.push(par); }
+    pars.forEach(function(p){ try{ p.normalize(); }catch(e){} });
+    histHits=[]; histHitI=-1;
+  }
+  function runHistFind(){
+    clearHistMarks();
+    var q=($('histFindIn').value||'').toLowerCase();
+    if(q){
+      var w=document.createTreeWalker(histSurface(), NodeFilter.SHOW_TEXT, { acceptNode:function(n){ var pe=n.parentElement; return (pe && pe.closest('button')) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } });
+      var nodes=[], n; while((n=w.nextNode())) nodes.push(n);
+      nodes.forEach(function(tn){
+        var s=tn.nodeValue||'', low=s.toLowerCase(), at=low.indexOf(q); if(at<0) return;
+        var frag=document.createDocumentFragment(), last=0;
+        while(at>=0){
+          if(at>last) frag.appendChild(document.createTextNode(s.slice(last,at)));
+          var mk=document.createElement('mark'); mk.className='hl'; mk.textContent=s.slice(at,at+q.length); frag.appendChild(mk); histHits.push(mk);
+          last=at+q.length; at=low.indexOf(q,last);
+        }
+        if(last<s.length) frag.appendChild(document.createTextNode(s.slice(last)));
+        tn.parentNode.replaceChild(frag, tn);
+      });
+    }
+    histHitI = histHits.length ? histHits.length-1 : -1;   // 최신(맨아래)에서 시작 — 위로 거슬러 읽는 게 보통이다(‹ = 이전)
+    paintHistHit();
+  }
+  function stepHistFind(dir){
+    if(!histHits.length){ runHistFind(); return; }
+    histHitI=(histHitI+dir+histHits.length)%histHits.length; paintHistHit();
+  }
+  function paintHistHit(){
+    var prev=$('histModal').querySelector('mark.hl.cur'); if(prev) prev.classList.remove('cur');
+    var cur=histHits[histHitI]; if(cur){ cur.classList.add('cur'); try{ cur.scrollIntoView({block:'center',inline:'nearest'}); }catch(e){} }
+    $('histFindN').textContent = histHits.length ? ((histHitI+1)+'/'+histHits.length) : ($('histFindIn').value ? '0' : '');
+    updateHistFab();
+  }
+  function openHistFind(){ $('histFindBar').hidden=false; $('histFind').classList.add('on'); var i=$('histFindIn'); i.focus(); i.select(); if(i.value) runHistFind(); }
+  function closeHistFind(){ $('histFindBar').hidden=true; $('histFind').classList.remove('on'); clearHistMarks(); $('histFindN').textContent=''; }
+  // 이동(↕) + 최신 FAB(↓) — 맨아래에서 40px 넘게 올라가면 FAB 가 뜬다.
+  function histNearBottom(el){ return (el.scrollHeight - el.scrollTop - el.clientHeight) < 40; }
+  function updateHistFab(){ var el=histSurface(); $('histFab').hidden = !el || histNearBottom(el); }
+  function histToBottom(){ var el=histSurface(); el.scrollTop=el.scrollHeight; updateHistFab(); }
+  function histJump(){ var el=histSurface(); if(histNearBottom(el)) el.scrollTop=0; else el.scrollTop=el.scrollHeight; updateHistFab(); }
+  // 줄바꿈(↵) — 기본 켬(읽기). 끄면 터미널 줄·대화 코드블록이 한 줄로 옆 스크롤(산문은 항상 줄바꿈).
+  function applyHistWrap(){
+    $('histLines').classList.toggle('nowrap',!histWrapOn); $('histChat').classList.toggle('nowrap',!histWrapOn);
+    $('histWrap').classList.toggle('on',histWrapOn);
+  }
+  applyHistWrap();
+  ['histChat','histLines'].forEach(function(id){ var el=$(id);
+    el.addEventListener('touchstart', histTouchStart, {passive:true});
+    el.addEventListener('touchend', histTouchEnd, {passive:true});
+    el.addEventListener('click', histClick);
+    el.addEventListener('scroll', updateHistFab, {passive:true});
+  });
   $('histBtn').addEventListener('click', openHistory);
   $('histRefresh').addEventListener('click', loadHist);
   $('histClose').addEventListener('click', closeHistory);
   $('hmChat').addEventListener('click', function(){ setHistMode('chat'); });
   $('hmRaw').addEventListener('click', function(){ setHistMode('raw'); });
+  $('histWrap').addEventListener('click', function(){
+    histWrapOn=!histWrapOn; try{ localStorage.setItem('coxpit.histwrap', histWrapOn?'1':'0'); }catch(e){}
+    applyHistWrap(); toast(histWrapOn?'줄바꿈 켬':'줄바꿈 끔 · 옆으로 스크롤');
+  });
+  $('histFind').addEventListener('click', function(){ if($('histFindBar').hidden) openHistFind(); else closeHistFind(); });
+  $('histJump').addEventListener('click', histJump);
+  $('histFab').addEventListener('click', histToBottom);
+  $('histFindIn').addEventListener('input', function(){ clearTimeout(histFindT); histFindT=setTimeout(runHistFind, 150); });
+  $('histFindIn').addEventListener('keydown', function(e){
+    if(e.key==='Escape') return;   // 아래 문서 핸들러가 닫는다
+    e.stopPropagation();
+    if(e.key==='Enter'){ e.preventDefault(); clearTimeout(histFindT); if(!histHits.length) runHistFind(); else stepHistFind(e.shiftKey?-1:1); }
+  });
+  $('histFindPrev').addEventListener('click', function(){ stepHistFind(-1); });
+  $('histFindNext').addEventListener('click', function(){ stepHistFind(1); });
+  $('histFindX').addEventListener('click', closeHistFind);
+  document.addEventListener('keydown', function(e){
+    if(e.key!=='Escape' || !$('histModal').classList.contains('on')) return;
+    e.preventDefault(); if(!$('histFindBar').hidden) closeHistFind(); else closeHistory();
+  });
   $('histModal').addEventListener('click', function(e){ if(e.target===this) closeHistory(); });
   // 터치 기기(아이패드 포함) 판별 → body.touch (화면폭 무관하게 입력바 노출)
   if (window.matchMedia('(pointer:coarse)').matches || (navigator.maxTouchPoints||0) > 0) document.body.classList.add('touch');
