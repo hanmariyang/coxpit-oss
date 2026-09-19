@@ -534,7 +534,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .tsend{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--brand-ink);background:var(--brand);border:none;border-radius:8px;padding:9px 14px;cursor:pointer;flex:0 0 auto}
   .tkey.scroll{color:var(--brand);border-color:rgba(78,201,176,.4)}
   /* 히스토리 오버레이(읽기 전용, 자유 스크롤) — xterm·마우스모드 우회 */
-  /* v5.29 — 폰에서 "집고 읽는" 뷰어: 헤더 툴바(.hv-btn) · 검색바 · 구조화된 줄(.hln) · 최신 FAB. 색은 전부 기존 토큰. */
+  /* v6.4 — 폰에서 "집고 읽는" 뷰어: 헤더 툴바(.hv-btn) · 검색바 · 구조화된 줄(.hln) · 최신 FAB. 색은 전부 기존 토큰. */
   .hist-pick{position:relative}
   .hist-pick .pick-h{flex-wrap:wrap;gap:8px;padding:10px 12px}
   .hist-pick .pick-h .t{flex:1 1 90px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1025,7 +1025,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     t.classList.add('show'); clearTimeout(toast._h);
     toast._h=setTimeout(function(){ t.classList.remove('show'); }, act?7000:2600);
   }
-  // 복사 공용 헬퍼 — 터미널 선택복사와 뷰어(줄·링크·코드블록) 복사가 이 한 벌을 쓴다(v5.29).
+  // 복사 공용 헬퍼 — 터미널 선택복사와 뷰어(줄·링크·코드블록) 복사가 이 한 벌을 쓴다(v6.4).
   // clipboard API 우선(HTTPS·PWA), 실패하면 execCommand 폴백(iOS 포함). 항상 토스트로 확인. label 생략 = '복사됨'.
   function copyFallback(s, label){ var ok=false;
     try{ var ta=document.createElement('textarea'); ta.value=s; ta.setAttribute('readonly',''); ta.contentEditable='true';
@@ -2354,7 +2354,7 @@ ${ACTIVITY_JS}
   }); });
 
   // ── 뷰어 — 위 내용을 (대화) Claude Code 로그 / (터미널) 스크롤백 으로 읽기(읽기 전용) ──
-  // v5.29: 원문을 <pre> 한 덩어리로 붓지 않는다. 줄마다 DOM(.hln)이라 줄바꿈된 링크·경로를 한 번에 집고,
+  // v6.4: 원문을 <pre> 한 덩어리로 붓지 않는다. 줄마다 DOM(.hln)이라 줄바꿈된 링크·경로를 한 번에 집고,
   // 줄을 통째로 복사하고, 찾고, 맨아래로 뛴다. xterm 은 입력용 그대로 두고 "읽기·집기"만 여기서 한다.
   var histMode='chat', histRid=null, histRaw=[], histCode=[];
   var histWrapOn = (function(){ try{ return localStorage.getItem('coxpit.histwrap')!=='0'; }catch(e){ return true; } })();
