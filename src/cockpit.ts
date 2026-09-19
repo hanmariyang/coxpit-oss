@@ -2,6 +2,7 @@
 // 백엔드(server 라우트·term.ts·orchestrator)는 보드와 전부 공유. Phase 5에서 데스크톱 기본을 여기로 플립.
 // Phase 2 = 워크스페이스 트리(/api/fleet 라이브) + 페인 그리드 터미널(오토타일=창분할, 각 페인 /ws/term attach).
 import { HUMANIZE_JS } from './humanize';
+import { ACTIVITY_JS } from './activity';
 
 export const COCKPIT_HTML = /* html */ `<!doctype html>
 <html lang="en">
@@ -1014,23 +1015,8 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   var V_GLYPH = { pass:'✓ verify', fail:'✗ verify', running:'⋯ verify', error:'! verify' };
   function vbadge(status){ if (!status || !V_GLYPH[status]) return ''; return '<span class="vbadge '+status+'" data-role="vbadge">'+V_GLYPH[status]+'</span>'; }
-  // 라이브 상태 — run 의 최신 이벤트에서 "지금 뭐 하는지"(도구명/사고)를 뽑는다. 실행 중일 때만.
-  function latestActivity(runId){
-    var r=runById[runId]; if(!r) return '';
-    if(r.status!=='running' && r.status!=='pending') return '';
-    var evs=r.events||[];
-    for(var i=evs.length-1;i>=0;i--){
-      var e=evs[i], k=e.kind;
-      if(k==='steer') return 'steer'; if(k==='ask') return 'asking';
-      if(k!=='assistant') continue;
-      try{ var o=JSON.parse(e.payload);
-        var c=o&&o.message&&o.message.content;
-        if(c&&c.length){ for(var j=c.length-1;j>=0;j--){ if(c[j].type==='tool_use') return c[j].name||'tool'; if(c[j].type==='text'&&(c[j].text||'').trim()) return 'thinking'; } }
-        else if(o&&o.text) return 'thinking';
-      }catch(_){}
-    }
-    return r.status==='pending' ? 'starting' : 'working';
-  }
+  // 라이브 상태 + "지금" 한 줄 — HUD(v5.28 K)와 **같은 한 벌**(src/activity.ts). 사본을 만들지 않는다.
+${ACTIVITY_JS}
 
   // ── fleet 상태 ──
   var fleet = { machines:[], repos:[], tasks:[], groups:[], runs:[], providers:[] };
@@ -3542,13 +3528,7 @@ ${HUMANIZE_JS}
     render();
   }
 
-  // "지금" 한 줄 — 파싱된 스트림에서 온 것만. 아직 아무 이벤트도 없으면 지어내지 않고 starting… 이라 말한다.
-  function actNowText(runId){
-    var r=runById[runId]; if(!r) return '';
-    var live=(r.status==='running'||r.status==='pending'||r.status==='preparing');
-    if(!(r.events||[]).length) return live ? 'starting…' : String(r.status||'');
-    return latestActivity(runId) || String(r.status||'');
-  }
+  // "지금" 한 줄(actNowText)은 위 ACTIVITY_JS 에 산다 — HUD 와 같은 한 벌.
   function actPath(runId){
     var r=runById[runId]; if(!r) return '';
     var task=taskById[r.taskId]; var rp=task&&repoById[task.repoId];

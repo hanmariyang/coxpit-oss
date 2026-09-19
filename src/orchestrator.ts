@@ -831,6 +831,25 @@ export async function getScrollback(runId: number, lines: number): Promise<{ ok:
 }
 
 /**
+ * 살아 있는 tmux 페인에 한 줄 써 넣기 (v5.28 K) — getScrollback 의 **쓰기 쌍둥이**.
+ * HUD 가 코크핏을 열지 않고 "대기 중인 에이전트"에게 답하는 유일한 길이다(steer 는 정착한 run 전용).
+ * 타깃 규율은 capture-pane 과 똑같이 맞춘다: send-keys 도 '=' 접두사를 못 받는 tmux 가 있어
+ * 세션명을 그대로 쓴다. 사람이 친 것과 같게 하려고 Enter 를 따로 한 번 더 보낸다.
+ * 세션이 없거나(정리됨) 죽었으면 ok:false — 라우트가 409 로 돌려준다. 지어내지 않는다.
+ */
+export async function sendRunInput(runId: number, text: string): Promise<{ ok: boolean; detail: string }> {
+  const info = await getRunTermInfo(runId);
+  if (!info) return { ok: false, detail: 'no terminal session' };
+  const r = await runShellOn(
+    info.machine,
+    `tmux send-keys -t ${shq(info.session)} ${shq(text)} Enter`,
+    10000,
+  );
+  if (!r.ok) return { ok: false, detail: (r.stderr || r.stdout).trim().slice(0, 300) || 'send-keys failed' };
+  return { ok: true, detail: 'sent' };
+}
+
+/**
  * 이 run 의 페인이 **지금 서 있는 폴더** (v5.28 D-fix).
  * 터미널이 찍은 상대경로를 열려면 worktree 루트가 아니라 페인의 cwd 가 기준이어야 한다 —
  * 모노레포 하위 패키지나 `cd` 뒤에는 루트가 답이 아니고, 그때 링크는 없는 파일을 가리켰다.
