@@ -1,6 +1,6 @@
 # Coxpit — Repository Guide
 
-> Self-hosted cockpit for running a fleet of AI coding agents across your own machines. Node/TS daemon + single-page web console. MIT.
+> Self-hosted cockpit for running a fleet of AI coding agents across your own machines. Node/TS daemon + single-page web console. AGPLv3 (with Coxpit trademark + attribution terms — see LICENSE.md).
 
 ## 1. Overview
 
@@ -52,7 +52,7 @@ Agents default to **dry-run** (mock stream-json + a real file change — exercis
 - One daemon per machine: the default data dir is `~/.coxpit/` and the daemon takes `daemon.lock.json` there (src/lock.ts) — two daemons on one DB would settle each other's live runs as orphans at boot. The desktop app attaches to a running daemon instead of spawning a second one; keep that invariant.
 - Merge safety: worktree auto-commit → base repo must be on its default branch and clean → `merge --no-ff`; conflicts abort automatically.
 - Releases are **batched**. `release.yml` runs only on `v*` tags (plus manual dispatch) — main commits cost nothing, so let small fixes accumulate on main and tag at milestones, when a meaningful batch has gathered, or for an urgent fix. Do not tag per change: each tag runs a 3-OS matrix whose macOS leg (build + sign + **notarize**, ~7 min of waiting on Apple) bills at 10x the Linux rate, and a re-tagged fix pays it again in full.
-- License hygiene: no GPL/AGPL/LGPL dependencies (audit `npm ls --omit=dev --all`). Do not copy code from AGPL projects.
+- License hygiene: Coxpit is AGPLv3, so GPL/AGPL/LGPL code is compatible — but only copy code you have the right to (your own, or AGPL-compatible sources with their attribution preserved), and never pull in a **proprietary** or AGPL-incompatible dependency (audit `npm ls --omit=dev --all`). Copyleft obligations (publish source of a modified network service) now apply to Coxpit itself.
 - No secrets, tokens, or user-specific paths in the repo — configuration is env-only (`.env.example` keys, README table).
 
 ## 6. Caveats
