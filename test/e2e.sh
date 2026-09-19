@@ -5,8 +5,10 @@
 # No credits spent (dry-run agent). Exits non-zero on first failure.
 set -euo pipefail
 
-# coxpit 터미널(tmux) 안에서 e2e 를 돌려도 테스트 데몬의 tmux 가 그 소켓을 상속해
-# 실데몬 세션을 건드리지 않도록 — 항상 기본 서버를 쓴다.
+# 테스트 tmux 격리 — 실데몬/사용자의 coxpit-r* 세션은 기본 tmux 서버에 산다.
+# TMUX(클라이언트) 는 풀고, TMUX_TMPDIR 로 소켓 디렉터리를 이 실행 전용으로 옮긴다(WORK 뒤에서 설정).
+# 그러면 데몬·e2e 의 모든 tmux 가 별도 서버를 써서 기본 서버를 절대 건드리지 않는다.
+# (예전엔 '기본 서버를 쓴다'였는데 그게 정확히 실세션을 죽인 원인이었다 — 2026-09-19.)
 unset TMUX
 
 # 상주 데몬의 COXPIT_* env 가 셸에 새어들어와 있으면(launchd/프로필) 테스트 데몬이 상속해
@@ -18,6 +20,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${COXPIT_TEST_PORT:-8261}"
 B="http://127.0.0.1:$PORT"
 WORK="$(mktemp -d)"
+# 이 실행 전용 tmux 서버 — 데몬 spawn·e2e 자체의 모든 tmux 가 상속한다
+# (runShellOn 은 process.env 상속, term.spawnPty 는 {...process.env}). 기본 서버 미접촉.
+export TMUX_TMPDIR="$WORK/tmux"; mkdir -p "$TMUX_TMPDIR"
+# 격리 증명용 — 기본 서버(사용자 실세션이 사는 곳)에 고유 이름 센티넬을 두고,
+# 데몬이 워크벤치 create/close(내부 kill-session) 를 돌린 뒤에도 이게 살아있으면
+# 데몬의 tmux 가 기본 서버를 절대 건드리지 않았다는 증거다.
+SENTINEL="coxpit-e2e-sentinel-$$"
 REPO="$WORK/repo"
 DB="$WORK/coxpit.db"
 PASS_COUNT=0
@@ -39,6 +48,10 @@ cleanup(){
   # T6 수거 테스트가 지어낸 고아 tmux 이름 — 중간에 죽어도 개발 기계에 남기지 않는다('=' 정확 일치)
   tmux kill-session -t '=coxpit-r98765' 2>/dev/null || true
   tmux kill-session -t '=coxpit-r987654' 2>/dev/null || true
+  # 이 실행 전용 tmux 서버 통째 정리 — TMUX_TMPDIR 가 격리 소켓이라 기본 서버엔 영향 없음
+  tmux kill-server 2>/dev/null || true
+  # 격리 증명용 센티넬(기본 서버, 고유 이름)이 남았으면 정리
+  env -u TMUX_TMPDIR tmux kill-session -t "=$SENTINEL" 2>/dev/null || true
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -929,6 +942,9 @@ echo "$DOCS2" | grep -q '"source":"snapshot"' || fail "docs should fall back to 
 echo "$DOCS2" | grep -q 'Hello Doc' || fail "snapshot lost the doc content"
 pass "doc snapshot survives cleanup (worktree gone, snapshot serves)"
 
+# tmux 격리 증명 — 기본 서버(사용자 실세션)에 센티넬을 두고, 데몬 워크벤치 create/close 뒤 생존 확인
+env -u TMUX_TMPDIR tmux new-session -d -s "$SENTINEL" -c /tmp 2>/dev/null || true
+env -u TMUX_TMPDIR tmux has-session -t "=$SENTINEL" 2>/dev/null || fail "sentinel setup failed (default tmux server)"
 # workbench: worktree+tmux 만들고 에이전트 없음 — 수동 변경 후 merge 레일 동작
 WB=$(curl -sf -X POST "$B/api/workbench" -H 'content-type: application/json' -d '{"repoId":1,"title":"wb test"}')
 echo "$WB" | grep -q '"ok":true' || fail "workbench open: $WB"
@@ -944,6 +960,11 @@ curl -sf -X POST "$B/api/runs/$WBRUN/merge" | grep -q '"ok":true' || fail "workb
 curl -s -X POST "$B/api/tasks/$WBTASK/close" >/dev/null
 tmux has-session -t "coxpit-r$WBRUN" 2>/dev/null && fail "workbench tmux not cleaned" || true
 pass "workbench: open -> hand edit -> merge -> close"
+
+# tmux 격리 검증 — 데몬의 create/kill-session 이 기본 서버를 절대 안 건드림(센티넬 생존)
+env -u TMUX_TMPDIR tmux has-session -t "=$SENTINEL" 2>/dev/null || fail "tmux isolation broken: daemon reached the DEFAULT server (sentinel got killed) — this is the bug that killed real coxpit-r* sessions"
+env -u TMUX_TMPDIR tmux kill-session -t "=$SENTINEL" 2>/dev/null || true
+pass "tmux isolation: daemon's tmux confined to TMUX_TMPDIR — default server (real sessions) untouched"
 
 # root session (root:true) — tmux at the repo's real checkout (not an isolated worktree); close preserves checkout
 RS=$(curl -sf -X POST "$B/api/workbench" -H 'content-type: application/json' -d '{"repoId":1,"title":"Session","root":true}')
