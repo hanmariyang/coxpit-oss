@@ -8,8 +8,20 @@ const client = createClient({ url: `file:${config.dbPath}` });
 
 export const db = drizzle(client, { schema });
 
+/**
+ * 저널 모드 — 로컬 파일 DB 에서만 의미가 있다. WAL 이면 보드 하이드레이션(읽기)이
+ * 이벤트 적재(쓰기)를 막지 않고, synchronous=NORMAL 이면 이벤트 INSERT 마다 fsync 를
+ * 기다리지 않는다(크래시 시 최근 몇 이벤트 손실 가능 — 감사 로그라 감수한다).
+ * 원격 libSQL URL 은 PRAGMA 를 받지 않을 수 있어 **최선노력**이다: 실패해도 부트는 계속된다.
+ */
+async function applyPragmas(): Promise<void> {
+  try { await client.execute('PRAGMA journal_mode=WAL'); } catch { /* 원격/미지원 */ }
+  try { await client.execute('PRAGMA synchronous=NORMAL'); } catch { /* 원격/미지원 */ }
+}
+
 /** 스키마 부트스트랩(멱등). 정식 마이그레이션은 drizzle-kit(추후). */
 export async function ensureSchema(): Promise<void> {
+  await applyPragmas();
   await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS machines (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -117,4 +129,12 @@ export async function ensureSchema(): Promise<void> {
   try { await client.execute('ALTER TABLE agent_runs ADD COLUMN in_place INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
   // DEFAULT 1 = 기존 run 은 real 로 남는다. 모르는 과거를 dry 로 칠하지 않기 위한 기본값이다(v5.28 H1).
   try { await client.execute('ALTER TABLE agent_runs ADD COLUMN real INTEGER NOT NULL DEFAULT 1'); } catch { /* exists */ }
+  // 조인 키 인덱스(멱등) — 없으면 이 여섯 조회가 매번 테이블 전체를 훑는다.
+  // ALTER 뒤에 두는 건 의도다: tasks.parent_run_id 는 위에서 붙는 컬럼이다.
+  try { await client.execute('CREATE INDEX IF NOT EXISTS idx_events_run ON agent_events(run_id)'); } catch { /* exists */ }
+  try { await client.execute('CREATE INDEX IF NOT EXISTS idx_runs_task ON agent_runs(task_id)'); } catch { /* exists */ }
+  try { await client.execute('CREATE INDEX IF NOT EXISTS idx_tasks_repo ON tasks(repo_id)'); } catch { /* exists */ }
+  try { await client.execute('CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_run_id)'); } catch { /* exists */ }
+  try { await client.execute('CREATE INDEX IF NOT EXISTS idx_docsnap_run ON doc_snapshots(run_id)'); } catch { /* exists */ }
+  try { await client.execute('CREATE INDEX IF NOT EXISTS idx_sharelinks_run ON share_links(run_id)'); } catch { /* exists */ }
 }

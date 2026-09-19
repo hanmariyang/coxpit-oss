@@ -5,7 +5,7 @@ import { existsSync, statSync, openSync, readSync, closeSync, mkdirSync } from '
 import { mkdir, copyFile, readFile, writeFile, rm, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import type { ChildProcess } from 'node:child_process';
-import { eq, inArray, and } from 'drizzle-orm';
+import { eq, inArray, and, desc } from 'drizzle-orm';
 import { config } from './config';
 import { db } from './db';
 import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots, taskGroups, secrets } from './db/schema';
@@ -104,8 +104,17 @@ async function recordEvent(runId: number, kind: string, payload: string): Promis
   broadcast({ type: 'event', runId, kind, payload });
 }
 
+/**
+ * run 레코드가 움직인 횟수. 오케스트레이션 워처(1.5초 간격)가 "다시 읽을 일이 생겼나"를
+ * 쿼리 없이 O(1) 로 판단하는 데 쓴다. setRun 은 run 의 수명 전환에서만 불린다(줄당이 아니다)
+ * — 그래서 이 카운터는 드물게 움직이고, 조용한 틱은 DB 를 아예 건드리지 않는다.
+ * 부모별로 좁히지 않고 하나로 두는 건 의도다: 넘치게 칠해 한 번 더 읽는 쪽이 놓치는 쪽보다 낫다.
+ */
+let runRev = 0;
+
 async function setRun(runId: number, patch: Partial<typeof agentRuns.$inferInsert>): Promise<void> {
   await db.update(agentRuns).set(patch).where(eq(agentRuns.id, runId));
+  runRev++;
   broadcast({ type: 'run', runId, ...patch });
 }
 
@@ -277,14 +286,17 @@ export function startOrchWatch(runId: number, wtPath: string, real: boolean): No
   const dir = ppath.join(wtPath, '.coxpit');
   let last = '';
   let busy = false;
+  let seenRev = -1; // 현황을 마지막으로 읽은 시점의 runRev. -1 = 아직 한 번도 안 읽음(첫 틱은 읽는다)
   return setInterval(() => {
     if (busy) return;
     busy = true;
     void (async () => {
+      let consumed = false;
       try {
         const spawnPath = ppath.join(dir, 'spawn.json');
         const txt = await readFile(spawnPath, 'utf8').catch(() => null);
         if (txt !== null) {
+          consumed = true;
           await rm(spawnPath).catch(() => { /* consumed */ });
           try {
             const req = JSON.parse(txt) as unknown;
@@ -298,14 +310,22 @@ export function startOrchWatch(runId: number, wtPath: string, real: boolean): No
             await recordEvent(runId, 'error', 'spawn.json was not valid JSON — nothing spawned');
           }
         }
-        // 현황 파일 — 내용이 바뀔 때만 다시 쓴다
-        const subs = await listSubtasks(runId);
-        if (subs.length) {
-          const j = JSON.stringify(subs, null, 2);
-          if (j !== last) {
-            last = j;
-            await mkdir(dir, { recursive: true });
-            await writeFile(ppath.join(dir, 'subtasks.json'), j);
+        // 현황 파일 — **이번 틱에 뭔가 실제로 벌어졌을 때만** 읽고 쓴다.
+        // 조건 둘: spawn.json 을 소비했거나(위), run 레코드가 움직였거나(runRev).
+        // 조용한 틱(대부분)에는 쿼리조차 돌지 않는다 — 1.5초마다 도는 워처라 이 절약이
+        // run 이 사는 동안 계속 쌓인다. rev 를 **읽기 전에 떠 두고 성공 후에 저장**하는 건 의도다:
+        // 실패하면 여전히 더러운 상태로 남아 다음 틱에 재시도되고, 읽는 동안 생긴 변화도 안 놓친다.
+        const rev = runRev;
+        if (consumed || rev !== seenRev) {
+          const subs = await listSubtasks(runId);
+          seenRev = rev;
+          if (subs.length) {
+            const j = JSON.stringify(subs, null, 2);
+            if (j !== last) {
+              last = j;
+              await mkdir(dir, { recursive: true });
+              await writeFile(ppath.join(dir, 'subtasks.json'), j);
+            }
           }
         }
       } catch { /* 워처 오류는 조용히 — 다음 틱에 재시도 */ }
@@ -351,6 +371,8 @@ export async function spawnSubtasks(parentRunId: number, title: string, prompt: 
     void launchRun(run.id, real);
     runIds.push(run.id);
   }
+  // 새 자식이 생겼다 — 부모 워처가 다음 틱에 현황을 다시 읽도록 표시한다(HTTP 쌍둥이 경로 포함).
+  runRev++;
   await recordEvent(parentRunId, 'meta', JSON.stringify({ subtask: task.id, title: task.title, runs: runIds }));
   return { ok: true, detail: `spawned task #${task.id} (${runIds.length} run(s))`, taskId: task.id, runIds };
 }
@@ -965,11 +987,16 @@ interface OutputsManifestItem { path?: string; type?: string; title?: string }
 
 /** run 의 최종 답변 텍스트 — result 이벤트(payload JSON) 우선, 없으면 exitSummary. */
 async function runAnswerText(run: typeof agentRuns.$inferSelect): Promise<string> {
-  const evs = await db.select().from(agentEvents).where(eq(agentEvents.runId, run.id));
-  for (let i = evs.length - 1; i >= 0; i--) {
-    if (evs[i]!.kind !== 'result') continue;
+  // result 이벤트만, 최신 순으로 — 전량 로드 후 뒤에서 훑던 것과 결과는 같고 읽는 행은 훨씬 적다
+  // (run 당 result 는 보통 한 줄, resume 한 run 이면 몇 줄). LIMIT 1 을 쓰지 않는 건 의도다:
+  // 가장 최신 result 의 payload 에 쓸 만한 result 문자열이 없으면 예전 result 로 내려가야 하고,
+  // 그게 원래 동작이다 — 같은 답을 내는 것이 이 변경의 조건이다.
+  const evs = await db.select().from(agentEvents)
+    .where(and(eq(agentEvents.runId, run.id), eq(agentEvents.kind, 'result')))
+    .orderBy(desc(agentEvents.id));
+  for (const e of evs) {
     try {
-      const o = JSON.parse(evs[i]!.payload) as { result?: string };
+      const o = JSON.parse(e.payload) as { result?: string };
       if (typeof o.result === 'string' && o.result.trim()) return o.result.trim();
     } catch { /* 비-JSON result — exitSummary 로 폴백 */ }
   }
