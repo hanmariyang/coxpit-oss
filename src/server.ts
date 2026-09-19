@@ -7,7 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import websocket from '@fastify/websocket';
-import { eq, inArray, and, like, desc } from 'drizzle-orm';
+import { eq, inArray, and, like, desc, asc, sql } from 'drizzle-orm';
 import { authGate } from './auth';
 import { loginPageHTML } from './login';
 import {
@@ -47,6 +47,12 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
   'addon-clipboard.js': { pkg: '@xterm/addon-clipboard/package.json', rel: 'lib/addon-clipboard.js', type: 'text/javascript' },
   'marked.js': { pkg: 'marked/package.json', rel: 'marked.min.js', type: 'text/javascript' },
 };
+
+// 버전 치환은 **모듈 로드 때 한 번** — config.version 은 부트 후 변하지 않고, cockpit.ts 는
+// 281KB 짜리 한 문자열이다. 요청마다 전역 정규식으로 다시 훑던 것을 상수로 굳혔다
+// (보드는 원래 상수를 그대로 내보낸다 — 세 페이지가 같은 방식이 됐다).
+const COCKPIT_PAGE = COCKPIT_HTML.replace(/__COXPIT_VER__/g, config.version);
+const HUD_PAGE = HUD_HTML.replace(/__COXPIT_VER__/g, config.version);
 
 // ─── 읽기 전용 공유 페이지 (서버 렌더 스냅샷 — 스크립트 0, 액션 0) ───────────
 const escH = (x: unknown): string =>
@@ -251,10 +257,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨(무인증 요청은 게이트가 login/setup 페이지로 응답).
   app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
   // 터미널 우선 셸(병행 개발) — 백엔드는 보드와 공유. Phase 5에서 데스크톱 기본을 여기로 플립 예정.
-  app.get('/cockpit', async (_req, reply) => reply.type('text/html').send(COCKPIT_HTML.replace(/__COXPIT_VER__/g, config.version)));
+  app.get('/cockpit', async (_req, reply) => reply.type('text/html').send(COCKPIT_PAGE));
   // HUD(v5.28 K) — 플릿을 작게 다시 내놓는 한 장. 데스크톱의 떠 있는 작은 창이 이걸 띄운다.
   // 서빙되는 **페이지**라 /cockpit 과 같은 게이트 뒤다(무인증 예외 아님 — 헬스가 아니다).
-  app.get('/hud', async (_req, reply) => reply.type('text/html').send(HUD_HTML.replace(/__COXPIT_VER__/g, config.version)));
+  app.get('/hud', async (_req, reply) => reply.type('text/html').send(HUD_PAGE));
 
   // ─── 접근키 인증(access-key) ────────────────────────────────────
   // 요청이 tunnel/https 를 탔나 — Secure 쿠키 여부 결정용.
@@ -370,17 +376,31 @@ export async function buildServer(): Promise<FastifyInstance> {
     const activeTasks = allTasks.filter((t) => t.status !== 'closed');
     const closedCount = allTasks.length - activeTasks.length;
     const ts = view === 'all' ? allTasks : activeTasks;
-    const taskIds = new Set(ts.map((t) => t.id));
-    const allRuns = await db.select().from(agentRuns);
-    const rns = view === 'all' ? allRuns : allRuns.filter((r) => taskIds.has(r.taskId));
+    const taskIds = ts.map((t) => t.id);
+    // run 도 **보는 뷰만** 가져온다 — 전량 로드 후 JS 필터가 아니라 SQL WHERE.
+    // 정렬을 명시하는 건 필터가 끼어도 클라이언트가 받던 id 오름차순을 그대로 지키기 위함이다.
+    const rns: Array<typeof agentRuns.$inferSelect> = view === 'all'
+      ? await db.select().from(agentRuns).orderBy(asc(agentRuns.id))
+      : taskIds.length
+        ? await db.select().from(agentRuns).where(inArray(agentRuns.taskId, taskIds)).orderBy(asc(agentRuns.id))
+        : [];
     const runIds = rns.map((r) => r.id);
-    // 이벤트는 대상 run 으로 스코프한 뒤 로드(전량 로드 후 슬라이스 = 고치려는 그 버그).
-    const evs = runIds.length ? await db.select().from(agentEvents).where(inArray(agentEvents.runId, runIds)) : [];
+    // 이벤트는 run 당 최근 EVENT_CAP 개만 **SQL 에서** 잘라 온다. 전량 로드 후 JS 슬라이스가
+    // 정확히 고치려던 그 낭비다(활성 run 의 모든 이벤트 행을 메모리에 올렸다).
+    // 창 함수로 run 별 역순 번호를 매겨 상한 안쪽만 남기고, 클라이언트가 기대하는 id 오름차순으로 낸다.
+    const evs: Array<{ run_id: number; kind: string; payload: string }> = runIds.length
+      ? await db.all<{ run_id: number; kind: string; payload: string }>(sql`
+          SELECT id, run_id, kind, payload FROM (
+            SELECT id, run_id, kind, payload,
+                   ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY id DESC) AS rn
+            FROM agent_events WHERE ${inArray(agentEvents.runId, runIds)}
+          ) WHERE rn <= ${EVENT_CAP} ORDER BY run_id ASC, id ASC`)
+      : [];
     const byRun = new Map<number, Array<{ kind: string; payload: string }>>();
     for (const e of evs) {
-      const arr = byRun.get(e.runId) ?? [];
+      const arr = byRun.get(e.run_id) ?? [];
       arr.push({ kind: e.kind, payload: e.payload });
-      byRun.set(e.runId, arr);
+      byRun.set(e.run_id, arr);
     }
     const taskOut = new Map(ts.map((t) => [t.id, t.outputs]));
     return {
@@ -388,7 +408,8 @@ export async function buildServer(): Promise<FastifyInstance> {
       runs: rns.map((r) => {
         const sig = noopSignal(r.status, r.filesChanged, r.exitSummary, taskOut.get(r.taskId) ?? '[]');
         // real 은 언제나 불리언으로 나간다 — 클라이언트는 real===false 하나만 보고 dry 칩을 그린다.
-        return { ...r, real: !!r.real, events: (byRun.get(r.id) ?? []).slice(-EVENT_CAP), noop: sig.noop, noopReason: sig.reason };
+        // events 는 이미 SQL 에서 EVENT_CAP 으로 잘려 왔다 — 여기서 또 자르지 않는다.
+        return { ...r, real: !!r.real, events: byRun.get(r.id) ?? [], noop: sig.noop, noopReason: sig.reason };
       }),
       counts: { activeTasks: activeTasks.length, closedTasks: closedCount },
       // 지금 터미널이 붙어 있는 run 의 에이전트 상태(runId → {state,detail,ts}).
@@ -497,9 +518,22 @@ export async function buildServer(): Promise<FastifyInstance> {
     const grpTitle = new Map((await db.select().from(taskGroups)).map((g) => [g.id, g.title]));
     const total0 = closed.length;
     const page = closed.slice(offset, offset + limit);
+    // 페이지에 실릴 태스크의 run 을 **한 번에** 긁어 taskId 로 묶는다.
+    // 태스크마다 한 방씩 쏘던 N+1(50행 페이지 = 51 쿼리)을 한 쿼리로 접었다.
+    const pageIds = page.map((t) => t.id);
+    const runsByTask = new Map<number, Array<typeof agentRuns.$inferSelect>>();
+    if (pageIds.length) {
+      const pageRuns = await db.select().from(agentRuns)
+        .where(inArray(agentRuns.taskId, pageIds)).orderBy(asc(agentRuns.id));
+      for (const r of pageRuns) {
+        const arr = runsByTask.get(r.taskId) ?? [];
+        arr.push(r);
+        runsByTask.set(r.taskId, arr);
+      }
+    }
     const rows = [];
     for (const t of page) {
-      const rs = await db.select().from(agentRuns).where(eq(agentRuns.taskId, t.id));
+      const rs = runsByTask.get(t.id) ?? [];
       if (q.status && !rs.some((r) => r.status === q.status)) continue;
       rows.push({
         taskId: t.id, title: t.title, repoName: repoName.get(t.repoId) ?? '?',

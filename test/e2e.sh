@@ -929,6 +929,54 @@ PYEOF
 case "$V43" in *V43_OK*) : ;; *) fail "v4.3 fleet: $V43";; esac
 pass "fleet view scoping (active omits closed · all includes · counts · event cap · full record)"
 
+# perf — 캡은 **SQL 에서** 걸린다(전량 로드 후 JS 슬라이스가 아니라 창 함수).
+# 드라이 목은 40개를 못 넘기니 숫자로는 증명이 안 된다 → 쿼리를 못박고, 나오는 것은 실측한다:
+# 이벤트를 가장 많이 가진 run 의 fleet 목록이 전체 타임라인의 꼬리 40개와 **순서까지 같은 것**이
+# 캡(<=40) + run 당 id 오름차순의 증거다.
+grep -qF 'ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY id DESC)' src/server.ts || fail "fleet must cap events per run in SQL (windowed ROW_NUMBER), not slice them in JS"
+grep -qF 'rn <= ${EVENT_CAP}' src/server.ts || fail "the per-run cap must read the EVENT_CAP constant (one source for the number)"
+case "$(cat src/server.ts)" in *'.slice(-EVENT_CAP)'*) fail "the JS slice must be gone — the cap lives in the query now (otherwise it masks a wrong query)";; *) : ;; esac
+grep -qF 'inArray(agentRuns.taskId, taskIds)' src/server.ts || fail "the active fleet view must filter runs in SQL, not load every run ever and filter in JS"
+PERFEV=$(python3 - "$B" <<'PYEOF'
+import sys,json,urllib.request as R
+B=sys.argv[1]
+fleet=json.load(R.urlopen(B+"/api/fleet?view=all"))
+runs=sorted(fleet["runs"], key=lambda r: len(r.get("events",[])), reverse=True)
+assert runs and runs[0].get("events"), "no run in the fleet carried events — this check would prove nothing"
+top=runs[0]
+full=json.load(R.urlopen(B+"/api/runs/%d" % top["id"]))
+tail=[{"kind":e["kind"],"payload":e["payload"]} for e in full["events"]][-40:]
+assert top["events"] == tail, ("fleet events must be the timeline's newest-40 in ascending order",
+                               top["id"], len(top["events"]), len(tail))
+print("PERFEV_OK r%d/%d" % (top["id"], len(top["events"])))
+PYEOF
+) || fail "fleet event cap/order: $PERFEV"
+case "$PERFEV" in *PERFEV_OK*) : ;; *) fail "fleet event cap/order: $PERFEV";; esac
+# 인덱스와 WAL 은 부트에서 선다(ensureSchema 가 유일한 부트 경로다).
+grep -qF 'CREATE INDEX IF NOT EXISTS idx_events_run ON agent_events(run_id)' src/db/index.ts || fail "ensureSchema must create idx_events_run"
+grep -qF 'CREATE INDEX IF NOT EXISTS idx_runs_task ON agent_runs(task_id)' src/db/index.ts || fail "ensureSchema must create idx_runs_task"
+grep -qF 'CREATE INDEX IF NOT EXISTS idx_tasks_repo ON tasks(repo_id)' src/db/index.ts || fail "ensureSchema must create idx_tasks_repo"
+grep -qF 'CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_run_id)' src/db/index.ts || fail "ensureSchema must create idx_tasks_parent"
+grep -qF 'CREATE INDEX IF NOT EXISTS idx_docsnap_run ON doc_snapshots(run_id)' src/db/index.ts || fail "ensureSchema must create idx_docsnap_run"
+grep -qF 'CREATE INDEX IF NOT EXISTS idx_sharelinks_run ON share_links(run_id)' src/db/index.ts || fail "ensureSchema must create idx_sharelinks_run"
+grep -qF 'PRAGMA journal_mode=WAL' src/db/index.ts || fail "the libSQL client must ask for WAL at init"
+grep -qF 'PRAGMA synchronous=NORMAL' src/db/index.ts || fail "the libSQL client must ask for synchronous=NORMAL at init"
+# PRAGMA 가 부트를 깨지 않는 것은 이 스위트가 이미 증명한다 — 이 데몬은 **빈 파일에서** 떴다.
+# 아카이브는 페이지의 run 을 한 번에 긁는다(태스크마다 한 방 = N+1).
+grep -qF 'inArray(agentRuns.taskId, pageIds)' src/server.ts || fail "archive must fetch the page's runs in one query (the N+1 is the bug)"
+# 서빙 페이지의 버전 치환은 모듈 로드 때 한 번(요청마다 281KB 를 다시 훑지 않는다).
+grep -qF 'const COCKPIT_PAGE = COCKPIT_HTML.replace(/__COXPIT_VER__/g, config.version)' src/server.ts || fail "the cockpit page's version substitution must be hoisted to module load"
+grep -qF 'const HUD_PAGE = HUD_HTML.replace(/__COXPIT_VER__/g, config.version)' src/server.ts || fail "the hud page's version substitution must be hoisted to module load"
+case "$(cat src/server.ts)" in *'send(COCKPIT_HTML.replace('*|*'send(HUD_HTML.replace('*) fail "a served route still substitutes the version per request";; *) : ;; esac
+# 치환이 실제로 됐는지 — 서빙된 페이지에 플레이스홀더가 남아 있으면 안 된다.
+CKV=$(curl -s "$B/cockpit"); HDV=$(curl -s "$B/hud")
+case "$CKV" in *'__COXPIT_VER__'*) fail "the hoisted cockpit page still carries the placeholder";; *) : ;; esac
+case "$HDV" in *'__COXPIT_VER__'*) fail "the hoisted hud page still carries the placeholder";; *) : ;; esac
+# 1.5초 워처는 조용한 틱에 DB 를 안 건드린다 — 더러울 때만 현황을 읽는다.
+grep -qF 'if (consumed || rev !== seenRev)' src/orchestrator.ts || fail "startOrchWatch must skip listSubtasks on quiet ticks (spawn consumed or a run moved)"
+grep -qF "eq(agentEvents.kind, 'result')" src/orchestrator.ts || fail "runAnswerText must ask for the result events only, not the whole timeline"
+pass "perf: SQL-side event cap (windowed, ascending) · active runs filtered in SQL · indexes + WAL at boot · archive N+1 folded · page version hoisted · quiet orch ticks query nothing"
+
 # v4.3 B — 아카이브 목록 + 필터
 ARCH=$(curl -s "$B/api/archive")
 echo "$ARCH" | python3 -c 'import sys,json;d=json.load(sys.stdin);assert d["total"]>=1 and any(r["taskId"]==1 for r in d["rows"]), d' || fail "archive missing closed task 1"
