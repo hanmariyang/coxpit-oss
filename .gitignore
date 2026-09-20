@@ -11,3 +11,6 @@ dist/
 
 # local reference mocks (not part of the product)
 scratchpad/
+
+# machine-local claude shim (only appears when the data dir is the repo, i.e. a legacy ./coxpit.db)
+/shim/

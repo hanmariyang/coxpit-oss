@@ -41,6 +41,10 @@ expect_code(){
   [ "$got" = "$want" ] || fail "expected HTTP $want, got $got ($*)"
 }
 cleanup(){
+  # 대화 탭 테스트가 심어둔 가짜 대본 폴더(~/.claude/projects/<이 WORK 경로 인코딩>) — 이름을 확인하고만 지운다
+  if [ -n "${CHATPROJ:-}" ]; then
+    case "$CHATPROJ" in */.claude/projects/*chatpick*) rm -rf "$CHATPROJ" ;; esac
+  fi
   [ -n "${DPID:-}" ] && kill "$DPID" 2>/dev/null || true
   [ -n "${HPID:-}" ] && kill "$HPID" 2>/dev/null || true
   # v5.28 B 의 일회용 리스너 — 중간에 죽어도 포트를 물고 남지 않게
@@ -1405,7 +1409,7 @@ pass "v6.4: viewer rebuilt — structured lines (hln/hln-cp/hln-url/hln-path), t
 ORCHSRC=$(cat src/orchestrator.ts)
 case "$ORCHSRC" in *'export const TMUX_HISTORY_LIMIT = 100000'*'export function tmuxNewSession'*'tmux start-server \\; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \\; new-session ${rest}'*) : ;; *) fail "v6.4 fix: tmuxNewSession must raise the global history-limit in the SAME tmux call as new-session (a pane keeps the limit it was born with)";; esac
 [ "$(grep -c 'tmuxNewSession(`' src/orchestrator.ts)" -eq 4 ] || fail "v6.4 fix: relaunch + workbench(root/worktree) + openSessionAt must all create their tmux via tmuxNewSession"
-grep -qF 'tmuxNewSession(`-d -s ${shq(info.session)}' src/server.ts || fail "v6.4 fix: the terminal WS revive path must also create its tmux via tmuxNewSession"
+grep -qF 'tmuxNewSession(`-d${tagEnv} -s ${shq(info.session)}' src/server.ts || fail "v6.4 fix: the terminal WS revive path must also create its tmux via tmuxNewSession"
 case "$(cat src/orchestrator.ts src/server.ts)" in *'&& tmux new-session'*|*'; tmux new-session'*) fail "v6.4 fix: a raw tmux new-session is left — it would come up with the 2000-line default";; *) : ;; esac
 # (1b) getScrollback 은 히스토리 전체(-S -)를 뜨고 꼬리만 자른다. 대체 화면(TUI) 한계는 주석으로 남긴다
 case "$ORCHSRC" in *'export async function getScrollback'*'Math.min(TMUX_HISTORY_LIMIT'*'capture-pane -t ${shq(info.session)} -p -J -S -`'*'all.slice(-n)'*) : ;; *) fail "v6.4 fix: getScrollback must capture the ENTIRE history (capture-pane -S -) and trim to the tail in node";; esac
@@ -3322,6 +3326,158 @@ console.log(bad.length?bad.join(" "):"ASCII_OK");
 ' "$ROOT")
 case "$K_EMJ" in ASCII_OK) : ;; *) fail "emoji in a Part K source file (comments included) — mono glyphs only: $K_EMJ";; esac
 pass "v5.28 K: DESIGN.md carries the HUD components and the touched sources stay emoji-free at the source level"
+
+# ══ v6.5 — 한 coxpit 세션 = 한 claude 대화 ════════════════════════════════════
+# 한 줄로 줄이면: 새 세션은 --session-id 로 **이름을 미리 정해** 뷰어가 정확히 찾게 하고,
+# 이미 돌고 있는 세션은 **화면에 뜬 말**로 자기 대본을 찾아 기억한다.
+# (사후에 페인↔.jsonl 을 잇는 파일시스템/프로세스 신호가 없다 — 열린 fd 도, argv 도 없다.)
+
+# ① 저장 — 멱등 ALTER + 스키마 컬럼(다른 추가 컬럼들과 같은 방식).
+DB_SRC=$(cat "$ROOT/src/db/index.ts")
+case "$DB_SRC" in *"ALTER TABLE agent_runs ADD COLUMN claude_session_id TEXT NOT NULL DEFAULT ''"*) : ;; *) fail "ensureSchema must add claude_session_id with an idempotent ALTER (the additive-column pattern)";; esac
+SCH_SRC=$(cat "$ROOT/src/db/schema.ts")
+case "$SCH_SRC" in *"claudeSessionId: text('claude_session_id')"*) : ;; *) fail "agentRuns must carry claudeSessionId";; esac
+pass "v6.5 store: agent_runs.claude_session_id (idempotent ALTER + drizzle column)"
+
+# ② 심 — 부팅 때 데이터 폴더의 bin/claude 로 쓰이고, 실행 가능하고, **진짜 claude 를 절대경로로** exec 한다.
+#    (심 폴더가 PATH 맨 앞이므로 상대 이름으로 exec 하면 자기를 다시 부른다 — 그 루프를 원천 차단한다.)
+SHIMDIR="$WORK/shim"
+SHIMF="$SHIMDIR/claude"
+if command -v claude >/dev/null 2>&1; then
+  [ -f "$SHIMF" ] || fail "the claude shim was not written at boot ($SHIMF) — the tag can never reach a human's bare 'claude'"
+  [ -x "$SHIMF" ] || fail "the claude shim is not executable"
+  SHIMTXT=$(cat "$SHIMF")
+  case "$SHIMTXT" in *"exec '/"*) : ;; *) fail "the shim must exec the real claude by absolute path";; esac
+  case "$SHIMTXT" in *"exec '$SHIMF'"*) fail "the shim execs itself — that is the PATH loop the absolute path exists to prevent";; *) : ;; esac
+  case "$SHIMTXT" in *'--session-id|--resume|-r|-c|--continue|--from-pr'*) : ;; *) fail "the shim must pass through untouched when the user already selected a session";; esac
+else
+  echo "# note: no claude on PATH — the boot-time shim write is skipped by design (sessions behave as before)"
+fi
+# 심의 **행동**은 claude 설치와 무관하게 시험한다: 가짜 real-claude 를 심어 인자를 되읽는다.
+FAKEDIR="$WORK/fakeclaude"; mkdir -p "$FAKEDIR"
+cat > "$FAKEDIR/claude" <<'FAKEEOF'
+#!/bin/sh
+echo "ARGS:[$*]"
+FAKEEOF
+chmod +x "$FAKEDIR/claude"
+cat > "$WORK/shimgen.ts" <<EOF
+import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
+import { claudeShimScript } from '$ROOT/src/claudeshim';
+const dir = process.argv[2]; const real = process.argv[3];
+mkdirSync(dir, { recursive: true });
+writeFileSync(dir + '/claude', claudeShimScript(real));
+chmodSync(dir + '/claude', 0o755);
+EOF
+COXPIT_DB="$DB" node --import tsx "$WORK/shimgen.ts" "$WORK/shimtest" "$FAKEDIR/claude" \
+  || fail "claudeShimScript could not be rendered to a shim"
+[ -x "$WORK/shimtest/claude" ] || fail "the rendered shim is not executable"
+SH_TAG=$(COXPIT_CLAUDE_SID=sid-e2e-1111 "$WORK/shimtest/claude" --print hello)
+case "$SH_TAG" in *'ARGS:[--session-id sid-e2e-1111 --print hello]'*) : ;; *) fail "with COXPIT_CLAUDE_SID set the shim must add --session-id <that id> ahead of the user's args (got: $SH_TAG)";; esac
+SH_BARE=$(env -u COXPIT_CLAUDE_SID "$WORK/shimtest/claude" --print hello)
+case "$SH_BARE" in *'ARGS:[--print hello]'*) : ;; *) fail "without COXPIT_CLAUDE_SID the shim must be a pure pass-through (got: $SH_BARE)";; esac
+SH_RES=$(COXPIT_CLAUDE_SID=sid-e2e-1111 "$WORK/shimtest/claude" --resume abc123)
+case "$SH_RES" in *'ARGS:[--resume abc123]'*) : ;; *) fail "the shim must not add --session-id when the user already picked a session with --resume (got: $SH_RES)";; esac
+# 두 번째 `claude` — 그 id 의 대본이 이미 있으면 새로 시작하지 않고 이어붙인다(쓰이고 있는 id 를
+# --session-id 로 다시 주면 사람이 친 명령이 죽을 수 있고, 뷰어도 옛 대본에 묶인다).
+# $HOME 과 cwd 를 이 실행 전용으로 바꿔 진짜 대본 폴더를 건드리지 않는다.
+SHCWD="$WORK/shimcwd"; mkdir -p "$SHCWD"
+SHENC=$(printf '%s' "$SHCWD" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(s.replace(/[^a-zA-Z0-9]/g,"-")))')
+mkdir -p "$WORK/fakehome/.claude/projects/$SHENC"
+: > "$WORK/fakehome/.claude/projects/$SHENC/sid-e2e-1111.jsonl"
+SH_AGAIN=$(cd "$SHCWD" && HOME="$WORK/fakehome" COXPIT_CLAUDE_SID=sid-e2e-1111 "$WORK/shimtest/claude" --print hello)
+case "$SH_AGAIN" in *'ARGS:[--resume sid-e2e-1111 --print hello]'*) : ;; *) fail "when this session's conversation already exists the shim must continue it with --resume, not start a new one on an in-use id (got: $SH_AGAIN)";; esac
+pass "v6.5 shim: written at boot (exec real claude by absolute path, never itself) · adds --session-id only when COXPIT_CLAUDE_SID is set · --resume passes through · a second claude continues the same conversation"
+
+# ③ 새 세션의 페인 — id 가 env 에 있고, `claude` 가 심으로 잡힌다.
+CTDIR="$WORK/claude-tag"; mkdir -p "$CTDIR"
+CTS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$CTDIR\",\"title\":\"tag\"}")
+CTRUN=$(echo "$CTS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+[ -n "$CTRUN" ] || fail "v6.5: the tagged session was not created: $CTS"
+CTSID=$(curl -s "$B/api/runs/$CTRUN" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).run.claudeSessionId||""))')
+[ -n "$CTSID" ] || fail "v6.5: a new session must carry a claudeSessionId — that name is what makes the viewer exact"
+if [ -f "$SHIMF" ]; then
+  sleep 1
+  tmux show-environment -t "coxpit-r$CTRUN" COXPIT_CLAUDE_SID 2>/dev/null | grep -q "COXPIT_CLAUDE_SID=$CTSID" \
+    || fail "v6.5: the session's tmux env must carry COXPIT_CLAUDE_SID=<that id>"
+  CTPATH=$(tmux show-environment -t "coxpit-r$CTRUN" PATH 2>/dev/null || true)
+  case "$CTPATH" in "PATH=$SHIMDIR:"*) : ;; *) fail "v6.5: the shim dir must be first in the session's PATH (got: $CTPATH)";; esac
+  # 페인 셸까지 실제로 도달했나 — 페인에서 직접 묻는다(사람이 `claude` 를 치는 그 자리다).
+  tmux send-keys -t "coxpit-r$CTRUN" 'echo SIDTEST=$COXPIT_CLAUDE_SID CVTEST=$(command -v claude)' Enter
+  for i in $(seq 1 16); do
+    CTCAP=$(tmux capture-pane -t "coxpit-r$CTRUN" -p -J -S - 2>/dev/null || true)
+    case "$CTCAP" in *"SIDTEST=$CTSID"*) break ;; esac
+    sleep 0.5
+  done
+  # env 는 rc 를 지나도 살아남는다 — 이건 우리가 통제하는 것이라 단단히 못박는다.
+  case "$CTCAP" in *"SIDTEST=$CTSID"*) : ;; *) fail "v6.5: the pane shell must see COXPIT_CLAUDE_SID (got: $(printf '%s' "$CTCAP" | tail -3))";; esac
+  # PATH 순서는 기계의 셸 시작(zprofile·path_helper·rc 의 재-prepend)이 마지막 말을 한다.
+  # 심이 밀려나면 태깅이 무력해지므로 크게 알린다 — 다만 설계가 그 경우를 이미 견딘다(뷰어가 화면 내용으로 찾는다)
+  # 그래서 기계 설정 차이로 스위트를 붉히지는 않는다.
+  case "$CTCAP" in
+    *"CVTEST=$SHIMF"*) : ;;
+    *) echo "# WARN: in the pane 'claude' did not resolve to the shim ($SHIMF) — this machine's shell startup reorders PATH, so new sessions will not be tagged and the viewer must fall back to matching the pane's content. Put the shim dir first in your shell rc to restore exact tagging." ;;
+  esac
+fi
+curl -s -X POST "$B/api/runs/$CTRUN/cleanup" >/dev/null
+pass "v6.5 tag: a new session stores its claude conversation id and hands the pane both COXPIT_CLAUDE_SID and a shim-first PATH"
+
+# ④ 뷰어 — 태깅된 이름이 **최신 파일보다 먼저**다. 한 폴더에 대본 둘(태깅된 옛것 + 더 최근 미끼)을
+#    심어두고, 돌아오는 대화가 태깅된 쪽인지 본다(= 최신 고르기로는 절대 나올 수 없는 답).
+CPDIR="$WORK/chatpick"; mkdir -p "$CPDIR"
+CPS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$CPDIR\",\"title\":\"pick\"}")
+CPRUN=$(echo "$CPS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
+[ -n "$CPRUN" ] || fail "v6.5: the chat-pick session was not created: $CPS"
+CPSID=$(curl -s "$B/api/runs/$CPRUN" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).run.claudeSessionId||""))')
+[ -n "$CPSID" ] || fail "v6.5: the chat-pick session has no claudeSessionId"
+CPENC=$(printf '%s' "$CPDIR" | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>console.log(s.replace(/[^a-zA-Z0-9]/g,"-")))')
+CHATPROJ="$HOME/.claude/projects/$CPENC"
+mkdir -p "$CHATPROJ"
+node -e '
+const fs=require("fs");
+const line=(role,text)=>JSON.stringify({type:role,message:{role,content:[{type:"text",text}]}});
+fs.writeFileSync(process.argv[1], line("user","TAGGED_USER_MARK_R96")+"\n"+line("assistant","TAGGED_ASSISTANT_MARK_R96")+"\n");
+fs.writeFileSync(process.argv[2], line("user","DECOY_USER_MARK_R96")+"\n"+line("assistant","DECOY_ASSISTANT_MARK_R96")+"\n");
+const now=Date.now()/1000;
+fs.utimesSync(process.argv[1], now-3600, now-3600);
+fs.utimesSync(process.argv[2], now, now);
+' "$CHATPROJ/$CPSID.jsonl" "$CHATPROJ/decoy-0000-4000-8000-000000000001.jsonl"
+CPCHAT=$(curl -s "$B/api/runs/$CPRUN/chat")
+case "$CPCHAT" in *TAGGED_ASSISTANT_MARK_R96*) : ;; *) fail "v6.5: the chat tab must read the session's OWN (tagged) transcript: $(echo "$CPCHAT" | head -c 200)";; esac
+case "$CPCHAT" in *DECOY_USER_MARK_R96*) fail "v6.5: the chat tab returned the newest .jsonl in the folder instead of this session's tagged one — that is exactly the bug (many sessions, one cwd)";; *) : ;; esac
+curl -s -X POST "$B/api/runs/$CPRUN/cleanup" >/dev/null
+rm -rf "$CHATPROJ"; CHATPROJ=""
+pass "v6.5 viewer: getSessionChat prefers the run's tagged transcript over the newest file in the same cwd folder"
+
+# ⑤ 태그 없는(이미 돌던) 세션의 길 — 화면 내용으로 찾고, 찾으면 적어 둔다. 순서는 파일 그대로:
+#    정확(태그) → 화면 매칭 → 최신 폴백. 그리고 못 찾으면 못 찾았다고 남긴다.
+ORCH2=$(cat "$ROOT/src/orchestrator.ts")
+case "$ORCH2" in *'async function readTranscriptBySid'*'function paneNeedles'*'async function matchTranscriptByPane'*'export async function getSessionChat'*) : ;; *) fail "v6.5: the resolution helpers must read in order (by-name read · pane needles · pane match) before getSessionChat";; esac
+case "$ORCH2" in *"capture-pane -t \${t} -p -J -S -200"*) : ;; *) fail "v6.5: the content match must read the pane (read-only capture), bounded to the recent screen";; esac
+case "$ORCH2" in *'head -25'*) : ;; *) fail "v6.5: the candidate scan must be bounded (~25 most recent transcripts)";; esac
+case "$ORCH2" in *'if (top.length === 1) return top[0]!.sid;'*) : ;; *) fail "v6.5: only a clear winner may be claimed";; esac
+case "$ORCH2" in *'if (raw.trim()) await setRun(runId, { claudeSessionId: found });'*) : ;; *) fail "v6.5: a discovered transcript must be cached on the run so the match happens once";; esac
+case "$ORCH2" in *'tail -c ${CHAT_TAIL_BYTES}'*) : ;; *) fail "v6.5: the 800KB tail cap must stay (runShellOn maxBuffer is 1MB)";; esac
+CS_SRC=$(cat "$ROOT/src/claudeshim.ts")
+case "$CS_SRC" in *'export function claudeShimScript'*'export function resolveClaudeReal'*'export function ensureClaudeShim'*'export function claudeTagEnvArgs'*) : ;; *) fail "v6.5: claudeshim.ts must expose render · resolve · ensure · tag-env in that order";; esac
+case "$CS_SRC" in *'path.resolve(d) === skip'*) : ;; *) fail "v6.5: resolving the real claude must skip the shim dir itself";; esac
+IDX_SRC=$(cat "$ROOT/src/index.ts")
+case "$IDX_SRC" in *'ensureClaudeShim()'*) : ;; *) fail "v6.5: the shim must be written once at daemon boot";; esac
+SRV_SRC=$(cat "$ROOT/src/server.ts")
+case "$SRV_SRC" in *'claudeTagEnvForRun(info.machine, rr[0]?.claudeSessionId'*) : ;; *) fail "v6.5: reviving a dead session must re-apply the tag env — that revived pane is exactly where a human types claude again";; esac
+# 새로 쓴 파일은 주석까지 ASCII 다(서빙 페이지 게이트와 같은 규칙).
+# orchestrator.ts 는 빼 둔다 — 이 변경 전부터 PR 본문 마커와 경고 글리프가 들어 있고,
+# 이번 일과 무관한 그 줄들을 건드리지 않는다(넣지 않는 것이 규칙이지, 있는 것을 쫓아내는 일은 아니다).
+V65_EMJ=$(node -e '
+const fs=require("fs");
+const rx=/[\u{1F000}-\u{1FAFF}\u{2699}\u{26A0}\u{2B50}]/u;
+const files=["src/claudeshim.ts","src/config.ts","src/index.ts","src/db/schema.ts","src/db/index.ts"];
+let bad=[];
+for(const f of files){ const s=fs.readFileSync(process.argv[1]+"/"+f,"utf8").split("\n");
+  s.forEach((l,i)=>{ if(rx.test(l)) bad.push(f+":"+(i+1)); }); }
+console.log(bad.length?bad.join(" "):"ASCII_OK");
+' "$ROOT")
+case "$V65_EMJ" in ASCII_OK) : ;; *) fail "emoji in a v6.5 source file (comments included) — mono glyphs only: $V65_EMJ";; esac
+pass "v6.5 discipline: exact → pane content match (bounded, clear winner, cached once) → newest fallback, and the touched sources stay ASCII"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

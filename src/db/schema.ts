@@ -91,6 +91,11 @@ export const agentRuns = sqliteTable('agent_runs', {
   tmuxWindow: text('tmux_window').notNull().default(''),
   status: text('status').notNull().default('pending'), // pending | running | waiting | done | error
   sessionId: text('session_id').notNull().default(''), // 에이전트 세션(steer 용 --resume 키)
+  // 이 coxpit 세션이 쓰는 claude 대화 하나의 id(= ~/.claude/projects/<cwd-enc>/<id>.jsonl 파일명).
+  // 세션을 열 때 미리 정해 두고 `claude --session-id` 로 묶는다 — 한 폴더(워크스페이스 루트 등)에
+  // 세션 여럿이 살면 "가장 최근 .jsonl" 은 거의 항상 남의 대화라, 뷰어가 이름을 미리 알아야 한다.
+  // 태그 없이 이미 돌고 있던 세션은 화면 내용으로 찾아낸 뒤 여기에 적어 다시 찾지 않는다.
+  claudeSessionId: text('claude_session_id').notNull().default(''),
   prUrl: text('pr_url').notNull().default(''), // PR 모드로 올린 pull request URL
   model: text('model').notNull().default(''), // 런치별 모델 지정(빈값 = CLI 기본)
   // v5.28 Part H — 이 run 이 진짜 에이전트로 돌았나(real), 모의 스트림이었나(dry).
