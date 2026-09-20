@@ -82,6 +82,8 @@ export const config = {
   portStrict: env.COXPIT_PORT_STRICT === '1' || (env.COXPIT_PORT_STRICT == null && stored.portStrict === true),
   dbPath,
   settingsPath,
+  // 소유자 UI 상태(열어둔 탭 등) — DB·settings 와 같은 데이터 폴더의 작은 JSON 한 장.
+  uiStatePath: path.join(path.dirname(path.resolve(dbPath)), 'ui-state.json'),
   // 단일 데몬 락 파일 — DB 와 같은 폴더(그 DB 를 지키는 락이므로)
   lockPath: path.join(path.dirname(path.resolve(dbPath)), 'daemon.lock.json'),
   // 원격 머신 SSH 개인키 경로(선택). 없으면 ssh 기본 키/에이전트 사용.

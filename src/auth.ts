@@ -72,7 +72,10 @@ export async function authGate(req: FastifyRequest, reply: FastifyReply): Promis
 
   // 거부 — HTML GET 은 페이지, 나머지는 401(팝업 없음).
   if (wantsHtml(req)) {
-    await reply.type('text/html').code(200).send(loginPageHTML(m.mode === 'setup'));
+    // 이 200 은 /cockpit 같은 **앱 주소**로 나간다 — 캐시되면 언락한 뒤에도 브라우저가
+    // 로그인 화면을 계속 내놓는다. 서빙 페이지는 언제나 새 것(server.ts 의 세 페이지와 같은 규칙).
+    await reply.header('cache-control', 'no-store').header('pragma', 'no-cache')
+      .type('text/html').code(200).send(loginPageHTML(m.mode === 'setup'));
     return;
   }
   await reply.code(401).send({ error: 'unauthorized' });
