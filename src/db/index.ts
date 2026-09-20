@@ -127,6 +127,7 @@ export async function ensureSchema(): Promise<void> {
   try { await client.execute("ALTER TABLE repos ADD COLUMN kind TEXT NOT NULL DEFAULT 'git'"); } catch { /* exists */ }
   try { await client.execute("ALTER TABLE agent_runs ADD COLUMN title TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
   try { await client.execute('ALTER TABLE agent_runs ADD COLUMN in_place INTEGER NOT NULL DEFAULT 0'); } catch { /* exists */ }
+  try { await client.execute("ALTER TABLE agent_runs ADD COLUMN claude_session_id TEXT NOT NULL DEFAULT ''"); } catch { /* exists */ }
   // DEFAULT 1 = 기존 run 은 real 로 남는다. 모르는 과거를 dry 로 칠하지 않기 위한 기본값이다(v5.28 H1).
   try { await client.execute('ALTER TABLE agent_runs ADD COLUMN real INTEGER NOT NULL DEFAULT 1'); } catch { /* exists */ }
   // 조인 키 인덱스(멱등) — 없으면 이 여섯 조회가 매번 테이블 전체를 훑는다.

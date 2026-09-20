@@ -22,7 +22,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates, spottedPorts } from './agentstate';
 import { scanListeners, scanPort, killPid, dropCache as dropListenerCache } from './procscan';
@@ -1925,8 +1925,10 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!has.ok) {
       const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
       const wt = rr[0]?.worktreePath ?? '';
+      // 소생한 페인에서도 `claude` 가 이 세션의 대화로 묶이게 태깅 env 를 다시 얹는다(없으면 빈 문자열).
+      const tagEnv = claudeTagEnvForRun(info.machine, rr[0]?.claudeSessionId ?? '');
       const revive = wt
-        ? await runShellOn(info.machine, `export LANG=${shq(config.lang)}; test -d ${shq(wt)} && ${tmuxNewSession(`-d -s ${shq(info.session)} -c ${shq(wt)}`)}`, 10000)
+        ? await runShellOn(info.machine, `export LANG=${shq(config.lang)}; test -d ${shq(wt)} && ${tmuxNewSession(`-d${tagEnv} -s ${shq(info.session)} -c ${shq(wt)}`)}`, 10000)
         : { ok: false } as { ok: boolean };
       if (!revive.ok) {
         socket.send(JSON.stringify({ t: 'err', d: `tmux session '${info.session}' gone and could not be revived (worktree missing?)` }));

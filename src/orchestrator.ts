@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { posix as ppath } from 'node:path';
 import { createInterface } from 'node:readline';
 import { existsSync, statSync, openSync, readSync, closeSync, mkdirSync } from 'node:fs';
@@ -6,6 +6,7 @@ import { mkdir, copyFile, readFile, writeFile, rm, unlink } from 'node:fs/promis
 import { homedir } from 'node:os';
 import type { ChildProcess } from 'node:child_process';
 import { eq, inArray, and, desc } from 'drizzle-orm';
+import { CLAUDE_SID_RE, claudeTagEnvArgs } from './claudeshim';
 import { config } from './config';
 import { db } from './db';
 import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnapshots, taskGroups, secrets } from './db/schema';
@@ -130,6 +131,32 @@ export async function secretEnvArgs(): Promise<string> {
     if (!ok.length) return '';
     return ' ' + ok.map((s) => `-e ${shq(`${s.name}=${s.value}`)}`).join(' ');
   } catch { return ''; }
+}
+
+/** 이 머신이 데몬이 사는 그 기계인가(심 파일에 닿을 수 있나). */
+function isLocalMachine(m: MachineTarget): boolean {
+  return m.kind === 'local' || m.address === '';
+}
+
+/**
+ * 인터랙티브 세션(사람이 `claude` 를 쳐 넣는 자리)의 claude 대화 태그.
+ * 세션을 열기 전에 id 를 정해 run 에 적고, 그 세션 tmux 에는 심 폴더를 앞세운 PATH 와
+ * COXPIT_CLAUDE_SID 를 넣는다 — 그러면 사람이 그냥 `claude` 를 쳐도 그 대화가 이 id 로 묶이고,
+ * 뷰어는 대본 파일명을 추측하지 않는다(§getSessionChat ①).
+ * id 는 심이 없어도 적어 둔다: 그 이름의 파일이 실제로 있을 때만 쓰이므로 거짓이 새지 않고,
+ * 컬럼의 뜻이 "이 세션이 쓰기로 한 대화" 하나로 단순해진다.
+ */
+function sessionClaudeTag(machine: MachineTarget): { sid: string; env: string } {
+  const sid = randomUUID();
+  return { sid, env: claudeTagEnvArgs(sid, isLocalMachine(machine)) };
+}
+
+/**
+ * 죽은 세션을 그 자리에서 되살릴 때 다시 얹는 태깅 env(터미널 소생 경로 — server.ts).
+ * 셸이 exit 한 뒤 사람이 다시 들어와 `claude` 를 치는 자리가 정확히 여기라, 여기서 빠지면 태그가 끊긴다.
+ */
+export function claudeTagEnvForRun(machine: MachineTarget, sid: string): string {
+  return claudeTagEnvArgs(sid, isLocalMachine(machine));
 }
 
 /**
@@ -801,6 +828,104 @@ export async function getRunTermInfo(runId: number): Promise<{ machine: MachineT
   return { machine: ctx.machine, session: run.tmuxWindow };
 }
 
+/** 대본 꼬리 상한 — runShellOn 의 maxBuffer(1MB)를 넘기면 읽기 자체가 실패한다. */
+const CHAT_TAIL_BYTES = 800000;
+
+/**
+ * 이름으로 대본 한 장 읽기 — 후보 폴더를 순서대로 보고 **처음 있는** `<sid>.jsonl` 의 꼬리.
+ * 없으면 빈 문자열(그러면 호출부가 다음 수단으로 내려간다).
+ */
+async function readTranscriptBySid(machine: MachineTarget, cands: string[], sid: string): Promise<string> {
+  const name = shq(`${sid}.jsonl`);
+  const cmd = `for d in ${cands.map((d) => shq(d)).join(' ')}; do f="$HOME/.claude/projects/$d/"${name};` +
+    ` if [ -f "$f" ]; then tail -c ${CHAT_TAIL_BYTES} "$f"; exit 0; fi; done`;
+  const r = await runShellOn(machine, cmd, 15000);
+  return r.ok ? r.stdout : '';
+}
+
+/**
+ * 페인 화면에서 "이 대화에만 있을 법한" 긴 조각 몇 개.
+ * TUI 테두리·불릿 같은 장식은 공백으로 벗기고, 대본(JSON) 안에서 **그대로** 찾을 수 있는 구간만 남긴다
+ * (따옴표·역슬래시는 JSON 에서 escape 되므로 조각에 넣지 않는다). 긴 것부터 앞에 온다.
+ */
+function paneNeedles(screen: string[], want = 4): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of screen) {
+    const t = raw.replace(/[\u2500-\u257F\u2022\u25A0-\u25FF]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (t.length < 24) continue;
+    const piece = (t.match(/[^"\\]{24,}/g) ?? []).sort((a, b) => b.length - a.length)[0];
+    if (!piece) continue;
+    const s = piece.trim();
+    // 글자가 섞여 있어야 한다 — 기호만 남은 줄(프롬프트·구분선)은 아무 대본에나 걸린다.
+    if (s.length < 24 || seen.has(s) || !/[A-Za-z0-9\u3131-\uD79D\u3040-\u30FF\u4E00-\u9FFF]{4,}/.test(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  out.sort((a, b) => b.length - a.length);
+  return out.slice(0, want);
+}
+
+/**
+ * 태그 없이 이미 돌고 있는 세션의 대본 찾기 (best-effort) — **화면에 뜬 말**로 맞춰 본다.
+ * 사후에 페인↔.jsonl 을 잇는 파일시스템·프로세스 신호가 없기 때문에(열린 fd 도, argv 도 없다)
+ * 남는 단서는 그 페인이 지금 보여주고 있는 내용뿐이다.
+ * 규율: 페인이 claude 를 물고 있을 때만, 최신 25장만, 확실한 1등만.
+ *  - 동점이면 페인의 마지막 활동 시각에 mtime 이 가장 가까운 쪽을 고르고,
+ *  - 그래도 갈리면 답하지 않는다(찾지 못한 것을 찾았다고 하지 않는다).
+ * 다른 run 이 이미 자기 대화라고 적어 둔 id 는 후보에서 뺀다 — 남의 대본을 집지 않는 정확한 울타리다
+ * ("지금 가장 빨리 자라는 대본" 같은 추정보다 이게 싸고 확실하다).
+ */
+async function matchTranscriptByPane(
+  machine: MachineTarget, session: string, cands: string[], runId: number,
+): Promise<string> {
+  const t = shq(session);
+  const probe = await runShellOn(
+    machine,
+    `printf 'CMD:%s\\n' "$(tmux display -p -t ${t} '#{pane_current_command}' 2>/dev/null)"; ` +
+    `printf 'ACT:%s\\n' "$(tmux display -p -t ${t} '#{session_activity}' 2>/dev/null)"; ` +
+    `tmux capture-pane -t ${t} -p -J -S -200 2>/dev/null || true`,
+    12000,
+  );
+  if (!probe.ok) return '';
+  let cmd = '';
+  let act = 0;
+  const screen: string[] = [];
+  for (const l of probe.stdout.split('\n')) {
+    if (l.startsWith('CMD:')) { cmd = l.slice(4).trim(); continue; }
+    if (l.startsWith('ACT:')) { act = Number(l.slice(4).trim()) || 0; continue; }
+    screen.push(l);
+  }
+  // claude TUI 는 node 로 뜬다(래퍼에 따라 이름이 다르다) — 평범한 셸 페인에서 남의 대본을 집지 않기 위한 문지기.
+  if (!/^(claude|node|bun|deno)$/.test(cmd)) return '';
+  const needles = paneNeedles(screen);
+  if (needles.length < 2) return '';
+  const greps = needles.map((n) => `grep -qF ${shq(n)} "$f" 2>/dev/null && n=$((n+1));`).join(' ');
+  const scan = `for d in ${cands.map((d) => shq(d)).join(' ')}; do p="$HOME/.claude/projects/$d";` +
+    ` c=$(ls -t "$p"/*.jsonl 2>/dev/null | head -1); if [ -n "$c" ]; then cd "$p" || exit 0;` +
+    ` for f in $(ls -t *.jsonl 2>/dev/null | head -25); do n=0; ${greps}` +
+    ` m=$(date -r "$f" +%s 2>/dev/null || echo 0); printf '%s %s %s\\n' "$n" "$m" "$f"; done; exit 0; fi; done`;
+  const sc = await runShellOn(machine, scan, 20000);
+  if (!sc.ok) return '';
+  const claimed = await db.select({ id: agentRuns.id, sid: agentRuns.claudeSessionId }).from(agentRuns);
+  const exclude = new Set(claimed.filter((o) => o.id !== runId && o.sid).map((o) => o.sid));
+  const rows: Array<{ sid: string; score: number; mtime: number }> = [];
+  for (const l of sc.stdout.split('\n')) {
+    const m = /^(\d+) (\d+) (.+)\.jsonl$/.exec(l.trim());
+    if (!m) continue;
+    const sid = m[3]!;
+    if (exclude.has(sid) || !CLAUDE_SID_RE.test(sid)) continue;
+    rows.push({ sid, score: Number(m[1]), mtime: Number(m[2]) });
+  }
+  const best = rows.reduce((a, r) => Math.max(a, r.score), 0);
+  if (best < 1) return '';
+  const top = rows.filter((r) => r.score === best);
+  if (top.length === 1) return top[0]!.sid;
+  if (!act) return '';
+  top.sort((a, b) => Math.abs(a.mtime - act) - Math.abs(b.mtime - act));
+  return Math.abs(top[0]!.mtime - act) < Math.abs(top[1]!.mtime - act) ? top[0]!.sid : '';
+}
+
 /**
  * 세션의 Claude Code 대화 로그(JSONL)를 대화형으로 파싱 — 뷰어의 "대화" 모드.
  * 대본은 claude 가 **자기 cwd** 를 [^a-zA-Z0-9]→'-' 로 인코딩한 ~/.claude/projects/<...>/ 밑에 쌓인다.
@@ -808,6 +933,12 @@ export async function getRunTermInfo(runId: number): Promise<{ machine: MachineT
  *  ① 루트·메인 세션은 worktreePath 가 아예 비어 있다(그래도 페인엔 멀쩡한 cwd 가 있다 — 그래서 여기서 포기하면 안 된다).
  *  ② 사람이 페인에서 cd 한 뒤엔 worktree 루트가 claude 의 cwd 가 아니다.
  * 그래서 기준은 **페인이 지금 서 있는 폴더**(tmux #{pane_current_path} — getRunPwd)이고, worktreePath 는 폴백이다.
+ *
+ * 폴더가 정해져도 그 안의 **어느 .jsonl 이냐**가 남는다. 한 폴더(워크스페이스 루트)에 세션이 여럿이면
+ * "가장 최근 파일"은 거의 항상 남의 대화다 — 그래서 셋을 순서대로 본다:
+ *  ① 이 세션에 태깅해 둔 id 의 파일(claudeSessionId, 정확) — §sessionClaudeTag 가 심어 둔 이름.
+ *  ② 없으면 화면 내용으로 찾아(best-effort) **한 번만** 찾고 그 id 를 적어 둔다.
+ *  ③ 그래도 못 찾으면 예전대로 최신 .jsonl (틀릴 수 있다는 것을 아는 폴백).
  * user/assistant turn 만 추출(tool_result 노이즈 제외, tool_use 는 칩으로).
  */
 export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
@@ -823,11 +954,28 @@ export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
     .map((p) => p.replace(/[^a-zA-Z0-9]/g, '-'));
   const cands = encoded.filter((d, i) => encoded.indexOf(d) === i);
   if (!cands.length) return { ok: false, turns: [], note: 'no session' };
-  // 후보를 순서대로 훑어 **처음 걸린** 폴더의 최신 .jsonl (페인 cwd 우선, worktree 폴백)
-  const cmd = `f=''; for d in ${cands.map((d) => shq(d)).join(' ')}; do c=$(ls -t "$HOME/.claude/projects/$d"/*.jsonl 2>/dev/null | head -1); if [ -n "$c" ]; then f="$c"; break; fi; done; [ -n "$f" ] && tail -c 800000 "$f" || true`;
-  const r = await runShellOn(info.machine, cmd, 15000);
-  if (!r.ok) return { ok: true, turns: [], note: 'no transcript' };
-  if (!r.stdout.trim()) return { ok: true, turns: [], note: 'no Claude Code transcript for this folder' };
+
+  // ① 태깅된 대본 — 이름을 미리 정해 뒀으면 추측할 것이 없다.
+  const tagged = CLAUDE_SID_RE.test(run.claudeSessionId) ? run.claudeSessionId : '';
+  let raw = tagged ? await readTranscriptBySid(info.machine, cands, tagged) : '';
+
+  // ② 태그가 (아직) 실물과 안 맞는 세션 — 화면에 뜬 말로 찾고, 찾았으면 적어 둬 다시 찾지 않는다.
+  if (!raw.trim()) {
+    const found = await matchTranscriptByPane(info.machine, info.session, cands, runId);
+    if (found) {
+      raw = await readTranscriptBySid(info.machine, cands, found);
+      if (raw.trim()) await setRun(runId, { claudeSessionId: found });
+    }
+  }
+
+  // ③ 폴백 — 이 폴더의 최신 .jsonl (페인 cwd 우선, worktree 폴백). 여러 세션이 한 폴더를 쓰면 남의 것일 수 있다.
+  if (!raw.trim()) {
+    const cmd = `f=''; for d in ${cands.map((d) => shq(d)).join(' ')}; do c=$(ls -t "$HOME/.claude/projects/$d"/*.jsonl 2>/dev/null | head -1); if [ -n "$c" ]; then f="$c"; break; fi; done; [ -n "$f" ] && tail -c ${CHAT_TAIL_BYTES} "$f" || true`;
+    const fb = await runShellOn(info.machine, cmd, 15000);
+    if (!fb.ok) return { ok: true, turns: [], note: 'no transcript' };
+    raw = fb.stdout;
+  }
+  if (!raw.trim()) return { ok: true, turns: [], note: 'no Claude Code transcript for this folder' };
   const userText = (content: unknown): string => {
     if (typeof content === 'string') return content;
     if (!Array.isArray(content)) return '';
@@ -846,7 +994,7 @@ export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
     return { text: text.join('\n'), tools };
   };
   const turns: Array<{ role: string; text: string; tools?: string[] }> = [];
-  for (const line of r.stdout.split('\n')) {
+  for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
     let j: { type?: string; message?: { content?: unknown } };
     try { j = JSON.parse(line); } catch { continue; }
@@ -1258,9 +1406,10 @@ export async function openWorkbench(repoId: number, title: string, root = false)
   //            branch='' 로 남겨 merge 는 자동 거부(=이미 base). cleanup 도 worktree remove 를 건너뛴다.
   // root=false: 기존 workbench — 격리 worktree + 브랜치(수동 변경 후 Review 에서 merge).
   const agent = root ? 'session' : 'workbench';
+  const tag = sessionClaudeTag(machine);   // 이 작업방의 claude 대화 id(뷰어가 대본을 정확히 찾는 근거)
   const tIns = await db.insert(tasks).values({ repoId, title: title || (root ? 'Session' : 'Workbench'), prompt: root ? '(root session)' : '(interactive workbench)' }).returning();
   const task = tIns[0]!;
-  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent, status: 'pending' }).returning();
+  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent, status: 'pending', claudeSessionId: tag.sid }).returning();
   const run = rIns[0]!;
   const runId = run.id;
   broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent, branch: '', filesChanged: 0 });
@@ -1272,7 +1421,8 @@ export async function openWorkbench(repoId: number, title: string, root = false)
 
   // export LANG: tmux 서버 첫 기동이 C 로케일이면 세션 셸의 CJK 입력·표시가 깨진다.
   // 동명 세션 잔재(DB 리셋 등으로 run id 재사용) 선제 정리 — '=' 정확 일치만.
-  const wbEnv = await secretEnvArgs();   // 시크릿 볼트 → env 주입
+  // 태깅 env 는 시크릿 뒤에 둔다 — 볼트에 PATH 가 들어 있어도 심이 앞을 잡아야 태깅이 산다.
+  const wbEnv = (await secretEnvArgs()) + tag.env;   // 시크릿 볼트 + claude 태깅 → env 주입
   const prep = await runShellOn(
     machine,
     root
@@ -1321,15 +1471,17 @@ export async function openSessionAt(machineSlug: string, path: string, title: st
 
   const bucket = await ensureSessionsRepo(m.id);
   const name = title || dir.split('/').filter(Boolean).pop() || dir;
+  const tag = sessionClaudeTag(machine);   // 이 세션의 claude 대화 id
   const tIns = await db.insert(tasks).values({ repoId: bucket.id, title: name, prompt: '(session)' }).returning();
   const task = tIns[0]!;
-  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent: 'session', status: 'pending' }).returning();
+  const rIns = await db.insert(agentRuns).values({ taskId: task.id, machineId: m.id, agent: 'session', status: 'pending', claudeSessionId: tag.sid }).returning();
   const run = rIns[0]!;
   const runId = run.id;
   broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent: 'session', branch: '', filesChanged: 0 });
 
   const session = `coxpit-r${runId}`;
-  const sEnv = await secretEnvArgs();   // 시크릿 볼트 → env 주입
+  // 태깅 env 는 시크릿 뒤에(위 openWorkbench 와 같은 이유 — 심이 PATH 앞을 잡아야 한다).
+  const sEnv = (await secretEnvArgs()) + tag.env;   // 시크릿 볼트 + claude 태깅 → env 주입
   const prep = await runShellOn(
     machine,
     `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +

@@ -86,6 +86,11 @@ export const config = {
   uiStatePath: path.join(path.dirname(path.resolve(dbPath)), 'ui-state.json'),
   // 단일 데몬 락 파일 — DB 와 같은 폴더(그 DB 를 지키는 락이므로)
   lockPath: path.join(path.dirname(path.resolve(dbPath)), 'daemon.lock.json'),
+  // 세션 tmux 의 PATH 맨 앞에 끼우는 얇은 심 폴더(부팅 때 `claude` 한 장을 쓴다).
+  // 사람이 세션에서 그냥 `claude` 를 쳐도 그 대화가 이 세션의 id 로 묶이게 하는 유일한 손잡이다.
+  // 이름이 'bin' 이면 안 된다 — 레거시 DB(cwd 의 ./coxpit.db)를 쓰는 개발 기동에서는 데이터 폴더가
+  // repo 루트가 되고, 그 repo 의 bin/ 은 package.json "files" 에 실려 npm 에 **발행된다**.
+  shimDir: path.join(path.dirname(path.resolve(dbPath)), 'shim'),
   // 원격 머신 SSH 개인키 경로(선택). 없으면 ssh 기본 키/에이전트 사용.
   sshKey: process.env.COXPIT_SSH_KEY ?? '',
   // run 정착 시 POST 할 웹훅(선택) — 텔레그램 브릿지 등 사용자 연결용.

@@ -1,5 +1,6 @@
 import { config } from './config';
 import { authMode, ensureSetupToken, isExposedBind } from './authkey';
+import { ensureClaudeShim } from './claudeshim';
 import { db, ensureSchema } from './db';
 import { machines } from './db/schema';
 import { acquireDaemonLock, updateLockPort } from './lock';
@@ -26,6 +27,13 @@ if (process.platform === 'win32') {
 await acquireDaemonLock();
 
 await ensureSchema();
+
+// 세션마다 claude 대화를 정확히 묶기 위한 얇은 심(PATH 맨 앞) — 부팅 1회.
+// claude 가 없는 기계면 조용히 건너뛴다(세션은 지금까지와 같이 동작하고, 뷰어는 폴백으로 찾는다).
+{
+  const shim = ensureClaudeShim();
+  if (shim.real) console.log(`[coxpit] claude shim ready at ${shim.path} (tags each session's conversation with --session-id)`);
+}
 
 // 첫 실행 시 로컬 머신 시드(데몬이 도는 이 기계).
 if ((await db.select().from(machines)).length === 0) {
