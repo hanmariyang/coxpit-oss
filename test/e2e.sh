@@ -3555,5 +3555,17 @@ console.log(bad.length?bad.join(" "):"ASCII_OK");
 case "$V65_EMJ" in ASCII_OK) : ;; *) fail "emoji in a v6.5 source file (comments included) — mono glyphs only: $V65_EMJ";; esac
 pass "v6.5 discipline: exact → pane content match (bounded, clear winner, cached once) → newest fallback, and the touched sources stay ASCII"
 
+# v6.3.6 — 패키징 가드: main.cjs 가 preload 로 부르는 파일은 전부 electron-builder 의 build.files 화이트리스트에 있어야 한다.
+# (6.3.4·6.3.5 는 preload-hud.cjs 없이 나갔다 → .app 안에서 window.coxpitHud 가 undefined → HUD 창이 알약 크기에서 영영 안 컸다.
+#  dev 에선 파일이 그냥 옆에 있으니 안 잡힌다 — 오직 패키징에서만 죽는 종류의 버그라, 소스 레벨에서 못 박는다.)
+PKG_PRELOADS=$(grep -oE "preload: path\.join\(__dirname, '[^']+'\)" "$ROOT/desktop/main.cjs" | grep -oE "'[^']+'" | tr -d "'" | sort -u)
+[ -n "$PKG_PRELOADS" ] || fail "packaging guard: no preload references found in desktop/main.cjs (the grep is broken, not the app)"
+for P in $PKG_PRELOADS; do
+  [ -f "$ROOT/desktop/$P" ] || fail "packaging guard: main.cjs loads preload '$P' but desktop/$P does not exist"
+  node -e 'const f=require(process.argv[1]+"/desktop/package.json").build.files||[];process.exit(f.includes(process.argv[2])?0:1)' "$ROOT" "$P" \
+    || fail "packaging guard: main.cjs loads preload '$P' but desktop/package.json build.files does not ship it — in the .app that preload is missing and its bridge (window.coxpitHud) is undefined"
+done
+pass "packaging guard: every preload desktop/main.cjs references exists and is shipped by electron-builder build.files ($(echo $PKG_PRELOADS | tr '\n' ' '))"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
