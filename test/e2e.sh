@@ -1397,11 +1397,25 @@ const src=pick("var esc = function","\n")+"\n"+pick("var VIEW_EXT = ","\n")+"\n"
 const linkify=new Function(src)();
 const o=linkify("see https://ex.com/a?b=1&c=2. then src/x.ts:12 and ~/f.md <b>");
 const ok=o.includes("data-url=\"https://ex.com/a?b=1&amp;c=2\"")&&o.includes("class=\"hln-path\" data-path=\"src/x.ts:12\"")
-  &&o.includes("data-path=\"~/f.md\"")&&o.includes("&lt;b&gt;")&&!o.includes("ex.com/a?b=1&amp;c=2.\"");
+  &&o.includes("data-path=\"~/f.md\"")&&o.includes("&lt;b&gt;")&&!o.includes("ex.com/a?b=1&amp;c=2.\"")
+  // 이슈 #17 — 찍혀 나온 <a> 가 진짜 링크여야 한다(href + 새 탭 + opener 차단).
+  &&o.includes("href=\"https://ex.com/a?b=1&amp;c=2\"")&&o.includes("target=\"_blank\"")&&o.includes("rel=\"noopener noreferrer\"");
 console.log(ok?"LINKIFY_OK":o);
 ' "$WORK/cockpit-v529.html" 2>&1)
 case "$LNK" in LINKIFY_OK) : ;; *) fail "v6.4: served linkify misbehaves (escape doubling?): $LNK";; esac
 pass "v6.4: viewer rebuilt — structured lines (hln/hln-cp/hln-url/hln-path), toolbar ↵ ⌕ ↕ + findbar + FAB, one shared copyText, paths via openPathFromTerm, served linkify runs"
+
+# 이슈 #17 — 링크처럼 보이는데 안 열리던 두 곳. (1) 뷰어의 .hln-url 은 href 없는 <a> 라 탭이 복사로 갔다(폰에선 여는 길이 아예 없었다).
+# (2) 터미널의 OSC 8 링크는 linkHandler 가 없어 xterm 기본값 — 네이티브 confirm(DESIGN.md 위반) + 빈 window.open → 데스크톱 앱에서 조용히 실패.
+case "$CKPT" in *'linkHandler:'*'activate: function(ev, uri){ window.open(uri'*"'_blank', 'noopener,noreferrer'"*) : ;; *) fail "issue#17: xterm needs a linkHandler whose activate opens the uri with window.open — without it OSC 8 links fall to the default native confirm";; esac
+case "$CKPT" in *'<a class="hln-url" href="'*'target="_blank" rel="noopener noreferrer"'*'data-url="'*) : ;; *) fail "issue#17: the viewer URL must be a real anchor (href + target=_blank + rel=noopener noreferrer), keeping data-url for the copy paths";; esac
+# 평범한 탭은 브라우저가 연다 — 옛 복사 분기가 돌아오면 실패. 경로(→openPathFromTerm)·⧉·줄 복사는 그대로.
+case "$CKPT" in *"'.hln-url'); if(u){ e.preventDefault(); copyText("*) fail "issue#17: the copy-on-URL-tap branch is back — a plain tap must let the anchor open (copy lives on the row's ⧉ button)";; *) : ;; esac
+case "$CKPT" in *"closest('.hln-url'); if(u){ if(histHasSel()) e.preventDefault(); return; }"*"closest('.hln-cp')"*"closest('.hln-path')"*'openPathFromTerm(histRid, path)'*"closest('.hln'); if(ln) copyText(histRaw"*) : ;; *) fail "issue#17: histClick must guard the URL branch on histHasSel() only, and keep .hln-cp / .hln-path (openPathFromTerm) / whole-line copy intact";; esac
+# 컴포넌트 표는 같은 커밋에서 갱신된다(DESIGN.md 는 강제되는 계약이다).
+I17_DESIGN=$(cat "$ROOT/DESIGN.md")
+case "$I17_DESIGN" in *'Links open, never ask'*'real anchor'*) : ;; *) fail "issue#17: DESIGN.md must record that terminal links open without a native confirm and that the viewer URL is a real anchor";; esac
+pass "issue#17: a URL that looks like a link opens like one — real anchor in the viewer (plain tap opens, copy stays on ⧉), xterm linkHandler for OSC 8 (no native confirm)"
 
 # v6.4 수정 — 폰에서 "쓸모없다"던 두 가지. (1) 터미널 탭이 지금 화면만 보였다: tmux 기본 history-limit(2000) +
 # 캡처 범위 -S -N. (2) 뷰어가 폰에서도 가운데 작은 팝업이었다. 실제 3000줄 왕복은 위 scrollback 검사가 증명한다.

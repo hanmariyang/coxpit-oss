@@ -1583,6 +1583,10 @@ ${ACTIVITY_JS}
       // 전경색은 xterm 이 자동으로 끌어올린다. 3 = 안 보이던 것만 구제하고 의도된 어두운 톤은 대체로 보존(2026-09-18).
       minimumContrastRatio: 3,
       theme: { background:'#0b0d12', foreground:'#dee4ec', cursor:'#4ec9b0', selectionBackground:'rgba(78,201,176,.25)', black:'#1c212c', brightBlack:'#5c6675' },
+      // OSC 8 하이퍼링크(에이전트·gh·npm 이 찍는 것)는 WebLinksAddon 이 아니라 xterm 내장 제공자가 잡는다.
+      // 핸들러를 안 주면 xterm 기본값이 네이티브 confirm 을 띄우고(DESIGN.md 위반) 빈 window.open 으로 열려다
+      // 데스크톱 앱의 setWindowOpenHandler 에 막혀 조용히 아무 일도 안 났다. 애드온과 같은 길로 곧장 연다.
+      linkHandler: { activate: function(ev, uri){ window.open(uri, '_blank', 'noopener,noreferrer'); } },
     });
     var fit=new window.FitAddon.FitAddon(); term.loadAddon(fit);
     try{ term.loadAddon(new window.Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion='11'; }catch(e){}
@@ -2444,7 +2448,9 @@ ${ACTIVITY_JS}
       var raw=m[0], at=m.index;
       if(m[1]){
         var url=raw.replace(/[.,;:!?)\\]}'"]+$/,'');   // 문장 끝 구두점은 링크가 아니다
-        out+=esc(s.slice(last,at))+'<a class="hln-url" data-url="'+esc(url)+'">'+esc(url)+'</a>';
+        // 링크처럼 보이면 링크처럼 열려야 한다 — href 있는 진짜 <a>. 길게 누르기·새 탭으로 열기·⌘클릭이 그제서야 산다.
+        // 데스크톱 앱은 setWindowOpenHandler 가 target=_blank 를 시스템 브라우저로 넘긴다. data-url 은 복사 경로용으로 남긴다.
+        out+=esc(s.slice(last,at))+'<a class="hln-url" href="'+esc(url)+'" target="_blank" rel="noopener noreferrer" data-url="'+esc(url)+'">'+esc(url)+'</a>';
         last=at+url.length; HLN_RE.lastIndex=last; continue;
       }
       if(raw.indexOf('://')>=0 || raw.slice(0,2)==='//') continue;
@@ -2526,9 +2532,11 @@ ${ACTIVITY_JS}
   function histClick(e){
     if(!histTapOK){ histTapOK=true; return; }   // 롱프레스·드래그 뒤 따라오는 click 은 무시
     var cb=e.target.closest('.cb-cp'); if(cb){ copyText(histCode[+cb.getAttribute('data-ci')]||'', '복사됨'); return; }
+    // URL 은 이제 진짜 링크다 — 평범한 탭은 브라우저가 열게 둔다(기본 동작을 막지 않는다).
+    // 복사는 줄의 ⧉ 버튼·줄 탭이 이미 맡고 있고 그 원문에 URL 글자가 들어 있다. 선택 중일 때만 선택을 존중해 막는다.
+    var u=e.target.closest('.hln-url'); if(u){ if(histHasSel()) e.preventDefault(); return; }
     var cp=e.target.closest('.hln-cp');
     if(!cp && histHasSel()) return;
-    var u=e.target.closest('.hln-url'); if(u){ e.preventDefault(); copyText(u.getAttribute('data-url')||'', '링크 복사됨'); return; }
     var p=e.target.closest('.hln-path');
     if(p){ if(histRid!=null){ var path=p.getAttribute('data-path')||''; closeHistory(); openPathFromTerm(histRid, path); } return; }
     var ln=e.target.closest('.hln'); if(ln) copyText(histRaw[+ln.getAttribute('data-i')]||'', '줄 복사됨');
