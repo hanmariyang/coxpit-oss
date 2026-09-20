@@ -568,7 +568,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .hln-code .cb-cp{position:absolute;top:4px;right:5px;font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:2px 7px;cursor:pointer}
   .hln-code .cb-cp:active{color:var(--brand);border-color:var(--brand)}
   .hist-fab{position:absolute;right:14px;bottom:14px;width:40px;height:40px;border-radius:50%;border:none;background:var(--brand);color:var(--brand-ink);font-family:var(--mono);font-size:17px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px var(--bg)}
-  .hist-findbar[hidden],.hist-lines[hidden],.hist-chat[hidden],.hist-fab[hidden]{display:none}   /* hidden 속성 존중 — 클래스의 display 가 UA 를 이기지 않게 */
+  /* 터미널 탭의 정직한 한 줄 — TUI 는 대체 화면이라 스크롤백이 없다는 사실을 화면이 직접 말한다(가장 희미한 톤) */
+  .hist-note{flex:0 0 auto;padding:6px 12px;border-bottom:1px solid var(--line);background:var(--panel);color:var(--faint);font-size:11px;line-height:1.5}
+  .hist-findbar[hidden],.hist-lines[hidden],.hist-chat[hidden],.hist-fab[hidden],.hist-note[hidden]{display:none}   /* hidden 속성 존중 — 클래스의 display 가 UA 를 이기지 않게 */
   .hist-modes{display:inline-flex;gap:2px;margin-left:12px;border:1px solid var(--line);border-radius:7px;padding:2px}
   .hm-tab{font-family:var(--mono);font-size:11px;color:var(--muted);background:none;border:none;border-radius:5px;padding:4px 9px;cursor:pointer}
   .hm-tab.on{background:var(--brand-dim);color:var(--ink)}
@@ -978,6 +980,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       <button type="button" class="hv-btn" id="histFindNext" title="다음 (⏎)">›</button>
       <button type="button" class="hv-btn" id="histFindX" title="닫기 (esc)">×</button>
     </div>
+    <div class="hist-note" id="histAltNote" hidden>claude 같은 전체화면 앱은 지금 화면만 잡혀요 — 전체 대화는 '대화' 탭</div>
     <div class="hist-chat" id="histChat"></div>
     <div class="hist-lines hlines" id="histLines" hidden></div>
     <button type="button" class="hist-fab" id="histFab" title="맨아래(최신)로" hidden>↓</button>
@@ -1920,6 +1923,7 @@ ${ACTIVITY_JS}
     var rid=focusedRunId(); if(rid!=null && tabs[rid] && tabs[rid].term) try{ tabs[rid].term.focus(); }catch(e){}
     // 뷰어에서 고른 글을 주입할 때 "어느 터미널로"의 답 — 마지막으로 잡았던 터미널 페인(C3)
     if(rid!=null && tabs[rid] && tabs[rid].kind!=='viewer') lastTermRunId=rid;
+    persistOpenTabs();   // 포커스 이동은 render 를 타지 않는다 — 다시 열었을 때 착지할 탭을 여기서 기록
     updateControls();
     if (typeof reqMode!=='undefined' && reqMode!=='new') setMode(reqMode);
   }
@@ -1963,6 +1967,34 @@ ${ACTIVITY_JS}
   function persistSession(){
     if(!sessionRestoreDone) return;   // 첫 복원 전(초기 빈 render)에 저장하면 스냅샷을 덮어써 버린다
     try{ localStorage.setItem(SESSION_KEY, JSON.stringify(serializeNode(layout))); }catch(e){}
+    persistOpenTabs();
+  }
+  // ── 열려 있던 탭 전부 기억/복원 (localStorage 'coxpit.opentabs') ──
+  // 위 세션 스냅샷은 **페인에 보이던** 탭만 담는다. 폰은 페인이 하나라서, 새로고침하거나 데몬이 재시작하면
+  // 마지막 하나만 남고 나머지 탭이 통째로 사라졌다 — tmux 세션은 멀쩡히 살아 있는데도. 그래서 탭 바를 따로 기억한다.
+  // 터미널 탭(run)만 담는다: 뷰어 탭은 경로가 스냅샷 쪽에 이미 있고, 죽은 run 은 복원에서 건너뛴다.
+  var OPENTABS_KEY='coxpit.opentabs', MAX_RESTORE_TABS=12;
+  function persistOpenTabs(){
+    if(!sessionRestoreDone) return;
+    var ids=tabOrder.filter(function(id){ return !isViewer(id); }).slice(-MAX_RESTORE_TABS);
+    var act=focusedRunId();
+    try{ localStorage.setItem(OPENTABS_KEY, JSON.stringify({ids:ids, active:(act!=null && !isViewer(act))?act:null})); }catch(e){}
+  }
+  function restoreOpenTabs(){
+    var raw; try{ raw=localStorage.getItem(OPENTABS_KEY); }catch(e){ raw=null; }
+    var st=null; if(raw){ try{ st=JSON.parse(raw); }catch(e){ st=null; } }
+    if(!st || !st.ids || !st.ids.length) return;   // 기억해둔 게 없으면 위의 단일 세션 복원이 그대로 답이다
+    var added=0, first=null;
+    st.ids.slice(0,MAX_RESTORE_TABS).forEach(function(id){
+      var rid=+id;
+      if(!rid || tabs[rid] || !runById[rid]) return;   // 이미 열렸거나 플릿에서 사라진 run 은 건너뛴다(지어내지 않는다)
+      ensureTab(rid); added++; if(first==null) first=rid;
+    });
+    var act=(st.active!=null && !isViewer(st.active)) ? +st.active : null;
+    if(!act || !tabs[act]) act=first;   // 마지막으로 보던 run 이 사라졌으면 되살린 첫 탭에 착지한다
+    // 페인이 비었거나 하나(폰)일 때만 집어넣는다 — 데스크톱의 분할 배치는 위 스냅샷이 이미 복원했다.
+    if(act!=null && !leafOfTab(act) && (focusedRunId()==null || countLeaves()===1)) openTab(act);
+    else if(added){ render(); renderTree(); }
   }
   function restoreSession(){
     if(sessionRestoreDone) return;    // 1회만(이후 hydrate 는 통과)
@@ -1977,6 +2009,7 @@ ${ACTIVITY_JS}
         if(!tabOrder.length){ layout={leaf:true,id:'L0',tab:null}; focusLeaf='L0'; }  // 되살릴 게 없으면 깔끔한 빈 상태
         render(); renderTree();
       }catch(e){} }
+      restoreOpenTabs();   // 스냅샷이 보여준 한 탭 말고, **열려 있던 탭 전부**를 탭 바에 되살린다
     }
     persistSession();   // 복원할 게 없거나 이미 탭이 있어도, 지금부터 현재 상태를 마지막-세션으로 기록한다
   }
@@ -2372,6 +2405,8 @@ ${ACTIVITY_JS}
   function setHistMode(m){
     histMode=m; $('hmChat').classList.toggle('on',m==='chat'); $('hmRaw').classList.toggle('on',m==='raw');
     $('histChat').hidden = m!=='chat'; $('histLines').hidden = m!=='raw';
+    // 터미널 탭에선 대체 화면 한계를 화면이 직접 말한다 — 빈 캡처를 보고 "고장났나" 하지 않도록(정직이 먼저).
+    $('histAltNote').hidden = m!=='raw';
     loadHist();
   }
   // 줄 하나 → 링크·경로를 감싼 HTML. 원문을 먼저 토막내고 토막마다 esc 한다(esc 한 문자열에 정규식을 돌리면 &amp; 가 URL 에 섞인다).

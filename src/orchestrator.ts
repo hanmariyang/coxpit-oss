@@ -803,7 +803,11 @@ export async function getRunTermInfo(runId: number): Promise<{ machine: MachineT
 
 /**
  * 세션의 Claude Code 대화 로그(JSONL)를 대화형으로 파싱 — 뷰어의 "대화" 모드.
- * cwd(worktreePath)를 [^a-zA-Z0-9]→'-' 로 바꾼 게 ~/.claude/projects/<...>/ 폴더명 → 최신 .jsonl.
+ * 대본은 claude 가 **자기 cwd** 를 [^a-zA-Z0-9]→'-' 로 인코딩한 ~/.claude/projects/<...>/ 밑에 쌓인다.
+ * worktreePath 를 기준으로 삼으면 빈손이 되는 경우가 둘이고, 폰에서 "대화 탭이 비어 있다"던 게 정확히 이것이다:
+ *  ① 루트·메인 세션은 worktreePath 가 아예 비어 있다(그래도 페인엔 멀쩡한 cwd 가 있다 — 그래서 여기서 포기하면 안 된다).
+ *  ② 사람이 페인에서 cd 한 뒤엔 worktree 루트가 claude 의 cwd 가 아니다.
+ * 그래서 기준은 **페인이 지금 서 있는 폴더**(tmux #{pane_current_path} — getRunPwd)이고, worktreePath 는 폴백이다.
  * user/assistant turn 만 추출(tool_result 노이즈 제외, tool_use 는 칩으로).
  */
 export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
@@ -812,9 +816,15 @@ export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
   const info = await getRunTermInfo(runId);
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
-  if (!info || !run || !run.worktreePath) return { ok: false, turns: [], note: 'no session' };
-  const proj = run.worktreePath.replace(/[^a-zA-Z0-9]/g, '-');
-  const cmd = `d=${shq(proj)}; f=$(ls -t "$HOME/.claude/projects/$d"/*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -n 8000 "$f" || true`;
+  if (!info || !run) return { ok: false, turns: [], note: 'no session' };
+  const pwd = (await getRunPwd(runId)).pwd;   // tmux #{pane_current_path} — 대본의 진짜 기준
+  const encoded = [pwd, run.worktreePath || '']
+    .filter((p) => !!p)
+    .map((p) => p.replace(/[^a-zA-Z0-9]/g, '-'));
+  const cands = encoded.filter((d, i) => encoded.indexOf(d) === i);
+  if (!cands.length) return { ok: false, turns: [], note: 'no session' };
+  // 후보를 순서대로 훑어 **처음 걸린** 폴더의 최신 .jsonl (페인 cwd 우선, worktree 폴백)
+  const cmd = `f=''; for d in ${cands.map((d) => shq(d)).join(' ')}; do c=$(ls -t "$HOME/.claude/projects/$d"/*.jsonl 2>/dev/null | head -1); if [ -n "$c" ]; then f="$c"; break; fi; done; [ -n "$f" ] && tail -n 8000 "$f" || true`;
   const r = await runShellOn(info.machine, cmd, 15000);
   if (!r.ok) return { ok: true, turns: [], note: 'no transcript' };
   if (!r.stdout.trim()) return { ok: true, turns: [], note: 'no Claude Code transcript for this folder' };
@@ -856,9 +866,11 @@ export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
  * capture-pane -S - 로 **히스토리 전체**(맨 처음 줄부터 현재 화면까지)를 떠서, 꼬리 N 줄만 돌려준다(읽기 전용).
  * 예전엔 -S -N 이었는데, 세션이 tmux 기본 history-limit(2000) 으로 떠 있어 N 을 아무리 키워도 소용없었다
  * → 세션 생성 때 한도를 올리고(tmuxNewSession), 여기선 범위를 잘라 묻지 않는다.
+ * -J 는 화면 폭에서 접힌 줄을 **논리적 한 줄로 도로 붙인다**. 이게 없으면 캡처가 디스플레이 행 그대로 와서
+ * 폰에서 긴 경로·명령어가 단어 중간에서 끊겼다("Internal Solutio / n %") — 읽기도 집기도 안 되던 원인.
  * 한계 둘(버그 아님):
  *  - 전체 화면 TUI(claude CLI·vim·less 등)는 tmux 의 **대체 화면**을 쓴다. 대체 화면엔 스크롤백이 없어서
- *    TUI 가 떠 있는 동안 캡처되는 건 지금 보이는 화면뿐이다. 일반 셸 출력은 전부 남는다.
+ *    TUI 가 떠 있는 동안 캡처되는 건 지금 보이는 화면뿐이다(뷰어 터미널 탭이 그렇게 말해 준다). 일반 셸 출력은 전부 남는다.
  *  - 헤드리스 에이전트 run 은 tmux 밖에서 돈다 — 그 tmux 는 빈 worktree 셸이 정상이고, 볼 곳은 "대화" 탭이다.
  */
 export async function getScrollback(runId: number, lines: number): Promise<{ ok: boolean; text: string }> {
@@ -866,7 +878,7 @@ export async function getScrollback(runId: number, lines: number): Promise<{ ok:
   if (!info) return { ok: false, text: 'no terminal session' };
   const n = Math.max(50, Math.min(TMUX_HISTORY_LIMIT, Math.floor(lines) || TMUX_HISTORY_LIMIT));
   // capture-pane 은 '=' 접두사(정확일치) 를 pane 타깃으로 못 받는다 → 세션명 그대로(존재 시 정확일치 우선).
-  const r = await runShellOn(info.machine, `tmux capture-pane -t ${shq(info.session)} -p -S -`, 15000);
+  const r = await runShellOn(info.machine, `tmux capture-pane -t ${shq(info.session)} -p -J -S -`, 15000);
   if (!r.ok) return { ok: false, text: (r.stderr || r.stdout).trim().slice(0, 500) };
   const all = r.stdout.split('\n');
   return { ok: true, text: all.length > n ? all.slice(-n).join('\n') : r.stdout };
