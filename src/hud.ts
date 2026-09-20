@@ -10,6 +10,8 @@
 // 배치 상태를 <html data-hud="pill|list|detail"> 에 적고, 창이 붙어 있을 때만
 // window.coxpitHud.size({state,w,h}) 로 "이만큼 필요하다"고 말할 뿐이다(없으면 아무 일도 없다).
 // 창을 실제로 줄이고 늘리는 것도, 화면 밖으로 안 나가게 물리는 것도 전부 메인 프로세스다.
+// 보이는데 열리지 않는 알약은 없느니만 못하다 — 눌러서 펼쳐져야 하고 그러면서도 끌어 옮길 수 있어야 하니,
+// drag 영역과 클릭 대상은 같은 요소일 수 없다: 알약은 눌리고, 창은 알약 안의 홈(.pgrip)으로 옮긴다.
 //
 // 데이터는 전부 코크핏이 이미 읽는 것: GET /api/fleet(+ agentStates · real) 과 /ws 델타.
 // 새 창구는 하나뿐 — POST /api/runs/:id/input (살아 있는 tmux 에 한 줄 써 넣기, getScrollback 의 쓰기 쌍둥이).
@@ -53,13 +55,18 @@ export const HUD_HTML = /* html */ `<!doctype html>
   html[data-hud="pill"] body{align-items:flex-start}
 
   /* ── K3. 접힌 알약 — 이것이 평상시의 전부다 ───────────────────────────── */
-  /* app-region: 프레임 없는 창(K1)에서 알약과 헤더가 **손잡이**다. 안의 컨트롤은 no-drag 여야
-     눌린다 — drag 영역은 클릭을 삼킨다. 브라우저에서는 이 속성이 아무 뜻도 없다. */
-  .pill{display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px;border-radius:999px;
+  .pill{display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px 0 7px;border-radius:999px;
     background:var(--surface);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35);
-    font-family:var(--mono);font-size:11px;color:var(--muted);-webkit-app-region:drag}
+    font-family:var(--mono);font-size:11px;color:var(--muted)}
   .pill:hover{border-color:var(--line-hi);color:var(--ink)}
-  .pill>*{-webkit-app-region:no-drag}
+  /* app-region: 프레임 없는 창(K1)에서 drag 영역은 클릭을 **삼킨다** — 창이 대신 움직인다.
+     그래서 알약 자체는 no-drag(눌러서 펼치는 것이 알약의 일이고, 옮기는 일보다 훨씬 잦다)이고,
+     창을 옮기는 손잡이는 알약 안의 작은 홈 하나뿐이다. 브라우저에서는 둘 다 아무 뜻도 없다. */
+  .pill,.pill>*{-webkit-app-region:no-drag}
+  .pill>.pgrip{-webkit-app-region:drag}
+  .pgrip{flex:none;color:var(--faint);font-family:var(--mono);font-size:10px;line-height:1;
+    letter-spacing:-.06em;padding:0 2px;opacity:.65;cursor:grab}
+  .pill:hover .pgrip{opacity:1}
   .pdots{display:inline-flex;align-items:center;gap:4px}
   .pwait{color:var(--blocked);font-size:11px;letter-spacing:.02em}
   .pquiet{color:var(--faint);font-size:10.5px}
@@ -162,8 +169,10 @@ export const HUD_HTML = /* html */ `<!doctype html>
 </style>
 </head>
 <body>
-  <!-- K3 — 접힌 알약. 누르면 펼쳐진다(창 크기는 데스크톱이 나중에 data-hud 를 보고 맞춘다). -->
+  <!-- K3 — 접힌 알약. 누르면 펼쳐진다(창 크기는 데스크톱이 나중에 data-hud 를 보고 맞춘다).
+       맨 앞의 홈(.pgrip)만이 창을 끄는 손잡이다 — 나머지는 전부 눌리는 자리다. -->
   <button type="button" id="pill" class="pill" aria-label="coxpit fleet">
+    <span class="pgrip" id="pillGrip" aria-hidden="true" title="끌어서 창 옮기기">⠿</span>
     <span class="pdots" id="pillDots"></span>
     <span class="pwait" id="pillWait" hidden></span>
     <span class="pquiet" id="pillQuiet" hidden>quiet</span>

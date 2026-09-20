@@ -3386,13 +3386,19 @@ case "$PHUD" in *"state: String((want && want.state) || 'pill'),"*'w: Number(wan
 pass "v5.28 K1: desktop/preload-hud.cjs is the HUD's only channel — a one-way, normalized size report"
 
 # 페이지 쪽 — 손잡이(app-region)와 크기 보고. 둘 다 브라우저에서는 **아무 뜻도 없다**.
-case "$HUD" in *'.pill{'*'-webkit-app-region:drag}'*'.pill>*{-webkit-app-region:no-drag}'*) : ;; *) fail "the pill must be a drag handle whose inner controls are no-drag (a drag region swallows clicks)";; esac
+# 알약은 **눌리는 것**이다. drag 영역은 클릭을 삼켜(창이 대신 움직인다) expand() 가 영영 안 불린다 —
+# 그래서 no-drag 선언이 .pill{} 블록 **뒤에** 와서 어떤 식으로 되돌려도 알약은 클릭 대상으로 남고,
+# 창을 옮기는 일은 알약 안의 홈 하나(.pgrip)가 따로 맡는다. 둘은 같은 요소일 수 없다.
+case "$HUD" in *'.pill{'*'.pill,.pill>*{-webkit-app-region:no-drag}'*'.pill>.pgrip{-webkit-app-region:drag}'*) : ;; *) fail "the pill (and its inner spans) must be no-drag so a click reaches expand(), with a separate .pgrip handle carrying the drag region";; esac
+case "$HUD" in *'color:var(--muted);-webkit-app-region:drag}'*) fail "the pill rule is a full drag region again — a drag region swallows the click that opens the hud";; *) : ;; esac
+case "$HUD" in *'<span class="pgrip" id="pillGrip"'*) : ;; *) fail "the drag grip element is missing — the HUD window would be unmovable once the pill stopped dragging";; esac
+case "$HUD" in *"\$('pill').addEventListener('click', expand);"*) : ;; *) fail "a click on the pill must expand it";; esac
 case "$HUD" in *'.hh{'*'-webkit-app-region:drag}'*'.hh>button{-webkit-app-region:no-drag}'*) : ;; *) fail "the expanded header must be a drag handle with no-drag controls";; esac
 case "$HUD" in *'function reportSize(next)'*'reportSize(next);'*) : ;; *) fail "setLayout must report the wanted size to the desktop window";; esac
 # 알약 폭은 점 수에 따라 달라진다 — 고정값으로 보내면 잘린다. 그래서 **재서** 말한다.
 case "$HUD" in *"if(next==='pill'){"*'w=Math.ceil(el.offsetWidth)+12;'*) : ;; *) fail "the pill must report its measured width (the dot count changes it) rather than a fixed number";; esac
 case "$HUD" in *"if(layout==='pill') reportSize('pill');"*) : ;; *) fail "a pill repaint must re-report its size — the dots grow and shrink without a layout change";; esac
-pass "v5.28 K1: /hud carries the drag handles and reports its wanted size, and is a no-op on both counts in a plain browser"
+pass "v5.28 K1: /hud's pill is clickable (the window moves by its own grip instead) and it reports its wanted size — both inert in a plain browser"
 
 # 컴포넌트 표 — 창도 UI 다.
 case "$K_DESIGN" in *'HUD desktop window (v5.28 K1/K2)'*) : ;; *) fail "DESIGN.md must carry the HUD desktop window component in the same commit";; esac
