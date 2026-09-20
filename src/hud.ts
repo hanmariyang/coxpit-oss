@@ -8,8 +8,13 @@
 // [!] 이 페이지는 **브라우저에서 단독으로 돈다**. 창(프레임리스·항상 위)·전역 단축키·크기 변경은
 // 데스크톱 쪽 일(K1/K2, desktop/main.cjs)이고, 여기는 그쪽을 한 줄도 모른다 —
 // 배치 상태를 <html data-hud="pill|list|detail"> 에 적고, 창이 붙어 있을 때만
-// window.coxpitHud.size({state,w,h}) 로 "이만큼 필요하다"고 말할 뿐이다(없으면 아무 일도 없다).
+// window.coxpitHud.size({state,w,h,fit}) 로 "이만큼 필요하다"고 말할 뿐이다(없으면 아무 일도 없다).
 // 창을 실제로 줄이고 늘리는 것도, 화면 밖으로 안 나가게 물리는 것도 전부 메인 프로세스다.
+//
+// 크기의 규칙 하나: **카드가 창을 채우고, 창은 내용을 따른다.** 예전에는 창이 고정 높이(380·440)라
+// 내용보다 훨씬 컸고, 남는 자리는 투명해서 보이지도 않으면서 그 아래 것의 클릭을 먹었다.
+// 이제 목록·상세는 자기 내용 높이를 재서 보내고(fit), 그 위에서 **사람이 끈 크기가 언제나 이긴다**.
+// 그리고 어떤 줄도 두 줄로 접히지 않는다 — 접히는 것은 에이전트가 한 말(.d-q pre · .d-tail)뿐이다.
 // 보이는데 열리지 않는 알약은 없느니만 못하다 — 눌러서 펼쳐져야 하고 그러면서도 끌어 옮길 수 있어야 하니,
 // drag 영역과 클릭 대상은 같은 요소일 수 없다: 알약은 눌리고, 창은 알약 안의 홈(.pgrip)으로 옮긴다.
 //
@@ -40,8 +45,10 @@ export const HUD_HTML = /* html */ `<!doctype html>
   html,body{height:100%;overscroll-behavior:none}
   /* 지면은 보드·코크핏과 같은 --bg 다. (데스크톱 창이 프레임리스·투명으로 이걸 띄울 때는
      그 실행분에서 투명 배경을 덧입힌다 — 지금은 브라우저에서 단독으로 열려도 어두워야 한다.) */
+  /* 지면은 곧 창이다 — 카드가 뷰포트를 꽉 채우고, 여백은 둥근 모서리와 테두리가 살 만큼(5px)만 남긴다.
+     남는 자리를 두면 그만큼이 **보이지 않는 채로 클릭만 먹는** 죽은 영역이 된다(늘 위에 뜨는 창이라 더 나쁘다). */
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13px;line-height:1.45;
-    -webkit-font-smoothing:antialiased;overflow:hidden;display:flex;align-items:flex-start;justify-content:center;padding:6px}
+    -webkit-font-smoothing:antialiased;overflow:hidden;display:flex;align-items:stretch;justify-content:center;padding:5px}
   button{font-family:var(--sans);cursor:pointer}
   :focus-visible{outline:2px solid rgba(78,201,176,.5);outline-offset:1px;border-radius:4px}
   *{scrollbar-width:thin;scrollbar-color:var(--line-hi) transparent}
@@ -52,24 +59,25 @@ export const HUD_HTML = /* html */ `<!doctype html>
   /* 세 가지 배치 = 한 장의 세 상태. data-hud 는 데스크톱이 창 크기를 맞출 때 읽어 갈 자리이기도 하다. */
   html[data-hud="pill"] #panel{display:none}
   html[data-hud="list"] #pill,html[data-hud="detail"] #pill{display:none}
-  html[data-hud="pill"] body{align-items:flex-start}
+  html[data-hud="pill"] body{align-items:flex-start;padding:6px}
 
   /* ── K3. 접힌 알약 — 이것이 평상시의 전부다 ───────────────────────────── */
-  .pill{display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px 0 7px;border-radius:999px;
+  /* 높이 30px = 손가락·커서가 놓치지 않는 최소치. 알약은 누르라고 있는 것이니 작아서는 안 된다. */
+  .pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 13px 0 8px;border-radius:999px;
     background:var(--surface);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35);
-    font-family:var(--mono);font-size:11px;color:var(--muted)}
+    font-family:var(--mono);font-size:12px;color:var(--muted)}
   .pill:hover{border-color:var(--line-hi);color:var(--ink)}
   /* app-region: 프레임 없는 창(K1)에서 drag 영역은 클릭을 **삼킨다** — 창이 대신 움직인다.
      그래서 알약 자체는 no-drag(눌러서 펼치는 것이 알약의 일이고, 옮기는 일보다 훨씬 잦다)이고,
      창을 옮기는 손잡이는 알약 안의 작은 홈 하나뿐이다. 브라우저에서는 둘 다 아무 뜻도 없다. */
   .pill,.pill>*{-webkit-app-region:no-drag}
   .pill>.pgrip{-webkit-app-region:drag}
-  .pgrip{flex:none;color:var(--faint);font-family:var(--mono);font-size:10px;line-height:1;
-    letter-spacing:-.06em;padding:0 2px;opacity:.65;cursor:grab}
+  .pgrip{flex:none;color:var(--faint);font-family:var(--mono);font-size:10.5px;line-height:1;
+    letter-spacing:-.06em;padding:0 3px;opacity:.65;cursor:grab}
   .pill:hover .pgrip{opacity:1}
   .pdots{display:inline-flex;align-items:center;gap:4px}
-  .pwait{color:var(--blocked);font-size:11px;letter-spacing:.02em}
-  .pquiet{color:var(--faint);font-size:10.5px}
+  .pwait{color:var(--blocked);font-size:12px;letter-spacing:.02em;white-space:nowrap}
+  .pquiet{color:var(--faint);font-size:11.5px;white-space:nowrap}
 
   /* 상태 점 — Part A 매핑 그대로(working=--running · waiting=--blocked 맥박 · idle=--faint · exited=--done) */
   .st{width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;flex:none}
@@ -81,88 +89,101 @@ export const HUD_HTML = /* html */ `<!doctype html>
   @media (prefers-reduced-motion:reduce){ .st.as-waiting{animation:none} }
 
   /* ── K4. 펼친 분류 목록 ─────────────────────────────────────────────── */
-  .panel{width:100%;max-width:250px;display:flex;flex-direction:column;max-height:calc(100vh - 12px);
+  /* 카드는 창을 **채운다**(max-width 도 max-height 도 없다). 창이 얼마만 해야 하는지는
+     아래 fitHeight() 가 재서 창에 말해 주고, 그다음부터는 사람이 끈 크기가 이긴다.
+     넘치면 카드 밖이 아니라 목록 안에서 스크롤한다 — 머리와 발은 늘 붙어 있어야 한다. */
+  .panel{width:100%;height:100%;min-height:0;display:flex;flex-direction:column;
     background:var(--surface);border:1px solid var(--line);border-radius:10px;
     box-shadow:0 8px 28px rgba(0,0,0,.35);overflow:hidden}
-  html[data-hud="detail"] .panel{max-width:570px}
-  .hh{display:flex;align-items:center;gap:7px;padding:7px 9px;border-bottom:1px solid var(--line);
-    font-family:var(--mono);font-size:11px;-webkit-app-region:drag}
+  /* 머리는 **언제나 한 줄**이다. 좁아지면 꼬리부터 잘리고, 꼬리에 오는 것이 가장 덜 중요한 것
+     (대기 → 도는 것 → 노는 것)이라 idle 수가 맨 먼저 사라진다. 줄임표는 .subs 가 맡는다. */
+  .hh{display:flex;flex-wrap:nowrap;align-items:center;gap:7px;padding:7px 11px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);font-size:12.5px;white-space:nowrap;-webkit-app-region:drag}
   .hh>button{-webkit-app-region:no-drag}
-  .lead{color:var(--blocked);white-space:nowrap}
+  .lead{flex:none;color:var(--blocked);white-space:nowrap}
   .lead.clear{color:var(--done)}
-  .subs{color:var(--faint);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hx{margin-left:auto;background:none;border:none;color:var(--faint);font-family:var(--mono);font-size:13px;
-    line-height:1;padding:2px 5px;border-radius:5px}
+  .subs{flex:1 1 auto;min-width:0;color:var(--faint);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .hx{flex:none;background:none;border:none;color:var(--faint);font-family:var(--mono);font-size:14px;
+    line-height:1;padding:3px 6px;border-radius:5px}
   .hx:hover{color:var(--ink);background:var(--surface2)}
   .hbody{display:flex;min-height:0;flex:1}
-  .hlist{width:250px;flex:none;overflow-y:auto;padding:5px 0}
-  html[data-hud="list"] .hlist{width:100%}
-  .hdetail{flex:1;min-width:0;border-left:1px solid var(--line);overflow-y:auto;padding:9px 11px;background:var(--panel)}
+  /* 목록은 남는 높이를 전부 먹고 **자기 안에서** 스크롤한다(flex:1 + min-height:0).
+     상세일 때만 왼쪽 기둥으로 고정폭이 되고, 오른쪽이 나머지를 가진다. */
+  .hlist{width:100%;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;padding:4px 0}
+  html[data-hud="detail"] .hlist{width:240px;flex:none}
+  .hdetail{flex:1;min-width:0;min-height:0;border-left:1px solid var(--line);overflow-y:auto;padding:10px 12px;background:var(--panel)}
   html[data-hud="list"] .hdetail{display:none}
-  .lbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
-    padding:6px 11px 3px}
-  .row{display:flex;align-items:center;gap:7px;width:100%;text-align:left;background:none;border:none;
-    padding:5px 11px;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+    padding:8px 12px 3px}
+  /* 행도 한 줄이다 — 이름은 제 몫만 쥐고(flex:0 1 auto), 길은 남는 폭을 먹다가 줄임표로 끝내고,
+     경과 시간은 절대 밀려나지 않는다(flex:none). 폭이 좁아져도 두 줄이 되는 일은 없다. */
+  .row{display:flex;align-items:center;gap:8px;width:100%;min-height:30px;text-align:left;background:none;border:none;
+    padding:7px 12px;font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap}
   .row:hover{background:var(--surface2);color:var(--ink)}
   .row.on{background:var(--brand-dim);color:var(--ink);box-shadow:inset 2px 0 0 var(--brand)}
-  .row .rn{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46%}
+  .row .rn{flex:0 1 auto;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .row.wait .rn{color:var(--blocked)}
-  .row .rp{color:var(--faint);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
-  .row .rel{margin-left:auto;color:var(--faint);font-size:10px;flex:none}
-  .dryc{flex:none;font-family:var(--mono);font-size:9px;color:var(--faint);border:1px solid var(--line-hi);
-    border-radius:4px;padding:0 3px;letter-spacing:.04em}
-  .cnt{display:block;width:100%;text-align:left;background:none;border:none;padding:5px 11px;
-    font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+  .row .rp{flex:1 1 0;min-width:0;color:var(--faint);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .rel{flex:none;color:var(--faint);font-size:11px;white-space:nowrap}
+  .dryc{flex:none;font-family:var(--mono);font-size:10.5px;color:var(--faint);border:1px solid var(--line-hi);
+    border-radius:4px;padding:0 4px;letter-spacing:.04em;white-space:nowrap}
+  .cnt{display:block;width:100%;min-height:30px;text-align:left;background:none;border:none;padding:7px 12px;
+    font-family:var(--mono);font-size:12px;color:var(--faint);white-space:nowrap}
   .cnt:hover{color:var(--ink)}
-  .clearbox{padding:11px;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.6}
+  .clearbox{padding:12px;font-family:var(--mono);font-size:12.5px;color:var(--muted);line-height:1.6}
   .clearbox .big{color:var(--done);display:block;margin-bottom:3px}
-  .hfoot{display:flex;align-items:center;gap:8px;padding:5px 9px;border-top:1px solid var(--line);
-    font-family:var(--mono);font-size:9.5px;color:var(--faint)}
+  .hfoot{display:flex;align-items:center;gap:8px;padding:6px 11px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden}
   .hver{margin-left:auto;opacity:.8}
 
   /* ── K5. 상세(목록 오른쪽) ────────────────────────────────────────── */
-  .d-h{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;margin-bottom:6px}
-  .d-h .dnm{color:var(--ink)}
-  .d-chip{font-size:9.5px;color:var(--faint)}
+  .d-h{display:flex;flex-wrap:nowrap;align-items:center;gap:7px;font-family:var(--mono);font-size:14px;
+    margin-bottom:6px;white-space:nowrap}
+  .d-h .dnm{flex:0 1 auto;min-width:0;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+  .d-chip{flex:none;font-size:11px;color:var(--faint)}
   .d-chip.as-working{color:var(--running)} .d-chip.as-waiting{color:var(--blocked)}
   .d-chip.as-idle{color:var(--faint)} .d-chip.as-exited{color:var(--done)}
-  .d-meta{font-family:var(--mono);font-size:10px;color:var(--faint);margin-bottom:8px;
+  .d-meta{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-bottom:9px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .d-q{border:1px solid var(--line-hi);border-radius:8px;background:var(--surface);padding:8px 9px;margin-bottom:8px}
-  .d-q .qk{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
-    color:var(--faint);margin-bottom:4px}
-  .d-q pre{margin:0;font-family:var(--mono);font-size:11px;color:var(--ink);white-space:pre-wrap;word-break:break-word;
-    max-height:150px;overflow:auto}
-  .d-q .unk{font-family:var(--mono);font-size:11px;color:var(--muted)}
-  .d-sec{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
-    margin:9px 0 4px}
-  .d-now{font-family:var(--mono);font-size:11.5px;color:var(--ink);margin-bottom:4px}
-  .d-tl{border-left:1px solid var(--line);padding-left:8px;max-height:130px;overflow:auto}
-  .d-l{display:flex;gap:6px;font-family:var(--mono);font-size:10.5px;line-height:1.5}
-  .d-l .ak{flex:none;color:var(--faint);min-width:42px}
-  .d-l .at{color:var(--muted);white-space:pre-wrap;word-break:break-word}
-  .d-tail{margin:0;font-family:var(--mono);font-size:10.5px;color:var(--muted);background:var(--panel);
-    border:1px solid var(--line);border-radius:7px;padding:7px 8px;max-height:210px;overflow:auto;
+  .d-q{border:1px solid var(--line-hi);border-radius:8px;background:var(--surface);padding:9px 10px;margin-bottom:9px}
+  .d-q .qk{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:5px}
+  /* 이 페이지에서 **줄이 접히는 곳은 여기뿐**이다 — 에이전트가 한 말은 줄여 쓸 수 없으니 접고,
+     대신 높이를 물려서(판의 40% 남짓) 카드 하나가 창을 다 먹지 않게 한다. */
+  .d-q pre{margin:0;font-family:var(--mono);font-size:12.5px;color:var(--ink);white-space:pre-wrap;word-break:break-word;
+    max-height:min(40vh,260px);overflow:auto}
+  .d-q .unk{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+  .d-sec{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+    margin:10px 0 4px}
+  .d-now{font-family:var(--mono);font-size:12.5px;color:var(--ink);margin-bottom:4px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .d-tl{border-left:1px solid var(--line);padding-left:9px;max-height:min(30vh,170px);overflow:auto}
+  .d-l{display:flex;gap:7px;font-family:var(--mono);font-size:11.5px;line-height:1.55}
+  .d-l .ak{flex:none;color:var(--faint);min-width:46px}
+  .d-l .at{flex:1 1 0;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 터미널 꼬리는 화면 그대로라 접는 것이 맞다(.d-q pre 와 같은 부류 — 사람이 쓴 것이 아니라 나온 것). */
+  .d-tail{margin:0;font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--panel);
+    border:1px solid var(--line);border-radius:7px;padding:8px 9px;max-height:min(45vh,240px);overflow:auto;
     white-space:pre-wrap;word-break:break-word}
-  .d-diff{margin:6px 0 0;font-family:var(--mono);font-size:10px;color:var(--muted);max-height:160px;overflow:auto;
-    white-space:pre;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:7px 8px}
-  .d-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:9px;padding-top:8px;border-top:1px solid var(--line)}
-  .dbtn{font-family:var(--mono);font-size:10px;color:var(--muted);background:none;border:1px solid var(--line);
-    border-radius:6px;padding:3px 8px}
+  .d-diff{margin:7px 0 0;font-family:var(--mono);font-size:11px;color:var(--muted);max-height:min(35vh,200px);overflow:auto;
+    white-space:pre;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:8px 9px}
+  .d-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
+  .dbtn{font-family:var(--mono);font-size:12.5px;color:var(--muted);background:none;border:1px solid var(--line);
+    border-radius:6px;padding:5px 10px;white-space:nowrap}
   .dbtn:hover,.dbtn:focus-visible{color:var(--ink);border-color:var(--line-hi);background:var(--surface2)}
   .dbtn.prim{color:var(--brand);border-color:rgba(78,201,176,.4)}
   .dbtn.danger:hover{color:var(--failed);border-color:var(--failed)}
   /* 빠른 답은 대기의 색(--blocked)을 빌린다 — 코크핏 .qbtn 과 같은 주의색, 새 색 없음 */
-  .qbtn{font-family:var(--mono);font-size:10.5px;color:var(--blocked);background:none;border:1px solid var(--line-hi);
-    border-radius:999px;padding:3px 10px}
+  .qbtn{font-family:var(--mono);font-size:12.5px;color:var(--blocked);background:none;border:1px solid var(--line-hi);
+    border-radius:999px;padding:5px 12px;white-space:nowrap}
   .qbtn:hover,.qbtn:focus-visible{color:var(--ink);border-color:var(--blocked)}
-  .d-steer{display:flex;gap:5px;margin-top:8px}
-  .d-steer input{flex:1;min-width:0;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);
-    border:1px solid var(--line-hi);border-radius:6px;padding:5px 8px;outline:none}
+  .d-steer{display:flex;gap:6px;margin-top:9px}
+  .d-steer input{flex:1;min-width:0;font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--panel);
+    border:1px solid var(--line-hi);border-radius:6px;padding:6px 9px;outline:none}
   .d-steer input:focus{border-color:var(--brand)}
-  .d-empty{font-family:var(--mono);font-size:11px;color:var(--faint);padding:14px 4px}
+  .d-empty{font-family:var(--mono);font-size:12.5px;color:var(--faint);padding:16px 4px}
   .toast{position:fixed;left:50%;bottom:9px;transform:translateX(-50%);max-width:92%;
-    font-family:var(--mono);font-size:10.5px;color:var(--ink);background:var(--surface2);
+    font-family:var(--mono);font-size:11.5px;color:var(--ink);background:var(--surface2);
     border:1px solid var(--line-hi);border-radius:7px;padding:5px 10px;opacity:0;pointer-events:none;
     transition:opacity .16s ease;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .toast.on{opacity:1}
@@ -209,20 +230,57 @@ export const HUD_HTML = /* html */ `<!doctype html>
   // 창을 줄이고 늘리는 것은 **여기가 아니다**(K1, 데스크톱 창). 이 페이지는 원하는 크기를
   // <html data-hud> 에 적어 두고, 자기 안에서는 그 값으로 배치만 바꾼다.
   // 데스크톱 창에 실려 있으면 그 크기를 한 번 더 **말해 준다** — 창을 만지는 쪽은 언제나 저쪽이다.
-  // 알약 120x26 · 목록 250 · 상세 570 (+ 지면 여백 6px 양쪽). 창은 이 값을 화면 크기로 한 번 더 물린다.
-  var HUD_SIZE={ pill:{w:132,h:38}, list:{w:262,h:380}, detail:{w:582,h:440} };
+  // 폭은 이 표의 기본값(알약은 잰 값), 높이는 목록·상세 모두 **잰 값**이다(fit:true).
+  // 창은 이 값을 화면(workArea)으로 물리고, 사람이 손으로 끈 크기가 있으면 그쪽을 택한다.
+  var GUT=5;                                          // 패널 상태의 지면 여백 — CSS body{padding:5px} 과 같은 값
+  var HUD_SIZE={ pill:{w:140,h:42}, list:{w:320,h:260}, detail:{w:680,h:400} };
+  // 스크롤 영역이 **실제로 담고 있는** 높이. scrollHeight 를 쓰면 안 된다 —
+  // 그 값은 clientHeight 아래로 내려가지 않아서, 창이 한 번 커지고 나면 내용이 줄어도
+  // 계속 "지금만큼 필요하다"고 답한다(창은 자랄 줄만 알고 줄 줄은 모르게 된다).
+  // 그래서 자식들이 차지한 자리를 직접 잰다. 스크롤된 상태에서도 맞게 scrollTop 을 더한다.
+  function contentH(el){
+    if(!el) return 0;
+    var kids=el.children; if(!kids.length) return 0;
+    var r=el.getBoundingClientRect(), bottom=null;
+    for(var i=0;i<kids.length;i++){
+      var k=kids[i].getBoundingClientRect();
+      if(!k.height) continue;                        // 숨겨진 것은 자리를 차지하지 않는다
+      var b=(k.top-r.top)+el.scrollTop+k.height;
+      if(bottom===null||b>bottom) bottom=b;
+    }
+    if(bottom===null) return 0;
+    var pad=0;
+    try{ pad=parseFloat(getComputedStyle(el).paddingBottom)||0; }catch(e){}
+    return Math.ceil(bottom+pad);                    // 위쪽 padding 은 첫 자식의 자리에 이미 들어 있다
+  }
+  // 카드가 **원하는 높이** = 머리 + 본문(물리지 않은 내용) + 발 + 테두리.
+  function fitHeight(){
+    var p=$('panel'); if(!p) return 0;
+    var hh=p.querySelector('.hh'), ft=p.querySelector('.hfoot');
+    var body=contentH($('hudList'));
+    if(layout==='detail') body=Math.max(body, contentH($('hudDetail')));   // 두 기둥 중 **긴 쪽**이 카드의 키다
+    if(!body) return 0;                              // 아직 아무것도 안 그렸다 — 기본값이 낫다
+    return Math.ceil((hh?hh.offsetHeight:0)+(ft?ft.offsetHeight:0)+body+2);
+  }
   function reportSize(next){
     var api=window.coxpitHud;
     if(!api||typeof api.size!=='function') return;   // 브라우저에서 단독으로 열린 경우 — 아무 일도 없다
     var s=HUD_SIZE[next]||HUD_SIZE.pill;
-    var w=s.w, h=s.h;
+    var w=s.w, h=s.h, fit=false;
     // 알약만은 **재서** 말한다 — 폭이 점 수에 따라 달라져서 고정값이면 잘리거나 빈자리가 남는다.
     if(next==='pill'){
       var el=$('pill');
       if(el&&el.offsetWidth){ w=Math.ceil(el.offsetWidth)+12; h=Math.ceil(el.offsetHeight)+12; }
+    } else {
+      var m=fitHeight();
+      if(m>0) h=m+GUT*2;
+      fit=true;                                      // 목록·상세의 높이는 **내용이 정한다**(창이 그만큼만 커진다)
     }
-    try{ api.size({state:next, w:w, h:h}); }catch(e){}
+    try{ api.size({state:next, w:w, h:h, fit:fit}); }catch(e){}
   }
+  // 내용은 자라고 줄어든다(행이 늘고, 늦게 온 터미널 꼬리가 채워지고, 접힌 것이 펴진다).
+  // 그때마다 한 번씩 다시 말해 준다 — 창이 내용을 따라가는 것은 한 번이 아니라 계속이다.
+  function reflow(){ if(layout!=='pill') reportSize(layout); }
   var layout='pill';
   function setLayout(next){
     layout=next;
@@ -349,6 +407,7 @@ ${ACTIVITY_JS}
     cur=(mk!=null)?ids.indexOf(mk):-1;
     if(cur<0) curId=null;
     paintPill();
+    reflow();                 // 행이 늘거나 줄었다 = 창이 원하는 높이도 달라졌다
   }
 
   // ── K3. 알약 — 점 + 대기 수. 대기가 없으면 조용하다(맥박 없음). ──────────
@@ -444,11 +503,12 @@ ${ACTIVITY_JS}
     var el=$('hudDetail').querySelector('[data-role=dtl]'); if(!el) return;
     var r=runById[runId];
     var lines=humanLines((r&&r.events)||[]).slice(-6);
-    if(!lines.length){ el.innerHTML='<div class="d-l"><span class="at">아직 이벤트가 없습니다</span></div>'; return; }
+    if(!lines.length){ el.innerHTML='<div class="d-l"><span class="at">아직 이벤트가 없습니다</span></div>'; reflow(); return; }
     var h=''; lines.forEach(function(l){
       h+='<div class="d-l"><span class="ak">'+esc(l.k)+'</span><span class="at">'+esc(String(l.t).slice(0,200))+'</span></div>';
     });
     el.innerHTML=h;
+    reflow();
   }
   // 기다리는 에이전트가 **무엇을 묻는지** — 코크핏을 열지 않고 알아야 하는 한 가지.
   // 출처는 둘뿐이다: 터미널의 지금 화면(스크롤백 꼬리) 또는 파싱된 스트림의 마지막 말.
@@ -465,14 +525,17 @@ ${ACTIVITY_JS}
       if(tail){
         var keep=tail.split('\\n').slice(-14).join('\\n');
         box.innerHTML='<span class="qk">터미널 마지막 화면</span><pre>'+esc(keep)+'</pre>';
+        reflow();
         return;
       }
-      if(lastSaid){ box.innerHTML='<span class="qk">마지막 말</span><pre>'+esc(lastSaid.slice(0,600))+'</pre>'; return; }
+      if(lastSaid){ box.innerHTML='<span class="qk">마지막 말</span><pre>'+esc(lastSaid.slice(0,600))+'</pre>'; reflow(); return; }
       box.innerHTML='<span class="qk">pending</span><div class="unk">무엇을 묻는지 읽지 못했습니다 \\u2014 터미널을 열어 확인하세요</div>';
+      reflow();
     }).catch(function(){
       if(sel!==runId) return;
       var box=$('hudDetail').querySelector('[data-role=qbox]'); if(!box) return;
       box.innerHTML='<span class="qk">pending</span><div class="unk">무엇을 묻는지 읽지 못했습니다 \\u2014 터미널을 열어 확인하세요</div>';
+      reflow();
     });
   }
   function loadTail(runId){
@@ -482,19 +545,22 @@ ${ACTIVITY_JS}
       if(d&&d.ok&&String(d.text||'').trim()){
         el.textContent=String(d.text).replace(/\\s+$/,'').split('\\n').slice(-30).join('\\n');
       } else el.textContent=(d&&d.text)||'터미널 화면을 읽지 못했습니다';
+      reflow();
     }).catch(function(){
       if(sel!==runId) return;
       var el=$('hudDetail').querySelector('[data-role=tail]'); if(el) el.textContent='터미널 화면을 읽지 못했습니다';
+      reflow();
     });
   }
   function loadDiff(runId){
     var el=$('hudDetail').querySelector('[data-role=ddiff]'); if(!el) return;
-    el.hidden=false; el.textContent='Loading\\u2026';
+    el.hidden=false; el.textContent='Loading\\u2026'; reflow();
     fetch('/api/runs/'+runId+'/diff').then(function(x){ return x.json(); }).then(function(d){
       if(sel!==runId) return;
       if(d&&d.ok) el.textContent=String((d.stat?d.stat+'\\n\\n':'')+(d.diff||'')).split('\\n').slice(0,60).join('\\n')||'변경 없음';
       else el.textContent=(d&&d.stat)||'worktree 가 없어 diff 를 볼 수 없습니다';
-    }).catch(function(){ if(sel===runId) el.textContent='diff 를 가져오지 못했습니다'; });
+      reflow();
+    }).catch(function(){ if(sel===runId){ el.textContent='diff 를 가져오지 못했습니다'; reflow(); } });
   }
 
   // ── 행동 — 전부 이미 있는 창구다(새로 생긴 것은 input 하나뿐) ───────────
@@ -573,7 +639,8 @@ ${ACTIVITY_JS}
     }
     btn.dataset.armed='1';
     btn.textContent='정말 삭제? (폴더는 보존)';
-    setTimeout(function(){ if(btn&&btn.dataset.armed==='1'){ btn.dataset.armed=''; btn.textContent='삭제'; } }, 4000);
+    reflow();                 // 버튼이 길어지면 줄이 한 칸 늘 수 있다 — 창도 같이 따라간다
+    setTimeout(function(){ if(btn&&btn.dataset.armed==='1'){ btn.dataset.armed=''; btn.textContent='삭제'; reflow(); } }, 4000);
   }
 
   // ── 클릭 위임 ────────────────────────────────────────────────────────

@@ -8,5 +8,8 @@ contextBridge.exposeInMainWorld('coxpitHud', {
     state: String((want && want.state) || 'pill'),
     w: Number(want && want.w) || 0,
     h: Number(want && want.h) || 0,
+    // 이 높이가 **내용을 재서 나온 것**인가. 그렇다면 창은 기본 높이 대신 이 값으로 연다
+    // (사람이 손으로 끈 크기가 저장돼 있으면 그쪽이 이긴다 — 그 판단도 메인 프로세스 몫이다).
+    fit: !!(want && want.fit),
   }),
 });

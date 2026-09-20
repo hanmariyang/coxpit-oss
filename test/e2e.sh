@@ -3258,7 +3258,7 @@ case "$HUD" in *'--mono:ui-monospace'*) : ;; *) fail "the hud is a mono instrume
 # 서빙된 /hud 에 이모지가 없어야 한다(게이트 확장 — 코크핏·로그인과 같은 규칙).
 if printf '%s' "$HUD" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "the hud contains emoji — use monochrome glyphs (design system)"; fi
 # 배치 세 상태 = 데스크톱이 나중에 창 크기를 맞출 때 읽어 갈 자리. 여기서 창을 만지지는 않는다.
-case "$HUD" in *'<html lang="en" data-hud="pill">'*'html[data-hud="pill"] #panel{display:none}'*'html[data-hud="detail"] .panel{max-width:570px}'*) : ;; *) fail "the hud must carry pill|list|detail as in-page layout states on <html data-hud> (the desktop resize hook)";; esac
+case "$HUD" in *'<html lang="en" data-hud="pill">'*'html[data-hud="pill"] #panel{display:none}'*'html[data-hud="detail"] .hlist{width:240px;flex:none}'*) : ;; *) fail "the hud must carry pill|list|detail as in-page layout states on <html data-hud> (the desktop resize hook), with detail as a two-pane master-detail";; esac
 case "$HUD" in *"document.documentElement.setAttribute('data-hud', next);"*) : ;; *) fail "the layout state must be reflected on <html> so the desktop window can read the wanted size later";; esac
 # 창이 생긴 뒤에도 페이지는 Electron 을 **직접** 만지지 않는다 — 통로는 preload 가 심은 다리 하나뿐이다.
 case "$HUD" in *'BrowserWindow'*|*'globalShortcut'*|*'ipcRenderer'*) fail "the served page must never reach for Electron directly — the only channel is the preload bridge (window.coxpitHud)";; *) : ;; esac
@@ -3350,14 +3350,16 @@ pass "v5.28 K: DESIGN.md carries the HUD components and the touched sources stay
 # 마커는 전부 **파일 순서대로**다.
 DHUD=$(cat "$ROOT/desktop/main.cjs")
 case "$DHUD" in *'globalShortcut, screen } = require('"'"'electron'"'"')'*) : ;; *) fail "desktop/main.cjs must import globalShortcut + screen from electron (built-ins only, no new deps)";; esac
-# 세 번째 창 = 프레임 없고 · 투명하고 · 늘 위에 있고 · 크기 고정이고 · **그림자가 없다**.
+# 세 번째 창 = 프레임 없고 · 투명하고 · 늘 위에 있고 · **그림자가 없다**.
 # hasShadow 를 켜면 투명 창 바깥에 OS 가 네모 그림자를 덧그려서 둥근 알약이 사각형으로 보인다.
-case "$DHUD" in *'async function createHudWindow()'*'frame: false, transparent: true'*'hasShadow: false,'*'resizable: false,'*"preload: path.join(__dirname, 'preload-hud.cjs')"*) : ;; *) fail "the HUD window must be a frameless, transparent, non-resizable, shadowless BrowserWindow with its own preload";; esac
+# 크기는 **고정이 아니다**(v6.4 재설계): 알약으로 시작하니 처음만 잠겨 있고, 상태마다 풀렸다 잠긴다.
+case "$DHUD" in *'async function createHudWindow()'*'frame: false, transparent: true'*'hasShadow: false,'*'resizable: false,'*"preload: path.join(__dirname, 'preload-hud.cjs')"*) : ;; *) fail "the HUD window must be a frameless, transparent, shadowless BrowserWindow (locked at the pill size it starts in) with its own preload";; esac
 case "$DHUD" in *"hud.setAlwaysOnTop(true, 'floating');"*) : ;; *) fail "the HUD window must float above everything ('floating' level)";; esac
 case "$DHUD" in *"await hud.loadURL(originURL(HUD_PATH));"*) : ;; *) fail "the HUD must load the daemon's own /hud on the SAME origin as the main window (shared auth cookie + WS)";; esac
 # 떠 있기만 할 때는 **포커스를 뺏지 않는다** — 불러낸 것이 사용자일 때만 focus 한다.
 case "$DHUD" in *'hud.showInactive();'*) : ;; *) fail "ambient repaints must use showInactive() — the HUD never steals the frontmost app's focus";; esac
-case "$DHUD" in *'const HUD_SIZES = { pill:'*'list:'*'detail:'*) : ;; *) fail "the three fixed HUD sizes (pill/list/detail) must live in the main process";; esac
+# 크기 표는 **기본값 + 최소값**이다(고정 높이 표가 아니다 — 그 시절의 창은 내용보다 훨씬 컸다).
+case "$DHUD" in *'const HUD_SIZES = {'*'pill: { w:'*'list: { w:'*'detail: { w:'*) : ;; *) fail "the HUD size table (pill/list/detail defaults) must live in the main process";; esac
 # 크기 통로: 페이지가 말하고, **창을 만지는 것은 메인 프로세스다**. 보낸 쪽이 HUD 창인지도 확인한다.
 case "$DHUD" in *'hud.setBounds({ x, y, width: w, height: h });'*"ipcMain.on('hud:size'"*'e.sender !== hud.webContents'*) : ;; *) fail "hud:size must be guarded to the HUD's own webContents and applied with setBounds by the main process";; esac
 # 자리는 화면마다 기억한다(멀티 모니터는 실제 상황이다) — workArea 로 물려서 화면 밖으로 나가지 않는다.
@@ -3566,6 +3568,62 @@ for P in $PKG_PRELOADS; do
     || fail "packaging guard: main.cjs loads preload '$P' but desktop/package.json build.files does not ship it — in the .app that preload is missing and its bridge (window.coxpitHud) is undefined"
 done
 pass "packaging guard: every preload desktop/main.cjs references exists and is shipped by electron-builder build.files ($(echo $PKG_PRELOADS | tr '\n' ' '))"
+
+# ══ HUD 재설계 — 창은 **내용을 따르고**, 사람은 창을 이기고, 어떤 줄도 접히지 않는다 ═══════
+# K1/K2 가 창을 세웠다면 여기는 그 창의 **크기와 글자**에 대한 계약이다. 되돌아가면 조용히 깨지는 것들:
+#   ① 카드가 창을 채우지 않으면 남는 자리가 투명한 채로 그 아래 것의 클릭을 먹는다(보이지 않아 진단도 안 된다).
+#   ② fit 을 안 보내면 창은 다시 고정 높이로 열리고, 내용보다 한참 큰 판이 늘 떠 있게 된다.
+#   ③ 사람이 끈 크기를 기억하지 않으면 "크기 조절도 안 되는" 그 창으로 돌아간다.
+#   ④ 글자가 다시 작아지면 한눈에 읽으라고 띄운 판을 들여다봐야 한다.
+#   ⑤ 헤더·행이 접히면 250px 짜리 판이 두 줄로 깨진다(처음 이 일을 부른 증상이다).
+# 마커는 **파일 순서대로**다.
+HUDF=$(curl -s "$B/hud")
+# (a) 카드 = 뷰포트. 우리 안에서 스크롤하고, 바깥에 빈 창을 남기지 않는다.
+case "$HUDF" in *'html,body{height:100%'*) : ;; *) fail "the hud page must fill its window (html,body{height:100%}) — a card floating in a bigger transparent window is a dead click zone";; esac
+case "$HUDF" in *'.panel{width:100%;height:100%;min-height:0;display:flex;flex-direction:column;'*) : ;; *) fail "the hud card must fill the viewport (width/height 100%), not sit at a fixed max-width inside it";; esac
+case "$HUDF" in *'max-width:250px'*|*'max-height:calc(100vh'*) fail "the old fixed card cage is back — the card follows the window and the window follows the content";; *) : ;; esac
+case "$HUDF" in *'.hlist{width:100%;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;'*) : ;; *) fail "the list region must take the leftover height and scroll INSIDE the card (flex:1 + min-height:0)";; esac
+case "$HUDF" in *'html[data-hud="detail"] .hlist{width:240px;flex:none}'*'.hdetail{flex:1;min-width:0;'*) : ;; *) fail "detail must be two panes — a fixed 240px list column and a flexible pane that can shrink (min-width:0)";; esac
+# (b) 페이지는 자기 내용을 **재서** 말한다. 다리가 없으면(브라우저) 여전히 아무 일도 없다.
+case "$HUDF" in *'function contentH(el)'*'function fitHeight()'*) : ;; *) fail "the page must measure the height it wants (fitHeight) rather than repeat a fixed table";; esac
+# scrollHeight 는 clientHeight 아래로 내려가지 않는다 — 그걸로 재면 창은 자랄 줄만 알고 **줄 줄은 모른다**.
+case "$HUDF" in *'.scrollHeight'*) fail "fitHeight must not measure with scrollHeight — it never drops below clientHeight, so the window could grow but never shrink back";; *) : ;; esac
+case "$HUDF" in *'fit=true;'*'api.size({state:next, w:w, h:h, fit:fit});'*) : ;; *) fail "reportSize must send fit:true for list/detail so the window opens at the content height";; esac
+case "$HUDF" in *"var api=window.coxpitHud;"*"if(!api||typeof api.size!=='function') return;"*) : ;; *) fail "the fit report must stay guarded on the bridge's existence — /hud still runs standing alone in a browser";; esac
+case "$HUDF" in *'function reflow()'*) : ;; *) fail "growth/shrink after the first render (a late terminal tail, a fold opening) must be re-reported";; esac
+# (c) 창 쪽 — 상태별 최소 크기 · 크기 조절 토글 · 사람이 끈 크기 저장 · 저장된 크기가 fit 을 이긴다.
+DHUDF=$(cat "$ROOT/desktop/main.cjs")
+case "$DHUDF" in *'min: { w: 280, h: 200 }'*'min: { w: 520, h: 320 }'*) : ;; *) fail "list/detail must carry per-state minimum sizes (the window can be dragged small, but not to nothing)";; esac
+case "$DHUDF" in *'Math.round(wa.height * 0.7)'*) : ;; *) fail "the HUD must never grow past ~70% of the display workArea — an always-on-top panel does not own the screen";; esac
+case "$DHUDF" in *"hud.setResizable(hudState !== 'pill');"*) : ;; *) fail "the HUD must be resizable in list/detail and locked in pill (setResizable per state)";; esac
+# 순서까지 못박는다 — 이전 상태의 최소/최대가 남아 있어 그냥 주면 한쪽이 다른 쪽을 막는다.
+case "$DHUDF" in *'hud.setMinimumSize(1, 1);'*'hud.setMaximumSize(cap.w, cap.h);'*'hud.setMinimumSize(floor.w, floor.h);'*) : ;; *) fail "the per-state bounds must be enforced with setMinimumSize/setMaximumSize, released before they are re-applied (a stale limit from the previous state blocks the new one)";; esac
+case "$DHUDF" in *'function rememberHudSize()'*'if (!hudAlive() || hudSizing) return;'*) : ;; *) fail "only a USER resize may be persisted — remembering our own setBounds would freeze the first fit forever";; esac
+case "$DHUDF" in *"hud.on('will-resize', () => { if (!hudSizing) hudUserResizeAt = Date.now(); });"*"hud.on('resized', rememberHudSize);"*) : ;; *) fail "the user's manual resize must be persisted (hud.size[state] in desktop-state.json) and must not be fought mid-drag by a content report";; esac
+case "$DHUDF" in *'if (!changing && Date.now() - hudUserResizeAt < 700) return;'*) : ;; *) fail "a fit report must stand down while the person is dragging the window (only a layout change overrides)";; esac
+case "$DHUDF" in *'} else if (saved) {'*'want && want.fit ? want.h : base.h'*) : ;; *) fail "a saved user size must win over the page's reported fit height (and fit must win over the default)";; esac
+# (d) 글자 래칫 — 이 판은 **한눈에** 읽는 것이다. 10.5px 아래는 없다.
+HUD_TYPE=$(node -e '
+const s=require("fs").readFileSync(process.argv[1]+"/src/hud.ts","utf8");
+const bad=[]; let m; const rx=/font-size:\s*([0-9.]+)px/g;
+while((m=rx.exec(s))) if(Number(m[1])<10.5) bad.push(m[1]+"px");
+console.log(bad.length?bad.join(" "):"TYPE_OK");
+' "$ROOT")
+case "$HUD_TYPE" in TYPE_OK) : ;; *) fail "type ratchet: src/hud.ts carries font sizes below 10.5px ($HUD_TYPE) — a glanceable always-on-top panel has no fine print";; esac
+# (e) 한 줄 규칙 — 헤더는 언제나 한 줄이고(꼬리=idle 부터 잘린다), 행의 칸들도 저마다 한 줄이다.
+case "$HUDF" in *'.lead{flex:none;'*'.subs{flex:1 1 auto;min-width:0;'*'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the header summary must ellipsize in place (flex:1, min-width:0, nowrap) instead of wrapping to a second line";; esac
+case "$HUDF" in *'font-size:13px;color:var(--muted);white-space:nowrap}'*) : ;; *) fail "the row itself must be nowrap";; esac
+case "$HUDF" in *'.row .rn{flex:0 1 auto;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the row name must shrink and ellipsize (never a % cap that crowds at narrow widths)";; esac
+case "$HUDF" in *'.row .rp{flex:1 1 0;min-width:0;'*'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the row path must take the leftover width and ellipsize";; esac
+case "$HUDF" in *'.row .rel{flex:none;'*) : ;; *) fail "the elapsed time must never be pushed out of the row (flex:none)";; esac
+case "$HUDF" in *'max-width:46%'*) fail "the old 46% name cap is back — it crowds the row instead of letting the name ellipsize";; *) : ;; esac
+# 접히는 것은 **에이전트가 내놓은 글** 하나뿐이고, 그것도 높이를 물린 채다.
+case "$HUDF" in *'.d-q pre{'*'white-space:pre-wrap;word-break:break-word;'*'max-height:min(40vh,260px);overflow:auto}'*) : ;; *) fail "the question/output pre is the only thing allowed to wrap, and it must be height-capped with its own scroll";; esac
+case "$HUDF" in *'.d-meta{'*'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the detail meta line must stay a single ellipsized line";; esac
+# (f) 다리는 fit 까지 실어 나른다 — 그 다리가 .app 에 안 들어가면 창은 다시 알약에서 안 큰다(위 패키징 가드).
+PHUDF=$(cat "$ROOT/desktop/preload-hud.cjs")
+case "$PHUDF" in *'fit: !!(want && want.fit),'*) : ;; *) fail "the size bridge must normalize and forward the fit flag (the main process cannot tell a measured height from a default without it)";; esac
+pass "hud redesign: the window follows the content (fit + per-state min/max, 70% cap), the person overrides the window (saved user size wins), type is >=10.5px, and only the agent's own output wraps"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

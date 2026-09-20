@@ -294,15 +294,25 @@ async function createWindow() {
 //   ② 프레임·그림자가 없다 — 투명 창에 OS 가 덧그리는 네모 그림자는 알약을 사각형으로 만든다.
 //   ③ 크기를 **페이지가 요청하고 메인 프로세스가 준다**(창을 만지는 것은 언제나 이쪽이다).
 const HUD_PATH = '/hud';
-// 세 가지 고정 크기 = 페이지의 세 배치 상태. 페이지도 같은 표를 들고 있고, 여기서 화면에 맞춰 물린다.
-// (알약 120x26 · 목록 250 · 상세 570 + 페이지 자신의 6px 여백. 페이지가 잰 값을 보내오면 그쪽이 이긴다.)
-const HUD_SIZES = { pill: { w: 132, h: 38 }, list: { w: 262, h: 380 }, detail: { w: 582, h: 440 } };
+// 크기 표 = **기본값과 최소값**이지 고정값이 아니다. 늘 위에 떠 있는 판은
+// 보여줄 것만큼만 커야 하고(그 이상은 투명한 채로 클릭만 먹는 죽은 자리다),
+// 온종일 그것을 보는 사람이 결국 모양을 정할 수 있어야 한다. 그래서 순서는 셋이다:
+//   ① 알약 — 페이지가 잰 그대로, 크기 조절 불가.
+//   ② 목록·상세 — 페이지가 잰 **내용 높이**(fit)로 열리고 화면의 70% 를 넘지 않는다.
+//   ③ 사람이 창을 끌었다면 그 크기가 저장되고, 그 상태에서는 그쪽이 언제나 이긴다.
+const HUD_SIZES = {
+  pill: { w: 140, h: 42, min: { w: 140, h: 42 } },
+  list: { w: 320, h: 260, min: { w: 280, h: 200 } },
+  detail: { w: 680, h: 400, min: { w: 520, h: 320 } },
+};
 // 맥의 노치·메뉴바는 workArea 가 이미 빼 준다 — 여기 여백은 그 아래로 한 뼘 더 내리는 값이다.
 const HUD_TOP_GAP = 8;
 const HUD_ACCELS = ['CommandOrControl+Shift+\\', 'CommandOrControl+Shift+H', 'CommandOrControl+Alt+Space', 'Alt+Space'];
 const HUD_DEFAULT_ACCEL = HUD_ACCELS[0];
 let hudState = 'pill';       // 페이지가 마지막으로 알려 온 배치 상태
 let hudAccel = null;         // 지금 실제로 등록돼 있는 단축키(없으면 null)
+let hudSizing = false;       // 우리가 건 setBounds 가 도는 중 — 사람의 손과 구분한다(그 크기는 기억하지 않는다)
+let hudUserResizeAt = 0;     // 사람이 마지막으로 창을 끈 시각 — 끄는 도중에 setBounds 로 되받아치지 않는다
 let quitting = false;
 
 // 데스크톱 전용 설정 — 데몬 DB 가 아니라 Electron userData 에 둔다(데몬은 이걸 몰라도 된다).
@@ -361,18 +371,72 @@ function placeHudOnCursorDisplay() {
 
 // ── 크기: 페이지가 원하는 것을 말하고, 여기서 화면에 맞춰 준다 ────────────────────
 // 같은 모서리에서 자란다 — 지금 x/y 를 그대로 두고 폭·높이만 바꾼 뒤 workArea 로 물린다.
+// 화면이 허락하는 최대 — 높이는 workArea 의 **70%**(늘 위에 뜨는 판이 화면을 다 먹어서는 안 된다),
+// 폭은 가장자리 여백만 뺀다. 최소값보다 작아지는 일은 없다(작은 화면에서도 뒤집히지 않게).
+function hudMaxFor(wa, min) {
+  return {
+    w: Math.max(min.w, Math.round(wa.width) - 24),
+    h: Math.max(min.h, Math.round(wa.height * 0.7)),
+  };
+}
+function savedHudSize(state) {
+  const s = (store().hud.size || {})[state];
+  if (!s) return null;
+  const w = Math.round(Number(s.w)), h = Math.round(Number(s.h));
+  return Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0 ? { w, h } : null;
+}
+// **사람이 끈 크기만** 기억한다. 우리가 준 크기까지 저장하면 첫 fit 이 그대로 굳어
+// 그다음부터는 내용이 자라도 창이 따라가지 않는다 — 그러면 이 재설계가 없느니만 못해진다.
+function rememberHudSize() {
+  if (!hudAlive() || hudSizing) return;
+  if (hudState === 'pill') return;            // 알약은 고정이라 기억할 크기가 없다
+  const b = hud.getBounds();
+  const sizes = store().hud.size || (store().hud.size = {});
+  sizes[hudState] = { w: b.width, h: b.height };
+  saveStore();
+}
 function applyHudSize(state, want) {
   if (!hudAlive()) return;
+  // 페이지는 내용이 자랄 때마다 크기를 말한다 — 그 보고가 **사람이 끌고 있는 창**을 되받아쳐서는 안 된다.
+  // 배치가 바뀌는 순간(알약↔목록↔상세)만은 예외다: 그건 사용자가 시킨 전환이지 보고가 아니다.
+  const changing = !!HUD_SIZES[state] && state !== hudState;
+  if (!changing && Date.now() - hudUserResizeAt < 700) return;
   if (HUD_SIZES[state]) hudState = state;
   const base = HUD_SIZES[hudState] || HUD_SIZES.pill;
   const b = hud.getBounds();
   let wa;
   try { wa = screen.getDisplayMatching(b).workArea; } catch { wa = { x: b.x, y: b.y, width: 1280, height: 800 }; }
-  const w = clampInt(want && want.w, 80, Math.min(900, wa.width), base.w);
-  const h = clampInt(want && want.h, 22, Math.max(120, wa.height - 16), base.h);
+  const min = base.min;
+  const max = hudMaxFor(wa, min);
+  // 사람이 정한 크기 > 페이지가 잰 크기(fit) > 기본값. 알약만은 늘 잰 값 그대로다.
+  const saved = hudState === 'pill' ? null : savedHudSize(hudState);
+  let w, h;
+  if (hudState === 'pill') {
+    w = clampInt(want && want.w, 80, Math.min(420, wa.width), base.w);
+    h = clampInt(want && want.h, 22, Math.max(120, wa.height), base.h);
+  } else if (saved) {
+    w = clampInt(saved.w, min.w, max.w, base.w);
+    h = clampInt(saved.h, min.h, max.h, base.h);
+  } else {
+    w = clampInt(want && want.w, min.w, max.w, base.w);
+    h = clampInt(want && want.fit ? want.h : base.h, min.h, max.h, base.h);
+  }
+  hudSizing = true;
+  // 크기 조절은 **상태마다 다르다** — 알약은 잰 값에 못 박히고(최소=최대), 목록·상세는 사람이 끌 수 있다.
+  try { hud.setResizable(hudState !== 'pill'); } catch { /* 플랫폼별 */ }
+  const floor = hudState === 'pill' ? { w, h } : min;
+  const cap = hudState === 'pill' ? { w, h } : max;
+  try {
+    // 순서가 중요하다. 이전 상태의 한계가 아직 걸려 있어서(알약의 최대 42px, 목록의 최소 200px)
+    // 곧바로 새 값을 주면 한쪽이 다른 쪽을 막는다 — 먼저 최소를 풀고, 최대를 주고, 최소를 올린다.
+    hud.setMinimumSize(1, 1);
+    hud.setMaximumSize(cap.w, cap.h);
+    hud.setMinimumSize(floor.w, floor.h);
+  } catch { /* 플랫폼별 */ }
   const x = Math.max(wa.x, Math.min(b.x, wa.x + wa.width - w));
   const y = Math.max(wa.y, Math.min(b.y, wa.y + wa.height - h));
   hud.setBounds({ x, y, width: w, height: h });
+  setTimeout(() => { hudSizing = false; }, 200);   // 우리가 낸 resize 가 다 지나간 뒤에 손을 뗀다
   // 숨김 모드에서 알약으로 접혔다 = 볼일이 끝났다 → 화면에서 내린다.
   if (hudMode() === 'hidden' && hudState === 'pill' && hud.isVisible()) hud.hide();
 }
@@ -432,6 +496,7 @@ async function createHudWindow() {
     x: p.x, y: p.y, width: HUD_SIZES.pill.w, height: HUD_SIZES.pill.h,
     frame: false, transparent: true, backgroundColor: '#00000000',
     hasShadow: false,          // 투명 창의 OS 그림자는 알약 바깥에 네모로 번진다 — 끈다
+    // 알약으로 시작하니 처음엔 고정이다. 목록·상세로 가면 applyHudSize 가 setResizable(true) 로 풀어 준다.
     resizable: false, movable: true, minimizable: false, maximizable: false, fullscreenable: false,
     skipTaskbar: true, focusable: true, show: false, title: 'Coxpit HUD',
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'preload-hud.cjs') },
@@ -457,6 +522,8 @@ async function createHudWindow() {
     openInMainWindow(url);
   });
   hud.on('moved', rememberHudPos);
+  hud.on('will-resize', () => { if (!hudSizing) hudUserResizeAt = Date.now(); });   // 끄는 중 — 손을 대지 않는다
+  hud.on('resized', rememberHudSize);   // 사람이 끈 크기는 **그 상태의 크기**로 남는다(다음부터 fit 을 이긴다)
   hud.on('blur', () => { if (!quitting && hudMode() === 'hidden') hideHud(); });
   hud.on('closed', () => { hud = null; });
 
