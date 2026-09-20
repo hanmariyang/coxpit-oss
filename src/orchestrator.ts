@@ -824,7 +824,7 @@ export async function getSessionChat(runId: number, maxTurns = 200): Promise<{
   const cands = encoded.filter((d, i) => encoded.indexOf(d) === i);
   if (!cands.length) return { ok: false, turns: [], note: 'no session' };
   // 후보를 순서대로 훑어 **처음 걸린** 폴더의 최신 .jsonl (페인 cwd 우선, worktree 폴백)
-  const cmd = `f=''; for d in ${cands.map((d) => shq(d)).join(' ')}; do c=$(ls -t "$HOME/.claude/projects/$d"/*.jsonl 2>/dev/null | head -1); if [ -n "$c" ]; then f="$c"; break; fi; done; [ -n "$f" ] && tail -n 8000 "$f" || true`;
+  const cmd = `f=''; for d in ${cands.map((d) => shq(d)).join(' ')}; do c=$(ls -t "$HOME/.claude/projects/$d"/*.jsonl 2>/dev/null | head -1); if [ -n "$c" ]; then f="$c"; break; fi; done; [ -n "$f" ] && tail -c 2000000 "$f" || true`;
   const r = await runShellOn(info.machine, cmd, 15000);
   if (!r.ok) return { ok: true, turns: [], note: 'no transcript' };
   if (!r.stdout.trim()) return { ok: true, turns: [], note: 'no Claude Code transcript for this folder' };
@@ -914,7 +914,7 @@ export async function sendRunInput(runId: number, text: string): Promise<{ ok: b
 export async function getRunPwd(runId: number): Promise<{ ok: boolean; pwd: string }> {
   const info = await getRunTermInfo(runId);
   if (!info) return { ok: false, pwd: '' };
-  const t = shq('=' + info.session);
+  const t = shq(info.session);
   const cmd = `tmux display -p -t ${t} '#{pane_current_path}' 2>/dev/null || tmux list-panes -s -t ${t} -F '#{pane_current_path}' 2>/dev/null | head -1`;
   const r = await runShellOn(info.machine, cmd, 8000);
   const pwd = ((r.stdout || '').split('\n')[0] || '').trim();
