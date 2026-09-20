@@ -1408,13 +1408,28 @@ case "$ORCHSRC" in *'export const TMUX_HISTORY_LIMIT = 100000'*'export function 
 grep -qF 'tmuxNewSession(`-d -s ${shq(info.session)}' src/server.ts || fail "v6.4 fix: the terminal WS revive path must also create its tmux via tmuxNewSession"
 case "$(cat src/orchestrator.ts src/server.ts)" in *'&& tmux new-session'*|*'; tmux new-session'*) fail "v6.4 fix: a raw tmux new-session is left — it would come up with the 2000-line default";; *) : ;; esac
 # (1b) getScrollback 은 히스토리 전체(-S -)를 뜨고 꼬리만 자른다. 대체 화면(TUI) 한계는 주석으로 남긴다
-case "$ORCHSRC" in *'export async function getScrollback'*'Math.min(TMUX_HISTORY_LIMIT'*'capture-pane -t ${shq(info.session)} -p -S -`'*'all.slice(-n)'*) : ;; *) fail "v6.4 fix: getScrollback must capture the ENTIRE history (capture-pane -S -) and trim to the tail in node";; esac
+case "$ORCHSRC" in *'export async function getScrollback'*'Math.min(TMUX_HISTORY_LIMIT'*'capture-pane -t ${shq(info.session)} -p -J -S -`'*'all.slice(-n)'*) : ;; *) fail "v6.4 fix: getScrollback must capture the ENTIRE history (capture-pane -S -) and trim to the tail in node";; esac
 case "$ORCHSRC" in *'-p -S -${n}'*) fail "v6.4 fix: the old -S -N capture range is back";; *) : ;; esac
 case "$ORCHSRC" in *'대체 화면'*'export async function getScrollback'*) : ;; *) fail "v6.4 fix: document the alternate-screen (full-screen TUI) scrollback limit at getScrollback";; esac
 # (2) 폰·터치에선 뷰어가 화면 전체 — 데스크톱 크기는 CSS 로 옮겨(인라인이면 !important 없이 못 덮는다) 가운데 팝업 유지
 case "$CKPT" in *'.hist-pick{position:relative;width:min(680px,96vw);max-height:88vh}'*'.hist-lines,.hist-chat{min-height:0}'*'body.touch #histModal .hist-pick{position:fixed;inset:0;width:100%;max-width:100%;height:100%;max-height:100%;border:0;border-radius:0;padding:env(safe-area-inset-top)'*'@media (max-width:860px){'*'#histModal .hist-pick{position:fixed;inset:0;width:100%;max-width:100%;height:100%;max-height:100%;border:0;border-radius:0;padding:env(safe-area-inset-top)'*'<div class="pick hist-pick">'*) : ;; *) fail "v6.4 fix: viewer must fill the screen on touch / <=860px (inset:0 · height:100% · border-radius:0 · safe-area) and stay a centered popup on desktop";; esac
 case "$CKPT" in *'class="pick hist-pick" style='*) fail "v6.4 fix: the viewer's size must not be inline (mobile CSS cannot override it)";; *) : ;; esac
 pass "v6.4 fix: tmux sessions born with history-limit 100000 (one helper, every creation path) · scrollback = full history (-S -) tail-trimmed · viewer full-screen on phone/touch, popup on desktop"
+
+# v6.4 2차 — 폰에서 **claude 세션을 실제로 읽는다**. 세 가지가 막고 있었다.
+# (1) 대화 탭이 비어 있었다: 대본 폴더를 worktreePath 로 찾았는데, claude 는 **자기 cwd** 를
+#     [^a-zA-Z0-9]→'-' 로 인코딩해 ~/.claude/projects 밑에 쌓는다. 루트·메인 세션은 worktreePath 가 아예 비고,
+#     사람이 cd 하면 worktree 루트는 claude 의 cwd 가 아니다 → 기준은 페인의 #{pane_current_path}(getRunPwd).
+case "$ORCHSRC" in *'export async function getSessionChat'*'getRunPwd(runId)).pwd'*'pane_current_path'*'.claude/projects/$d'*) : ;; *) fail "v6.4 2차: getSessionChat must resolve the transcript folder from the pane's real cwd (#{pane_current_path} via getRunPwd), with worktreePath only as the fallback";; esac
+case "$ORCHSRC" in *'!info || !run || !run.worktreePath'*) fail "v6.4 2차: getSessionChat must not bail on a blank worktreePath — a root session has none and still has a real cwd (that is why the chat tab was empty)";; *) : ;; esac
+# (2) 터미널 탭이 단어 중간에서 끊겼다("Internal Solutio / n %") — capture-pane 이 **디스플레이 행**을 준다. -J 가 논리적 줄로 도로 붙인다.
+case "$ORCHSRC" in *'capture-pane -t ${shq(info.session)} -p -J -S -`'*) : ;; *) fail "v6.4 2차: getScrollback must join wrapped lines (capture-pane -J) — without it the phone reads mid-word breaks";; esac
+# (3) 열어둔 탭이 새로고침·데몬 재시작에 사라졌다: 세션 스냅샷은 '페인에 보이던' 탭만 담는다(폰은 페인 하나).
+#     탭 바를 따로 기억해서(coxpit.opentabs), 플릿에 **아직 살아있는** run 만 전부 되살린다(없어진 것은 건너뛴다).
+case "$CKPT" in *'persistOpenTabs();   // 포커스 이동'*"'coxpit.opentabs'"*'function persistOpenTabs'*'function restoreOpenTabs'*'MAX_RESTORE_TABS'*'!rid || tabs[rid] || !runById[rid]'*'restoreOpenTabs();   // 스냅샷'*) : ;; *) fail "v6.4 2차: the cockpit must persist the open tab set (coxpit.opentabs) and reopen every tab whose run still exists in the fleet";; esac
+# (4) 터미널 탭은 대체 화면 한계를 화면에서 직접 말한다 — 빈 캡처를 '고장'으로 읽지 않게, 갈 곳(대화 탭)까지.
+case "$CKPT" in *'.hist-note{'*'id="histAltNote"'*'전체화면 앱은 지금 화면만'*'histAltNote'*) : ;; *) fail "v6.4 2차: the 터미널 tab needs the faint alt-screen note pointing at the 대화 tab";; esac
+pass "v6.4 2차: chat resolves via the pane's own cwd (root sessions included) · scrollback joins wrapped lines (-J) · open tabs survive a reload · alt-screen note is honest"
 
 # board (the landing screen) gets the mobile app-lock; Cockpit link is a ghost icon button (matches bell/remote)
 case "$BOARD_HTML" in *'user-scalable=no'*) : ;; *) fail "board mobile viewport zoom-lock missing";; esac
