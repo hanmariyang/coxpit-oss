@@ -300,10 +300,12 @@ const HUD_PATH = '/hud';
 //   ① 알약 — 페이지가 잰 그대로, 크기 조절 불가.
 //   ② 목록·상세 — 페이지가 잰 **내용 높이**(fit)로 열리고 화면의 70% 를 넘지 않는다.
 //   ③ 사람이 창을 끌었다면 그 크기가 저장되고, 그 상태에서는 그쪽이 언제나 이긴다.
+// (v6.3.9) 기본·최소가 한 단 올라갔다 — 의뢰자의 화면은 3840x2160 을 1x 로 쓴다.
+// 거기서는 예전 320/680 이 "펼쳐도 작은" 판이었고, 글자 단을 올린 지금은 더 그렇다.
 const HUD_SIZES = {
-  pill: { w: 140, h: 42, min: { w: 140, h: 42 } },
-  list: { w: 320, h: 260, min: { w: 280, h: 200 } },
-  detail: { w: 680, h: 400, min: { w: 520, h: 320 } },
+  pill: { w: 140, h: 44, min: { w: 140, h: 44 } },
+  list: { w: 340, h: 300, min: { w: 300, h: 240 } },
+  detail: { w: 740, h: 460, min: { w: 560, h: 360 } },
 };
 // 맥의 노치·메뉴바는 workArea 가 이미 빼 준다 — 여기 여백은 그 아래로 한 뼘 더 내리는 값이다.
 const HUD_TOP_GAP = 8;
@@ -443,6 +445,12 @@ function applyHudSize(state, want) {
 ipcMain.on('hud:size', (e, want) => {
   if (!hudAlive() || e.sender !== hud.webContents) return;   // HUD 창만이 자기 크기를 말할 수 있다
   applyHudSize(String((want && want.state) || ''), want || {});
+});
+// 머리의 x — **치웠다**는 것은 잠깐 접은 것이 아니라 "지금은 보고 싶지 않다"는 뜻이다.
+// 그래서 모드까지 hidden 으로 못 박는다(다시 켤 때 알약이 혼자 돌아오지 않게). 돌아오는 문은 단축키 하나다.
+ipcMain.on('hud:hide', (e) => {
+  if (!hudAlive() || e.sender !== hud.webContents) return;   // HUD 창만이 자기를 치울 수 있다
+  setHudMode('hidden');                                      // applyHudMode -> hideHud, 메뉴 라디오까지 같이 따라간다
 });
 
 // ── 페이지에 한 걸음 시키기 ────────────────────────────────────────────────

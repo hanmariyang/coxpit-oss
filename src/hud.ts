@@ -14,12 +14,20 @@
 // 크기의 규칙 하나: **카드가 창을 채우고, 창은 내용을 따른다.** 예전에는 창이 고정 높이(380·440)라
 // 내용보다 훨씬 컸고, 남는 자리는 투명해서 보이지도 않으면서 그 아래 것의 클릭을 먹었다.
 // 이제 목록·상세는 자기 내용 높이를 재서 보내고(fit), 그 위에서 **사람이 끈 크기가 언제나 이긴다**.
-// 그리고 어떤 줄도 두 줄로 접히지 않는다 — 접히는 것은 에이전트가 한 말(.d-q pre · .d-tail)뿐이다.
+// 그리고 어떤 줄도 두 줄로 접히지 않는다 — 접히는 것은 에이전트가 한 말(.d-q pre · .d-tail · .d-chat)뿐이다.
 // 보이는데 열리지 않는 알약은 없느니만 못하다 — 눌러서 펼쳐져야 하고 그러면서도 끌어 옮길 수 있어야 하니,
 // drag 영역과 클릭 대상은 같은 요소일 수 없다: 알약은 눌리고, 창은 알약 안의 홈(.pgrip)으로 옮긴다.
 //
+// 온종일 띄워 두는 판이라 **편하게 읽혀야 하고, 못 하는 일은 못 한다고 말해야 하고, 치울 수 있어야 한다.**
+// 그래서 이 판의 네 가지 규칙:
+//   ① 글자는 12px 아래로 내려가지 않는다(대문자 꼬리표만 11px). 의뢰자의 화면은 3840x2160 을 1x 로 쓴다 —
+//      13px 은 거기서 물리적으로 너무 작다. 래칫은 e2e 가 모든 font-size 를 훑어 지킨다.
+//   ② 머리에 **치우는 단추**가 있다(알약으로 접는 - 와 별개다). 되살리는 문은 전역 단축키 하나뿐.
+//   ③ steer 입력칸은 **보낼 데가 있을 때만** 선다 — 죽은 페인 위의 입력칸은 조용히 삼키는 상자였다.
+//   ④ 세션 상세는 마지막 대화를 먼저 보여준다(화면이 비어 있어도 무엇을 하던 자리인지는 남아 있다).
+//
 // 데이터는 전부 코크핏이 이미 읽는 것: GET /api/fleet(+ agentStates · real) 과 /ws 델타.
-// 새 창구는 하나뿐 — POST /api/runs/:id/input (살아 있는 tmux 에 한 줄 써 넣기, getScrollback 의 쓰기 쌍둥이).
+// 쓰는 창구는 하나뿐 — POST /api/runs/:id/input (살아 있는 tmux 에 한 줄 써 넣기, getScrollback 의 쓰기 쌍둥이).
 import { HUMANIZE_JS } from './humanize';
 import { ACTIVITY_JS } from './activity';
 
@@ -47,7 +55,8 @@ export const HUD_HTML = /* html */ `<!doctype html>
      그 실행분에서 투명 배경을 덧입힌다 — 지금은 브라우저에서 단독으로 열려도 어두워야 한다.) */
   /* 지면은 곧 창이다 — 카드가 뷰포트를 꽉 채우고, 여백은 둥근 모서리와 테두리가 살 만큼(5px)만 남긴다.
      남는 자리를 두면 그만큼이 **보이지 않는 채로 클릭만 먹는** 죽은 영역이 된다(늘 위에 뜨는 창이라 더 나쁘다). */
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13px;line-height:1.45;
+  /* 글자 기준선 14px — 한눈에 읽는 판이지 들여다보는 판이 아니다(1x 로 쓰는 4K 에서 13px 은 너무 작다). */
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;
     -webkit-font-smoothing:antialiased;overflow:hidden;display:flex;align-items:stretch;justify-content:center;padding:5px}
   button{font-family:var(--sans);cursor:pointer}
   :focus-visible{outline:2px solid rgba(78,201,176,.5);outline-offset:1px;border-radius:4px}
@@ -62,25 +71,25 @@ export const HUD_HTML = /* html */ `<!doctype html>
   html[data-hud="pill"] body{align-items:flex-start;padding:6px}
 
   /* ── K3. 접힌 알약 — 이것이 평상시의 전부다 ───────────────────────────── */
-  /* 높이 30px = 손가락·커서가 놓치지 않는 최소치. 알약은 누르라고 있는 것이니 작아서는 안 된다. */
-  .pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 13px 0 8px;border-radius:999px;
+  /* 높이 32px = 손가락·커서가 놓치지 않는 최소치. 알약은 누르라고 있는 것이니 작아서는 안 된다. */
+  .pill{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 14px 0 9px;border-radius:999px;
     background:var(--surface);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35);
-    font-family:var(--mono);font-size:12px;color:var(--muted)}
+    font-family:var(--mono);font-size:13px;color:var(--muted)}
   .pill:hover{border-color:var(--line-hi);color:var(--ink)}
   /* app-region: 프레임 없는 창(K1)에서 drag 영역은 클릭을 **삼킨다** — 창이 대신 움직인다.
      그래서 알약 자체는 no-drag(눌러서 펼치는 것이 알약의 일이고, 옮기는 일보다 훨씬 잦다)이고,
      창을 옮기는 손잡이는 알약 안의 작은 홈 하나뿐이다. 브라우저에서는 둘 다 아무 뜻도 없다. */
   .pill,.pill>*{-webkit-app-region:no-drag}
   .pill>.pgrip{-webkit-app-region:drag}
-  .pgrip{flex:none;color:var(--faint);font-family:var(--mono);font-size:10.5px;line-height:1;
+  .pgrip{flex:none;color:var(--faint);font-family:var(--mono);font-size:12px;line-height:1;
     letter-spacing:-.06em;padding:0 3px;opacity:.65;cursor:grab}
   .pill:hover .pgrip{opacity:1}
-  .pdots{display:inline-flex;align-items:center;gap:4px}
-  .pwait{color:var(--blocked);font-size:12px;letter-spacing:.02em;white-space:nowrap}
-  .pquiet{color:var(--faint);font-size:11.5px;white-space:nowrap}
+  .pdots{display:inline-flex;align-items:center;gap:5px}
+  .pwait{color:var(--blocked);font-size:13px;letter-spacing:.02em;white-space:nowrap}
+  .pquiet{color:var(--faint);font-size:12px;white-space:nowrap}
 
   /* 상태 점 — Part A 매핑 그대로(working=--running · waiting=--blocked 맥박 · idle=--faint · exited=--done) */
-  .st{width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;flex:none}
+  .st{width:8px;height:8px;border-radius:50%;background:var(--faint);display:inline-block;flex:none}
   .st.as-working{background:var(--running)}
   .st.as-waiting{background:var(--blocked);animation:aspulse 1.5s ease-in-out infinite}
   .st.as-idle{background:var(--faint)}
@@ -97,93 +106,114 @@ export const HUD_HTML = /* html */ `<!doctype html>
     box-shadow:0 8px 28px rgba(0,0,0,.35);overflow:hidden}
   /* 머리는 **언제나 한 줄**이다. 좁아지면 꼬리부터 잘리고, 꼬리에 오는 것이 가장 덜 중요한 것
      (대기 → 도는 것 → 노는 것)이라 idle 수가 맨 먼저 사라진다. 줄임표는 .subs 가 맡는다. */
-  .hh{display:flex;flex-wrap:nowrap;align-items:center;gap:7px;padding:7px 11px;border-bottom:1px solid var(--line);
-    font-family:var(--mono);font-size:12.5px;white-space:nowrap;-webkit-app-region:drag}
+  .hh{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);
+    font-family:var(--mono);font-size:14px;white-space:nowrap;-webkit-app-region:drag}
   .hh>button{-webkit-app-region:no-drag}
   .lead{flex:none;color:var(--blocked);white-space:nowrap}
   .lead.clear{color:var(--done)}
-  .subs{flex:1 1 auto;min-width:0;color:var(--faint);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hx{flex:none;background:none;border:none;color:var(--faint);font-family:var(--mono);font-size:14px;
-    line-height:1;padding:3px 6px;border-radius:5px}
+  .subs{flex:1 1 auto;min-width:0;color:var(--faint);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 머리의 단추 둘은 하는 일이 다르다 — 왼쪽(-)은 **접고**, 오른쪽(x)은 **치운다**(단축키로만 돌아온다). */
+  .hx{flex:none;background:none;border:none;color:var(--faint);font-family:var(--mono);font-size:15px;
+    line-height:1;padding:4px 7px;border-radius:5px}
   .hx:hover{color:var(--ink);background:var(--surface2)}
   .hbody{display:flex;min-height:0;flex:1}
   /* 목록은 남는 높이를 전부 먹고 **자기 안에서** 스크롤한다(flex:1 + min-height:0).
      상세일 때만 왼쪽 기둥으로 고정폭이 되고, 오른쪽이 나머지를 가진다. */
-  .hlist{width:100%;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;padding:4px 0}
-  html[data-hud="detail"] .hlist{width:240px;flex:none}
-  .hdetail{flex:1;min-width:0;min-height:0;border-left:1px solid var(--line);overflow-y:auto;padding:10px 12px;background:var(--panel)}
+  .hlist{width:100%;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;padding:5px 0}
+  html[data-hud="detail"] .hlist{width:260px;flex:none}
+  .hdetail{flex:1;min-width:0;min-height:0;border-left:1px solid var(--line);overflow-y:auto;padding:12px 14px;background:var(--panel)}
   html[data-hud="list"] .hdetail{display:none}
-  .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
-    padding:8px 12px 3px}
+  .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);
+    padding:10px 14px 4px}
   /* 행도 한 줄이다 — 이름은 제 몫만 쥐고(flex:0 1 auto), 길은 남는 폭을 먹다가 줄임표로 끝내고,
      경과 시간은 절대 밀려나지 않는다(flex:none). 폭이 좁아져도 두 줄이 되는 일은 없다. */
-  .row{display:flex;align-items:center;gap:8px;width:100%;min-height:30px;text-align:left;background:none;border:none;
-    padding:7px 12px;font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap}
+  .row{display:flex;align-items:center;gap:9px;width:100%;min-height:34px;text-align:left;background:none;border:none;
+    padding:8px 14px;font-family:var(--mono);font-size:14px;color:var(--muted);white-space:nowrap}
   .row:hover{background:var(--surface2);color:var(--ink)}
   .row.on{background:var(--brand-dim);color:var(--ink);box-shadow:inset 2px 0 0 var(--brand)}
   .row .rn{flex:0 1 auto;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .row.wait .rn{color:var(--blocked)}
-  .row .rp{flex:1 1 0;min-width:0;color:var(--faint);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .row .rel{flex:none;color:var(--faint);font-size:11px;white-space:nowrap}
-  .dryc{flex:none;font-family:var(--mono);font-size:10.5px;color:var(--faint);border:1px solid var(--line-hi);
-    border-radius:4px;padding:0 4px;letter-spacing:.04em;white-space:nowrap}
-  .cnt{display:block;width:100%;min-height:30px;text-align:left;background:none;border:none;padding:7px 12px;
-    font-family:var(--mono);font-size:12px;color:var(--faint);white-space:nowrap}
+  .row .rp{flex:1 1 0;min-width:0;color:var(--faint);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .rel{flex:none;color:var(--faint);font-size:12px;white-space:nowrap}
+  .dryc{flex:none;font-family:var(--mono);font-size:12px;color:var(--faint);border:1px solid var(--line-hi);
+    border-radius:4px;padding:0 5px;letter-spacing:.04em;white-space:nowrap}
+  .cnt{display:block;width:100%;min-height:34px;text-align:left;background:none;border:none;padding:8px 14px;
+    font-family:var(--mono);font-size:13px;color:var(--faint);white-space:nowrap}
   .cnt:hover{color:var(--ink)}
-  .clearbox{padding:12px;font-family:var(--mono);font-size:12.5px;color:var(--muted);line-height:1.6}
-  .clearbox .big{color:var(--done);display:block;margin-bottom:3px}
-  .hfoot{display:flex;align-items:center;gap:8px;padding:6px 11px;border-top:1px solid var(--line);
-    font-family:var(--mono);font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden}
+  .clearbox{padding:14px;font-family:var(--mono);font-size:13.5px;color:var(--muted);line-height:1.6}
+  .clearbox .big{color:var(--done);display:block;margin-bottom:4px}
+  .hfoot{display:flex;align-items:center;gap:8px;padding:7px 14px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:12px;color:var(--faint);white-space:nowrap;overflow:hidden}
   .hver{margin-left:auto;opacity:.8}
 
   /* ── K5. 상세(목록 오른쪽) ────────────────────────────────────────── */
-  .d-h{display:flex;flex-wrap:nowrap;align-items:center;gap:7px;font-family:var(--mono);font-size:14px;
-    margin-bottom:6px;white-space:nowrap}
+  .d-h{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;font-family:var(--mono);font-size:15px;
+    margin-bottom:7px;white-space:nowrap}
   .d-h .dnm{flex:0 1 auto;min-width:0;color:var(--ink);overflow:hidden;text-overflow:ellipsis}
-  .d-chip{flex:none;font-size:11px;color:var(--faint)}
+  .d-chip{flex:none;font-size:12px;color:var(--faint)}
   .d-chip.as-working{color:var(--running)} .d-chip.as-waiting{color:var(--blocked)}
   .d-chip.as-idle{color:var(--faint)} .d-chip.as-exited{color:var(--done)}
-  .d-meta{font-family:var(--mono);font-size:11.5px;color:var(--faint);margin-bottom:9px;
+  .d-meta{font-family:var(--mono);font-size:12.5px;color:var(--faint);margin-bottom:10px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .d-q{border:1px solid var(--line-hi);border-radius:8px;background:var(--surface);padding:9px 10px;margin-bottom:9px}
-  .d-q .qk{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
-    color:var(--faint);margin-bottom:5px}
+  .d-q{border:1px solid var(--line-hi);border-radius:8px;background:var(--surface);padding:10px 11px;margin-bottom:10px}
+  .d-q .qk{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:6px}
   /* 이 페이지에서 **줄이 접히는 곳은 여기뿐**이다 — 에이전트가 한 말은 줄여 쓸 수 없으니 접고,
      대신 높이를 물려서(판의 40% 남짓) 카드 하나가 창을 다 먹지 않게 한다. */
-  .d-q pre{margin:0;font-family:var(--mono);font-size:12.5px;color:var(--ink);white-space:pre-wrap;word-break:break-word;
+  .d-q pre{margin:0;font-family:var(--mono);font-size:13px;color:var(--ink);white-space:pre-wrap;word-break:break-word;
     max-height:min(40vh,260px);overflow:auto}
-  .d-q .unk{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
-  .d-sec{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
-    margin:10px 0 4px}
-  .d-now{font-family:var(--mono);font-size:12.5px;color:var(--ink);margin-bottom:4px;
+  .d-q .unk{font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .d-sec{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+    margin:12px 0 5px}
+  .d-now{font-family:var(--mono);font-size:13px;color:var(--ink);margin-bottom:5px;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .d-tl{border-left:1px solid var(--line);padding-left:9px;max-height:min(30vh,170px);overflow:auto}
-  .d-l{display:flex;gap:7px;font-family:var(--mono);font-size:11.5px;line-height:1.55}
-  .d-l .ak{flex:none;color:var(--faint);min-width:46px}
+  .d-tl{border-left:1px solid var(--line);padding-left:10px;max-height:min(30vh,170px);overflow:auto}
+  .d-l{display:flex;gap:8px;font-family:var(--mono);font-size:12.5px;line-height:1.55}
+  .d-l .ak{flex:none;color:var(--faint);min-width:50px}
   .d-l .at{flex:1 1 0;min-width:0;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* 터미널 꼬리는 화면 그대로라 접는 것이 맞다(.d-q pre 와 같은 부류 — 사람이 쓴 것이 아니라 나온 것). */
-  .d-tail{margin:0;font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--panel);
-    border:1px solid var(--line);border-radius:7px;padding:8px 9px;max-height:min(45vh,240px);overflow:auto;
+  .d-tail{margin:0;font-family:var(--mono);font-size:13px;color:var(--muted);background:var(--panel);
+    border:1px solid var(--line);border-radius:7px;padding:9px 10px;max-height:min(45vh,240px);overflow:auto;
     white-space:pre-wrap;word-break:break-word}
-  .d-diff{margin:7px 0 0;font-family:var(--mono);font-size:11px;color:var(--muted);max-height:min(35vh,200px);overflow:auto;
-    white-space:pre;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:8px 9px}
-  .d-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;padding-top:9px;border-top:1px solid var(--line)}
-  .dbtn{font-family:var(--mono);font-size:12.5px;color:var(--muted);background:none;border:1px solid var(--line);
-    border-radius:6px;padding:5px 10px;white-space:nowrap}
+  /* 마지막 대화 — .d-q pre · .d-tail 과 **같은 부류**(에이전트가 내놓은 글)라 여기서만 줄이 접힌다.
+     역시 높이를 물려서 긴 답 하나가 창을 다 먹지 않게 한다. */
+  .d-chat{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:7px;
+    padding:9px 10px;max-height:min(45vh,260px);overflow:auto}
+  .d-turn{margin-bottom:8px}
+  .d-turn:last-child{margin-bottom:0}
+  .d-turn .tk{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--faint);margin-bottom:3px}
+  .d-turn .tt{margin:0;font-family:var(--mono);font-size:13px;color:var(--muted);
+    white-space:pre-wrap;word-break:break-word}
+  .d-turn.full .tt{color:var(--ink)}
+  .d-diff{margin:8px 0 0;font-family:var(--mono);font-size:12px;color:var(--muted);max-height:min(35vh,200px);overflow:auto;
+    white-space:pre;background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:9px 10px}
+  .d-bar{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+  .dbtn{font-family:var(--mono);font-size:13.5px;color:var(--muted);background:none;border:1px solid var(--line);
+    border-radius:6px;padding:6px 12px;white-space:nowrap}
   .dbtn:hover,.dbtn:focus-visible{color:var(--ink);border-color:var(--line-hi);background:var(--surface2)}
   .dbtn.prim{color:var(--brand);border-color:rgba(78,201,176,.4)}
   .dbtn.danger:hover{color:var(--failed);border-color:var(--failed)}
   /* 빠른 답은 대기의 색(--blocked)을 빌린다 — 코크핏 .qbtn 과 같은 주의색, 새 색 없음 */
-  .qbtn{font-family:var(--mono);font-size:12.5px;color:var(--blocked);background:none;border:1px solid var(--line-hi);
-    border-radius:999px;padding:5px 12px;white-space:nowrap}
+  .qbtn{font-family:var(--mono);font-size:13.5px;color:var(--blocked);background:none;border:1px solid var(--line-hi);
+    border-radius:999px;padding:6px 14px;white-space:nowrap}
   .qbtn:hover,.qbtn:focus-visible{color:var(--ink);border-color:var(--blocked)}
-  .d-steer{display:flex;gap:6px;margin-top:9px}
-  .d-steer input{flex:1;min-width:0;font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--panel);
-    border:1px solid var(--line-hi);border-radius:6px;padding:6px 9px;outline:none}
+  .d-steer{display:flex;gap:7px;margin-top:10px}
+  .d-steer input{flex:1;min-width:0;font-family:var(--mono);font-size:13.5px;color:var(--ink);background:var(--panel);
+    border:1px solid var(--line-hi);border-radius:6px;padding:7px 10px;outline:none}
   .d-steer input:focus{border-color:var(--brand)}
-  .d-empty{font-family:var(--mono);font-size:12.5px;color:var(--faint);padding:16px 4px}
+  /* 보낸 결과는 **입력칸 바로 아래**에 앉는다 — 토스트는 놓치기 쉬웠고, 그동안 글자는 칸에 남아 있었다. */
+  .d-note{font-family:var(--mono);font-size:12.5px;margin-top:5px;white-space:pre-wrap;word-break:break-word}
+  .d-note.bad{color:var(--failed)}
+  .d-note.good{color:var(--brand)}
+  /* 보낼 데가 없을 때는 **입력칸을 두지 않는다** — 그 자리에 왜 없는지와 갈 곳만 남긴다. */
+  .d-dead{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;
+    font-family:var(--mono);font-size:12.5px;color:var(--faint)}
+  .d-dead a{color:var(--muted);text-decoration:none;border-bottom:1px solid var(--line-hi)}
+  .d-dead a:hover{color:var(--ink)}
+  .d-empty{font-family:var(--mono);font-size:13px;color:var(--faint);padding:16px 4px}
   .toast{position:fixed;left:50%;bottom:9px;transform:translateX(-50%);max-width:92%;
-    font-family:var(--mono);font-size:11.5px;color:var(--ink);background:var(--surface2);
+    font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--surface2);
     border:1px solid var(--line-hi);border-radius:7px;padding:5px 10px;opacity:0;pointer-events:none;
     transition:opacity .16s ease;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .toast.on{opacity:1}
@@ -205,6 +235,9 @@ export const HUD_HTML = /* html */ `<!doctype html>
       <span class="lead" id="hudLead">connecting</span>
       <span class="subs" id="hudSubs"></span>
       <button type="button" class="hx" id="hudMin" title="알약으로 접기 (esc)">&minus;</button>
+      <!-- 치우기 — 접는 것(-)과 다르다. 화면에서 아예 내리고, 돌아오는 문은 전역 단축키 하나뿐이다.
+           브라우저에서 단독으로 열렸을 때는 내릴 창이 없으니 그렇다고 말해 준다. -->
+      <button type="button" class="hx" id="hudHide" title="숨기기 (⌘⇧\\ 로 다시 열기)">&times;</button>
     </header>
     <div class="hbody">
       <div class="hlist" id="hudList"></div>
@@ -233,7 +266,7 @@ export const HUD_HTML = /* html */ `<!doctype html>
   // 폭은 이 표의 기본값(알약은 잰 값), 높이는 목록·상세 모두 **잰 값**이다(fit:true).
   // 창은 이 값을 화면(workArea)으로 물리고, 사람이 손으로 끈 크기가 있으면 그쪽을 택한다.
   var GUT=5;                                          // 패널 상태의 지면 여백 — CSS body{padding:5px} 과 같은 값
-  var HUD_SIZE={ pill:{w:140,h:42}, list:{w:320,h:260}, detail:{w:680,h:400} };
+  var HUD_SIZE={ pill:{w:140,h:44}, list:{w:340,h:300}, detail:{w:740,h:460} };
   // 스크롤 영역이 **실제로 담고 있는** 높이. scrollHeight 를 쓰면 안 된다 —
   // 그 값은 clientHeight 아래로 내려가지 않아서, 창이 한 번 커지고 나면 내용이 줄어도
   // 계속 "지금만큼 필요하다"고 답한다(창은 자랄 줄만 알고 줄 줄은 모르게 된다).
@@ -290,8 +323,16 @@ export const HUD_HTML = /* html */ `<!doctype html>
   }
   function expand(){ if(layout==='pill'){ setLayout('list'); render(); } }
   function collapse(){ sel=null; $('hudDetail').innerHTML=''; setLayout('pill'); }
+  // 치우기 — 창을 내리는 것은 이쪽 일이 아니다. 다리에 한 번 말하고(hud:hide) 끝이다.
+  // 다리가 없으면(브라우저) 내릴 창 자체가 없다 — 조용히 삼키지 말고 그렇다고 말한다.
+  function hideWidget(){
+    var api=window.coxpitHud;
+    if(api&&typeof api.hide==='function'){ try{ api.hide(); return; }catch(e){} }
+    toast('숨기기는 데스크톱 앱에서만 됩니다 (브라우저에는 내릴 창이 없습니다)');
+  }
   $('pill').addEventListener('click', expand);
   $('hudMin').addEventListener('click', collapse);
+  $('hudHide').addEventListener('click', hideWidget);
 
   // ── 플릿 상태 — 코크핏과 같은 창구, 같은 판정 규칙 ─────────────────────
   var fleet={runs:[],tasks:[],repos:[]}, runById={}, taskById={}, repoById={};
@@ -303,8 +344,8 @@ export const HUD_HTML = /* html */ `<!doctype html>
   function isDryRun(r){ return !!r && r.real===false; }
   function dryChip(r){ return isDryRun(r) ? '<span class="dryc" title="dry run — 모의 스트림이 만든 변경입니다">dry</span>' : ''; }
   function runIsSession(runId){ var r=runById[runId]; var t=r&&taskById[r.taskId]; var rp=t&&repoById[t.repoId]; return !!(rp&&rp.kind==='sessions'); }
-  function runLive(runId){ var r=runById[runId]; if(!r) return false;
-    return r.status==='running'||r.status==='pending'||r.status==='preparing'||r.status==='open'; }
+  // (runLive 는 없앴다 — status 로 "살아 있다"를 정하면 'open' 세션이 페인 없이도 live 로 보여서
+  //  보낼 데가 없는 자리에 입력칸이 섰다. 페인이 사는지는 이제 창구에 직접 묻는다 — loadPane.)
   function runLabel(runId){
     var r=runById[runId]; if(!r) return 'r'+runId;
     if(runIsSession(runId)){ var t=taskById[r.taskId]; return (t&&t.title)||('r'+runId); }
@@ -444,9 +485,11 @@ ${ACTIVITY_JS}
       + '<div class="d-meta">'+esc(runPath(runId))+' \\u00b7 '+esc(runMeta(runId))+'</div>';
 
     if(sess){
-      // 세션 = 에이전트가 없다. 질문도 steer 도 없고, 지금 화면(스크롤백 꼬리)이 전부다.
-      h+='<div class="d-sec">terminal tail</div>'
-       + '<pre class="d-tail" data-role="tail">읽는 중\\u2026</pre>'
+      // 세션 = 에이전트가 없다. 질문도 steer 도 없다 — 읽기 전용이다.
+      // 보여줄 것은 **마지막 대화**가 먼저고(저장된 대본), 그것이 없으면 지금 화면(스크롤백),
+      // 둘 다 없으면 없다고 말한다. 페인이 죽은 세션은 화면이 비어 있어도 대본은 남아 있다.
+      h+='<div class="d-sec" data-role="sblbl">마지막 대화</div>'
+       + '<div data-role="sbody"><div class="d-empty">읽는 중\\u2026</div></div>'
        + '<div class="d-bar">'
        +   '<a class="dbtn prim" href="/cockpit?run='+encodeURIComponent(runId)+'">터미널 열기</a>'
        +   '<button type="button" class="dbtn" data-rename="'+runId+'">이름변경</button>'
@@ -475,10 +518,8 @@ ${ACTIVITY_JS}
      + '<div><span class="d-now">filesChanged '+((r.filesChanged)||0)+'</span> '
      +   '<button type="button" class="dbtn" data-diff="'+runId+'">Changes</button></div>'
      + '<pre class="d-diff" data-role="ddiff" hidden></pre>'
-     + '<div class="d-steer">'
-     +   '<input id="steerInput" placeholder="'+(runLive(runId)?'이어서 보낼 한 줄':'후속 지시 (steer)')+'" autocomplete="off" spellcheck="false" />'
-     +   '<button type="button" class="dbtn prim" data-steer="'+runId+'">Steer</button>'
-     + '</div>'
+     // 입력칸은 **여기서 그리지 않는다** — 보낼 데가 있는지 물어본 뒤에야 선다(paintSteerSlot).
+     + '<div data-role="steerslot"></div>'
      + '<div class="d-bar">'
      +   '<a class="dbtn" href="/cockpit?run='+encodeURIComponent(runId)+'">코크핏에서 열기</a>'
      +   '<button type="button" class="dbtn danger" data-stop="'+runId+'">정지</button>'
@@ -488,11 +529,12 @@ ${ACTIVITY_JS}
 
   function openDetail(runId){
     sel=runId; curId=runId;
+    renameCommit=null;
     setLayout('detail');
     $('hudDetail').innerHTML=detailHTML(runId);
     paintTimeline(runId);
-    if(runIsSession(runId)) loadTail(runId);
-    else if(agentStateOf(runId)==='waiting') loadQuestion(runId);
+    if(runIsSession(runId)) loadSessionBody(runId);
+    else loadPane(runId);
     render();
   }
   function closeDetail(){
@@ -510,47 +552,118 @@ ${ACTIVITY_JS}
     el.innerHTML=h;
     reflow();
   }
+  // 이 run 의 페인이 **지금 살아 있는가** — 짐작하지 않고 창구에 직접 묻는다.
+  // run.status 는 여기서 답이 아니다: 'open' 세션은 페인 없이도 live 로 보이고, 기다리던 에이전트의
+  // tmux 는 이미 정리됐을 수 있다. 스크롤백이 보는 것은 send-keys 가 보는 것과 **같은 것**이라
+  // (둘 다 getRunTermInfo + tmux), 여기서 ok 가 나면 입력이 도착할 자리가 정말 있다는 뜻이다.
+  // 한 번의 호출이 두 가지를 정한다: 질문 카드에 무엇을 쓸까 · 입력칸을 세울까.
+  function loadPane(runId){
+    fetch('/api/runs/'+runId+'/scrollback?lines=60')
+      .then(function(x){ return x.json().then(function(j){ return {ok:!!(j&&j.ok), j:j||{}}; },
+                                              function(){ return {ok:false, j:{}}; }); })
+      .catch(function(){ return {ok:false, j:{}}; })
+      .then(function(res){
+        if(sel!==runId) return;
+        paintSteerSlot(runId, res.ok);
+        if(agentStateOf(runId)==='waiting'){
+          paintQuestion(runId, (res.ok&&res.j.text)?String(res.j.text).replace(/\\s+$/,''):'');
+        }
+      });
+  }
   // 기다리는 에이전트가 **무엇을 묻는지** — 코크핏을 열지 않고 알아야 하는 한 가지.
   // 출처는 둘뿐이다: 터미널의 지금 화면(스크롤백 꼬리) 또는 파싱된 스트림의 마지막 말.
   // 둘 다 없으면 없다고 말한다. 추측한 질문을 보여주면 그 위에서 내리는 결정이 전부 거짓이 된다.
-  function loadQuestion(runId){
-    var lastSaid='';
-    var r=runById[runId];
-    var lines=humanLines((r&&r.events)||[]);
+  function paintQuestion(runId, tail){
+    var box=$('hudDetail').querySelector('[data-role=qbox]'); if(!box) return;
+    if(tail){
+      var keep=tail.split('\\n').slice(-14).join('\\n');
+      box.innerHTML='<span class="qk">터미널 마지막 화면</span><pre>'+esc(keep)+'</pre>';
+      reflow();
+      return;
+    }
+    var r=runById[runId], lines=humanLines((r&&r.events)||[]), lastSaid='';
     for(var i=lines.length-1;i>=0;i--){ if(lines[i].k==='said'||lines[i].k==='ask'){ lastSaid=String(lines[i].t); break; } }
-    fetch('/api/runs/'+runId+'/scrollback?lines=60').then(function(x){ return x.json(); }).then(function(d){
+    if(lastSaid){ box.innerHTML='<span class="qk">마지막 말</span><pre>'+esc(lastSaid.slice(0,600))+'</pre>'; reflow(); return; }
+    box.innerHTML='<span class="qk">pending</span><div class="unk">무엇을 묻는지 읽지 못했습니다 \\u2014 터미널을 열어 확인하세요</div>';
+    reflow();
+  }
+  // steer 입력칸은 **보낼 데가 있을 때만** 선다. 죽은 페인 위의 입력칸은 조용한 상자였다 —
+  // 글자는 칸에 실리고, 요청은 409 로 떨어지고, 토스트는 놓치기 쉬워 아무 일도 안 난 것처럼 보였다.
+  // 보낼 데가 없으면 그 자리에 왜 없는지와 갈 곳(코크핏)만 남긴다.
+  function paintSteerSlot(runId, live){
+    var slot=$('hudDetail').querySelector('[data-role=steerslot]'); if(!slot) return;
+    if(live){
+      slot.innerHTML='<div class="d-steer">'
+        + '<input id="steerInput" placeholder="이어서 보낼 한 줄" autocomplete="off" spellcheck="false" />'
+        + '<button type="button" class="dbtn prim" data-steer="'+runId+'">Steer</button>'
+        + '</div><div class="d-note" data-role="steernote" hidden></div>';
+    } else {
+      slot.innerHTML='<div class="d-dead"><span>이 세션엔 살아있는 터미널이 없어요</span>'
+        + '<a href="/cockpit?run='+encodeURIComponent(runId)+'">코크핏에서 열기</a></div>';
+    }
+    reflow();
+  }
+  // 보낸 결과는 입력칸 **바로 아래**에 앉는다(토스트만으로는 놓친다). 성공은 잠깐, 실패는 남는다.
+  var noteT=null;
+  function steerNote(cls, msg, fade){
+    var el=$('hudDetail').querySelector('[data-role=steernote]'); if(!el) return;
+    if(noteT){ clearTimeout(noteT); noteT=null; }
+    el.hidden=false; el.className='d-note '+cls; el.textContent=msg; reflow();
+    if(!fade) return;
+    noteT=setTimeout(function(){
+      noteT=null;
+      var cur=$('hudDetail').querySelector('[data-role=steernote]');
+      if(cur===el && !el.hidden){ el.hidden=true; el.textContent=''; reflow(); }
+    }, 2600);
+  }
+  // 세션이 마지막으로 무슨 말을 주고받았나 — 저장된 대본이 **첫 번째** 출처다(페인이 죽어도 남아 있다).
+  // 없으면 지금 화면(스크롤백)으로 내려가고, 그것도 없으면 지어내지 않고 없다고 말한다.
+  function loadSessionBody(runId){
+    fetch('/api/runs/'+runId+'/chat').then(function(x){ return x.json(); }).then(function(d){
       if(sel!==runId) return;
-      var box=$('hudDetail').querySelector('[data-role=qbox]'); if(!box) return;
-      var tail=(d&&d.ok&&d.text)?String(d.text).replace(/\\s+$/,''):'';
-      if(tail){
-        var keep=tail.split('\\n').slice(-14).join('\\n');
-        box.innerHTML='<span class="qk">터미널 마지막 화면</span><pre>'+esc(keep)+'</pre>';
-        reflow();
-        return;
-      }
-      if(lastSaid){ box.innerHTML='<span class="qk">마지막 말</span><pre>'+esc(lastSaid.slice(0,600))+'</pre>'; reflow(); return; }
-      box.innerHTML='<span class="qk">pending</span><div class="unk">무엇을 묻는지 읽지 못했습니다 \\u2014 터미널을 열어 확인하세요</div>';
-      reflow();
-    }).catch(function(){
-      if(sel!==runId) return;
-      var box=$('hudDetail').querySelector('[data-role=qbox]'); if(!box) return;
-      box.innerHTML='<span class="qk">pending</span><div class="unk">무엇을 묻는지 읽지 못했습니다 \\u2014 터미널을 열어 확인하세요</div>';
-      reflow();
+      var turns=(d&&d.turns)||[];
+      if(turns.length) paintChat(runId, turns);
+      else loadTail(runId);
+    }).catch(function(){ if(sel===runId) loadTail(runId); });
+  }
+  var CHAT_TURNS=4;
+  function paintChat(runId, turns){
+    var body=$('hudDetail').querySelector('[data-role=sbody]'); if(!body) return;
+    var last=turns.slice(-CHAT_TURNS), h='';
+    last.forEach(function(t,i){
+      // 마지막 한 마디만 넉넉히 편다 — 그 앞은 무슨 얘기였는지 알 만큼의 한 줄이면 된다.
+      var full=(i===last.length-1);
+      var text=String((t&&t.text)||'').replace(/\\s+$/,'');
+      text=full ? text.slice(0,900) : text.replace(/\\s+/g,' ').slice(0,160);
+      if(!text) return;
+      h+='<div class="d-turn'+(full?' full':'')+'"><span class="tk">'+esc(String((t&&t.role)||'?'))+'</span>'
+       + '<pre class="tt">'+esc(text)+'</pre></div>';
     });
+    if(!h){ loadTail(runId); return; }
+    body.innerHTML='<div class="d-chat">'+h+'</div>';
+    reflow();
   }
   function loadTail(runId){
+    var lbl=$('hudDetail').querySelector('[data-role=sblbl]');
+    if(lbl) lbl.textContent='터미널 마지막 화면';
     fetch('/api/runs/'+runId+'/scrollback?lines=80').then(function(x){ return x.json(); }).then(function(d){
       if(sel!==runId) return;
-      var el=$('hudDetail').querySelector('[data-role=tail]'); if(!el) return;
-      if(d&&d.ok&&String(d.text||'').trim()){
-        el.textContent=String(d.text).replace(/\\s+$/,'').split('\\n').slice(-30).join('\\n');
-      } else el.textContent=(d&&d.text)||'터미널 화면을 읽지 못했습니다';
-      reflow();
-    }).catch(function(){
-      if(sel!==runId) return;
-      var el=$('hudDetail').querySelector('[data-role=tail]'); if(el) el.textContent='터미널 화면을 읽지 못했습니다';
-      reflow();
-    });
+      var text=(d&&d.ok)?String(d.text||'').replace(/\\s+$/,''):'';
+      paintTail(text?text.split('\\n').slice(-30).join('\\n'):'');
+    }).catch(function(){ if(sel===runId) paintTail(''); });
+  }
+  function paintTail(text){
+    var body=$('hudDetail').querySelector('[data-role=sbody]'); if(!body) return;
+    if(text){
+      body.innerHTML='<pre class="d-tail" data-role="tail"></pre>';
+      body.querySelector('[data-role=tail]').textContent=text;
+    } else {
+      // 대본도 화면도 없다. 무엇이 있었을지 지어내지 않고, 왜 없을 수 있는지만 말한다.
+      var lbl=$('hudDetail').querySelector('[data-role=sblbl]');
+      if(lbl) lbl.textContent='대화 기록';
+      body.innerHTML='<div class="d-empty">이 세션의 대화 기록을 찾지 못했어요 \\u2014 세션 태깅(--session-id) 이전에 만들어졌을 수 있어요.</div>';
+    }
+    reflow();
   }
   function loadDiff(runId){
     var el=$('hudDetail').querySelector('[data-role=ddiff]'); if(!el) return;
@@ -578,24 +691,24 @@ ${ACTIVITY_JS}
       else toast('보내지 못했습니다: '+((res.j&&(res.j.detail||res.j.error))||res.code));
     }).catch(function(){ toast('보내지 못했습니다'); });
   }
+  // steer — 입력칸이 서 있다는 것은 **페인이 살아 있다고 확인됐다**는 뜻이다(paintSteerSlot).
+  // 그러니 갈 길은 하나뿐: 그 tmux 에 한 줄. 그래도 실패하면 그 사이에 페인이 죽은 것이니
+  // 칸을 비우지 않고 왜 못 갔는지를 칸 바로 아래에 남긴다 — 다시 칠 일이 아니라 다시 보낼 일이다.
   function steer(runId){
     var inp=$('steerInput'); if(!inp) return;
     var v=(inp.value||'').trim();
-    if(!v){ inp.focus(); toast('보낼 한 줄을 적으세요'); return; }
-    if(runLive(runId)){
-      sendInput(runId, v).then(function(res){
-        if(res.code===200 && res.j && res.j.ok){ inp.value=''; toast('보냄'); }
-        else toast('보내지 못했습니다: '+((res.j&&(res.j.detail||res.j.error))||res.code));
-      }).catch(function(){ toast('보내지 못했습니다'); });
-      return;
-    }
-    fetch('/api/runs/'+runId+'/steer', {
-      method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({message:v}),
-    }).then(function(x){ return x.json().then(function(j){ return {code:x.status, j:j}; }); })
-      .then(function(res){
-        if(res.code===202 || (res.j&&res.j.ok)){ inp.value=''; toast('이어서 보냈습니다'); }
-        else toast('보내지 못했습니다: '+((res.j&&(res.j.detail||res.j.error))||res.code));
-      }).catch(function(){ toast('보내지 못했습니다'); });
+    if(!v){ inp.focus(); steerNote('bad', '보낼 한 줄을 적으세요', true); return; }
+    sendInput(runId, v).then(function(res){
+      if(sel!==runId) return;
+      if(res.code===200 && res.j && res.j.ok){ inp.value=''; steerNote('good', '보냈어요', true); return; }
+      var why=(res.j&&(res.j.detail||res.j.error))||('HTTP '+res.code);
+      steerNote('bad', '보내지 못했습니다: '+why, false);
+      toast('보내지 못했습니다: '+why);
+    }).catch(function(){
+      if(sel!==runId) return;
+      steerNote('bad', '보내지 못했습니다', false);
+      toast('보내지 못했습니다');
+    });
   }
   function stop(runId){
     fetch('/api/runs/'+runId+'/stop', {method:'POST'}).then(function(x){ return x.json(); }).then(function(j){
@@ -604,6 +717,8 @@ ${ACTIVITY_JS}
     }).catch(function(){ toast('정지 실패'); });
   }
   // 세션 이름 변경 — 네이티브 prompt 를 띄우지 않는다. 버튼 자리가 그대로 입력칸이 된다.
+  // Enter 는 **한 곳에서만** 받는다(아래 #hudDetail 위임) — 그래서 확정 함수를 여기 걸어 둔다.
+  var renameCommit=null;
   function startRename(runId, btn){
     var r=runById[runId]; if(!r) return;
     var t=taskById[r.taskId]; if(!t) return;
@@ -622,10 +737,7 @@ ${ACTIVITY_JS}
         hydrate();
       }).catch(function(){ toast('이름 변경 실패'); });
     };
-    inp.addEventListener('keydown', function(e){
-      if(e.key==='Enter'){ e.preventDefault(); commit(); }
-      else if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); openDetail(runId); }
-    });
+    renameCommit=commit;
   }
   // 삭제는 되돌릴 수 없다 — 버튼이 두 걸음이 된다(네이티브 confirm 금지, DESIGN.md 규칙).
   function armDelete(runId, btn){
@@ -659,8 +771,20 @@ ${ACTIVITY_JS}
     if(b.dataset.rename) return startRename(Number(b.dataset.rename), b);
     if(b.dataset.del) return armDelete(Number(b.dataset.del), b);
   });
+  // 상세 안의 Enter 는 **여기 하나**가 받는다. 입력칸마다 따로 걸면 같은 Enter 가 두 번 처리돼
+  // 한 번 친 것이 두 번 나갈 수 있다(steer 라면 두 줄이 들어간다).
   $('hudDetail').addEventListener('keydown', function(e){
-    if(e.key==='Enter' && e.target.id==='steerInput'){ e.preventDefault(); if(sel!=null) steer(sel); }
+    var id=(e.target&&e.target.id)||'';
+    if(e.key==='Enter'){
+      if(id==='steerInput'){ e.preventDefault(); if(sel!=null) steer(sel); return; }
+      if(id==='renameInput'){ e.preventDefault(); if(renameCommit) renameCommit(); return; }
+      return;
+    }
+    // 이름변경을 무르는 것도 같은 자리에서 — esc 가 창을 접는 데까지 올라가지 않게 여기서 멈춘다.
+    if(e.key==='Escape' && id==='renameInput'){
+      e.preventDefault(); e.stopPropagation();
+      if(sel!=null) openDetail(sel);
+    }
   });
 
   // ── 키보드: j/k 이동 · enter 상세 · y/n/c 즉답 · esc 한 겹씩 닫기 ────────

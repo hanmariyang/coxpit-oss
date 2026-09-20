@@ -3258,7 +3258,7 @@ case "$HUD" in *'--mono:ui-monospace'*) : ;; *) fail "the hud is a mono instrume
 # 서빙된 /hud 에 이모지가 없어야 한다(게이트 확장 — 코크핏·로그인과 같은 규칙).
 if printf '%s' "$HUD" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "the hud contains emoji — use monochrome glyphs (design system)"; fi
 # 배치 세 상태 = 데스크톱이 나중에 창 크기를 맞출 때 읽어 갈 자리. 여기서 창을 만지지는 않는다.
-case "$HUD" in *'<html lang="en" data-hud="pill">'*'html[data-hud="pill"] #panel{display:none}'*'html[data-hud="detail"] .hlist{width:240px;flex:none}'*) : ;; *) fail "the hud must carry pill|list|detail as in-page layout states on <html data-hud> (the desktop resize hook), with detail as a two-pane master-detail";; esac
+case "$HUD" in *'<html lang="en" data-hud="pill">'*'html[data-hud="pill"] #panel{display:none}'*'html[data-hud="detail"] .hlist{width:260px;flex:none}'*) : ;; *) fail "the hud must carry pill|list|detail as in-page layout states on <html data-hud> (the desktop resize hook), with detail as a two-pane master-detail";; esac
 case "$HUD" in *"document.documentElement.setAttribute('data-hud', next);"*) : ;; *) fail "the layout state must be reflected on <html> so the desktop window can read the wanted size later";; esac
 # 창이 생긴 뒤에도 페이지는 Electron 을 **직접** 만지지 않는다 — 통로는 preload 가 심은 다리 하나뿐이다.
 case "$HUD" in *'BrowserWindow'*|*'globalShortcut'*|*'ipcRenderer'*) fail "the served page must never reach for Electron directly — the only channel is the preload bridge (window.coxpitHud)";; *) : ;; esac
@@ -3282,8 +3282,9 @@ case "$HUD" in *"e.key==='y'||e.key==='n'||e.key==='c'"*"agentStateOf(id)!=='wai
 pass "v5.28 K4: triage list leads with needs-you, folds running, counts the rest, all-clear when quiet, j/k/enter/y/n/c"
 
 # K5 — 행 선택 → **목록 옆** 상세. 세 변종(대기 에이전트 · 도는 에이전트 · 세션).
-case "$HUD" in *'data-role="qbox"'*'data-qr="'*'data-role="dnow"'*'data-role="dtl"'*'data-diff="'*'data-steer="'*'data-stop="'*) : ;; *) fail "the waiting/running detail must carry the question card, replies, now line, timeline, diff peek, steer and stop";; esac
-case "$HUD" in *'data-role="tail"'*'>터미널 열기<'*'data-rename="'*'data-del="'*) : ;; *) fail "the session detail must be the terminal tail + open/rename/delete (no question, no steer)";; esac
+# (v6.3.9) steer 는 자리(steerslot)만 잡아 두고 **살아 있는 페인이 확인된 뒤에** 채운다 — 아래 steer 블록 참고.
+case "$HUD" in *'data-role="qbox"'*'data-qr="'*'data-role="dnow"'*'data-role="dtl"'*'data-diff="'*'data-role="steerslot"'*'data-stop="'*) : ;; *) fail "the waiting/running detail must carry the question card, replies, now line, timeline, diff peek, the steer slot and stop";; esac
+case "$HUD" in *'data-role="sbody"'*'>터미널 열기<'*'data-rename="'*'data-del="'*) : ;; *) fail "the session detail must be a read-only body + open/rename/delete (no question, no steer)";; esac
 case "$HUD" in *"function closeDetail(){"*"setLayout('list'); render();"*) : ;; *) fail "esc must close the detail and keep the list";; esac
 # 질문은 **지어내지 않는다** — 출처를 이름표로 밝히고, 못 읽으면 못 읽었다고 말한다.
 case "$HUD" in *'터미널 마지막 화면'*'마지막 말'*'무엇을 묻는지 읽지 못했습니다'*) : ;; *) fail "the waiting card must name its source and say so when the question cannot be read (never fabricate it)";; esac
@@ -3297,7 +3298,9 @@ case "$HUD" in *"var s=asm[k]&&asm[k].state; if(s&&s!=='unknown') agentState[k]=
 case "$HUD" in *'function isDryRun(r){ return !!r && r.real===false; }'*) : ;; *) fail "the dry chip must gate on real===false only (Part H) — a falsy check would accuse unknown runs";; esac
 case "$HUD" in *"if(ev && ev.type==='agentstate'){ paintAgentState(ev.runId, ev.state); return; }"*) : ;; *) fail "an agentstate delta must paint in place — never a full rehydrate (Part A discipline)";; esac
 case "$HUD" in *"rp.kind==='sessions'"*) : ;; *) fail "the hud includes sessions as a selectable kind (unlike the board, Part I)";; esac
-case "$HUD" in *"'/api/runs/'+runId+'/scrollback?lines=60'"*"'/api/runs/'+runId+'/diff'"*"'/api/runs/'+runId+'/input'"*"'/api/runs/'+runId+'/steer'"*"'/api/runs/'+runId+'/stop'"*) : ;; *) fail "the detail actions must reuse the existing run endpoints in order (scrollback · diff · input · steer · stop)";; esac
+# (v6.3.9) /steer 는 빠졌다 — 입력칸은 **살아 있는 페인에만** 서므로 갈 길이 tmux 하나로 줄었다.
+# 대신 세션 상세가 저장된 대본(/chat)을 먼저 읽는다.
+case "$HUD" in *"'/api/runs/'+runId+'/scrollback?lines=60'"*"'/api/runs/'+runId+'/chat'"*"'/api/runs/'+runId+'/diff'"*"'/api/runs/'+runId+'/input'"*"'/api/runs/'+runId+'/stop'"*) : ;; *) fail "the detail actions must reuse the existing run endpoints in order (scrollback · chat · diff · input · stop)";; esac
 case "$HUD" in *"fetch('/api/tasks/'+r.taskId"*"fetch('/api/runs/'+runId, {method:'DELETE'})"*) : ;; *) fail "session rename/delete must reuse PATCH /api/tasks/:id and DELETE /api/runs/:id";; esac
 case "$HUD" in *"/cockpit?run='+encodeURIComponent(runId)"*) : ;; *) fail "the escape hatch must be the cockpit deep link /cockpit?run=N";; esac
 # humanize·latestActivity 는 **같은 한 벌**이다 — 페이지마다 사본을 두지 않는다.
@@ -3583,7 +3586,7 @@ case "$HUDF" in *'html,body{height:100%'*) : ;; *) fail "the hud page must fill 
 case "$HUDF" in *'.panel{width:100%;height:100%;min-height:0;display:flex;flex-direction:column;'*) : ;; *) fail "the hud card must fill the viewport (width/height 100%), not sit at a fixed max-width inside it";; esac
 case "$HUDF" in *'max-width:250px'*|*'max-height:calc(100vh'*) fail "the old fixed card cage is back — the card follows the window and the window follows the content";; *) : ;; esac
 case "$HUDF" in *'.hlist{width:100%;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;'*) : ;; *) fail "the list region must take the leftover height and scroll INSIDE the card (flex:1 + min-height:0)";; esac
-case "$HUDF" in *'html[data-hud="detail"] .hlist{width:240px;flex:none}'*'.hdetail{flex:1;min-width:0;'*) : ;; *) fail "detail must be two panes — a fixed 240px list column and a flexible pane that can shrink (min-width:0)";; esac
+case "$HUDF" in *'html[data-hud="detail"] .hlist{width:260px;flex:none}'*'.hdetail{flex:1;min-width:0;'*) : ;; *) fail "detail must be two panes — a fixed 260px list column and a flexible pane that can shrink (min-width:0)";; esac
 # (b) 페이지는 자기 내용을 **재서** 말한다. 다리가 없으면(브라우저) 여전히 아무 일도 없다.
 case "$HUDF" in *'function contentH(el)'*'function fitHeight()'*) : ;; *) fail "the page must measure the height it wants (fitHeight) rather than repeat a fixed table";; esac
 # scrollHeight 는 clientHeight 아래로 내려가지 않는다 — 그걸로 재면 창은 자랄 줄만 알고 **줄 줄은 모른다**.
@@ -3593,7 +3596,9 @@ case "$HUDF" in *"var api=window.coxpitHud;"*"if(!api||typeof api.size!=='functi
 case "$HUDF" in *'function reflow()'*) : ;; *) fail "growth/shrink after the first render (a late terminal tail, a fold opening) must be re-reported";; esac
 # (c) 창 쪽 — 상태별 최소 크기 · 크기 조절 토글 · 사람이 끈 크기 저장 · 저장된 크기가 fit 을 이긴다.
 DHUDF=$(cat "$ROOT/desktop/main.cjs")
-case "$DHUDF" in *'min: { w: 280, h: 200 }'*'min: { w: 520, h: 320 }'*) : ;; *) fail "list/detail must carry per-state minimum sizes (the window can be dragged small, but not to nothing)";; esac
+case "$DHUDF" in *'min: { w: 300, h: 240 }'*'min: { w: 560, h: 360 }'*) : ;; *) fail "list/detail must carry per-state minimum sizes (the window can be dragged small, but not to nothing)";; esac
+# 기본 폭도 한 단 올라갔다 — 1x 로 쓰는 4K 에서 320/680 은 "펼쳐도 작은" 판이었다.
+case "$DHUDF" in *'list: { w: 340,'*'detail: { w: 740,'*) : ;; *) fail "the list/detail default widths must be the raised ones (340/740) — the comfort scale needs the room";; esac
 case "$DHUDF" in *'Math.round(wa.height * 0.7)'*) : ;; *) fail "the HUD must never grow past ~70% of the display workArea — an always-on-top panel does not own the screen";; esac
 case "$DHUDF" in *"hud.setResizable(hudState !== 'pill');"*) : ;; *) fail "the HUD must be resizable in list/detail and locked in pill (setResizable per state)";; esac
 # 순서까지 못박는다 — 이전 상태의 최소/최대가 남아 있어 그냥 주면 한쪽이 다른 쪽을 막는다.
@@ -3602,17 +3607,30 @@ case "$DHUDF" in *'function rememberHudSize()'*'if (!hudAlive() || hudSizing) re
 case "$DHUDF" in *"hud.on('will-resize', () => { if (!hudSizing) hudUserResizeAt = Date.now(); });"*"hud.on('resized', rememberHudSize);"*) : ;; *) fail "the user's manual resize must be persisted (hud.size[state] in desktop-state.json) and must not be fought mid-drag by a content report";; esac
 case "$DHUDF" in *'if (!changing && Date.now() - hudUserResizeAt < 700) return;'*) : ;; *) fail "a fit report must stand down while the person is dragging the window (only a layout change overrides)";; esac
 case "$DHUDF" in *'} else if (saved) {'*'want && want.fit ? want.h : base.h'*) : ;; *) fail "a saved user size must win over the page's reported fit height (and fit must win over the default)";; esac
-# (d) 글자 래칫 — 이 판은 **한눈에** 읽는 것이다. 10.5px 아래는 없다.
+# (d) 글자 래칫 — 이 판은 **한눈에** 읽는 것이고, 온종일 떠 있는 것이다. (v6.3.9) 바닥이 올라갔다:
+# 12px 아래는 없고, 예외는 **대문자 꼬리표뿐**(text-transform:uppercase 를 가진 규칙)이며 그것도 11px 까지다.
+# 의뢰자의 화면은 3840x2160 을 1x 로 쓴다 — 거기서 13px 은 물리적으로 너무 작다는 것이 이 래칫을 올린 이유다.
+# 규칙 단위(중괄호)로 끊어 읽어야 "이 크기가 꼬리표의 것인지"를 알 수 있다.
 HUD_TYPE=$(node -e '
 const s=require("fs").readFileSync(process.argv[1]+"/src/hud.ts","utf8");
-const bad=[]; let m; const rx=/font-size:\s*([0-9.]+)px/g;
-while((m=rx.exec(s))) if(Number(m[1])<10.5) bad.push(m[1]+"px");
+const bad=[];
+for(const chunk of s.split("}")){
+  const label=/text-transform:\s*uppercase/.test(chunk);
+  let m; const rx=/font-size:\s*([0-9.]+)px/g;
+  while((m=rx.exec(chunk))){
+    const n=Number(m[1]);
+    if(n<11) bad.push(m[1]+"px");
+    else if(n<12 && !label) bad.push(m[1]+"px(not-a-label)");
+  }
+}
 console.log(bad.length?bad.join(" "):"TYPE_OK");
 ' "$ROOT")
-case "$HUD_TYPE" in TYPE_OK) : ;; *) fail "type ratchet: src/hud.ts carries font sizes below 10.5px ($HUD_TYPE) — a glanceable always-on-top panel has no fine print";; esac
+case "$HUD_TYPE" in TYPE_OK) : ;; *) fail "type ratchet: src/hud.ts carries font sizes below 12px outside the uppercase labels ($HUD_TYPE) — a panel you keep on screen all day has no fine print";; esac
+# 기준선 자체도 못박는다(개별 규칙이 다 통과해도 body 가 13px 로 내려가면 상속받는 곳이 조용히 작아진다).
+case "$HUDF" in *'font-family:var(--sans);font-size:14px;line-height:1.45;'*) : ;; *) fail "the hud body type must be 14px — the whole scale hangs off it";; esac
 # (e) 한 줄 규칙 — 헤더는 언제나 한 줄이고(꼬리=idle 부터 잘린다), 행의 칸들도 저마다 한 줄이다.
 case "$HUDF" in *'.lead{flex:none;'*'.subs{flex:1 1 auto;min-width:0;'*'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the header summary must ellipsize in place (flex:1, min-width:0, nowrap) instead of wrapping to a second line";; esac
-case "$HUDF" in *'font-size:13px;color:var(--muted);white-space:nowrap}'*) : ;; *) fail "the row itself must be nowrap";; esac
+case "$HUDF" in *'font-size:14px;color:var(--muted);white-space:nowrap}'*) : ;; *) fail "the row itself must be nowrap";; esac
 case "$HUDF" in *'.row .rn{flex:0 1 auto;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the row name must shrink and ellipsize (never a % cap that crowds at narrow widths)";; esac
 case "$HUDF" in *'.row .rp{flex:1 1 0;min-width:0;'*'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the row path must take the leftover width and ellipsize";; esac
 case "$HUDF" in *'.row .rel{flex:none;'*) : ;; *) fail "the elapsed time must never be pushed out of the row (flex:none)";; esac
@@ -3623,7 +3641,45 @@ case "$HUDF" in *'.d-meta{'*'white-space:nowrap;overflow:hidden;text-overflow:el
 # (f) 다리는 fit 까지 실어 나른다 — 그 다리가 .app 에 안 들어가면 창은 다시 알약에서 안 큰다(위 패키징 가드).
 PHUDF=$(cat "$ROOT/desktop/preload-hud.cjs")
 case "$PHUDF" in *'fit: !!(want && want.fit),'*) : ;; *) fail "the size bridge must normalize and forward the fit flag (the main process cannot tell a measured height from a default without it)";; esac
-pass "hud redesign: the window follows the content (fit + per-state min/max, 70% cap), the person overrides the window (saved user size wins), type is >=10.5px, and only the agent's own output wraps"
+pass "hud redesign: the window follows the content (fit + per-state min/max, 70% cap), the person overrides the window (saved user size wins), type is >=12px, and only the agent's own output wraps"
+
+# ══ HUD 편의 (v6.3.9) — 크게 읽히고 · 치울 수 있고 · 못 보내면 못 보낸다 하고 · 마지막 말이 보인다 ══
+# 의뢰자가 실제로 띄워 놓고 쓴 뒤 말한 넷이다. 되돌아가면 조용히 깨지는 것들:
+#   ① 글자 단이 내려가면 1x 로 쓰는 4K 에서 다시 들여다봐야 하는 판이 된다(위 래칫이 막는다).
+#   ② 치우는 단추가 없으면 끄는 법이 단축키뿐인데, 그걸 모르는 채로 만나면 끌 수 없는 판이다.
+#   ③ 죽은 페인 위의 입력칸은 **조용한 상자**다 — 글자는 실리고 아무 일도 안 난 것처럼 보인다.
+#   ④ 세션 화면이 비어 있다고 대화까지 없는 것은 아니다(대본은 남아 있다).
+# 마커는 **파일 순서대로**다.
+# (a) 다리 — 한 방향 한 마디 더. 페이지 쪽은 다리가 없을 수도 있다는 전제로 부른다.
+case "$PHUDF" in *"hide: () => ipcRenderer.send('hud:hide'),"*) : ;; *) fail "preload-hud.cjs must expose the one-way hide bridge (hud:hide), the same shape as size";; esac
+case "$HUDF" in *"var api=window.coxpitHud;"*"if(api&&typeof api.hide==='function')"*) : ;; *) fail "the hide call must stay guarded on the bridge's existence — /hud still runs standing alone in a browser";; esac
+# (b) 창 쪽 — 치우면 **모드까지 hidden** 이다(다시 켤 때 알약이 혼자 돌아오지 않게). 보낸 쪽이 HUD 창인지도 본다.
+case "$DHUDF" in *"ipcMain.on('hud:hide', (e) => {"*'e.sender !== hud.webContents'*"setHudMode('hidden');"*) : ;; *) fail "desktop/main.cjs must handle hud:hide (guarded to the HUD's own webContents) by persisting hidden mode and hiding the window";; esac
+case "$DHUDF" in *'function applyHudMode()'*'else hideHud();'*'function setHudMode(mode)'*'applyHudMode();'*) : ;; *) fail "hidden mode must actually hide the window (setHudMode persists, then applyHudMode -> hideHud)";; esac
+# 되살리는 문은 **이미 있는** 단축키 하나다 — 두 번째 창도, 두 번째 채널도 만들지 않는다.
+case "$DHUDF" in *'async function toggleHud()'*"if (hudMode() === 'hidden') {"*'else summonHud();'*) : ;; *) fail "the existing hotkey must be the way back from hidden (summonHud) — no second window, no second channel";; esac
+# (c) 머리의 단추는 둘이고 하는 일이 다르다 — 접기(-)와 치우기(x). 같은 것으로 합치면 끄는 법이 사라진다.
+case "$HUDF" in *'id="hudMin" title="알약으로 접기 (esc)">&minus;<'*'id="hudHide" title="숨기기 ('*'>&times;<'*) : ;; *) fail "the header must carry TWO distinct controls: minimize (collapse to pill) and a hide button (mono glyph, no emoji)";; esac
+case "$HUDF" in *"\$('hudMin').addEventListener('click', collapse);"*"\$('hudHide').addEventListener('click', hideWidget);"*) : ;; *) fail "minimize must still collapse to the pill and the new button must hide the widget (they are not the same action)";; esac
+# (d) steer 는 **보낼 데가 있을 때만** 선다. 판정은 짐작이 아니라 창구에 물어서(스크롤백 = send-keys 와 같은 근거).
+case "$HUDF" in *'function runLive('*) fail "runLive is back — status says 'open' for sessions with no pane, which is exactly how the silent input box came about";; *) : ;; esac
+case "$HUDF" in *'function loadPane(runId){'*"'/api/runs/'+runId+'/scrollback?lines=60'"*'paintSteerSlot(runId, res.ok);'*) : ;; *) fail "the live-pane verdict must come from the endpoint that sees what send-keys sees (scrollback), not from run.status";; esac
+case "$HUDF" in *'function paintSteerSlot(runId, live){'*'if(live){'*'<input id="steerInput"'*'이 세션엔 살아있는 터미널이 없어요'*'코크핏에서 열기'*) : ;; *) fail "the steer input may only be rendered in the live branch; a dead pane must show an inline explanation + the cockpit link instead of a box that swallows text";; esac
+# 위 글로브는 "살아 있는 가지에 칸이 있다"까지만 본다 — **다른 곳에도** 있으면 게이트가 뚫린다. 그래서 수를 센다.
+STEER_N=$(printf '%s' "$HUDF" | grep -o 'id="steerInput"' | wc -l | tr -d ' ')
+[ "$STEER_N" = "1" ] || fail "the steer input must be written in exactly ONE place (the live branch of paintSteerSlot) — found $STEER_N"
+# 성공에만 칸을 비운다. 실패는 칸 아래에 남고(토스트만으로는 놓친다), 친 글자는 그대로 둔다.
+case "$HUDF" in *"if(res.code===200 && res.j && res.j.ok){ inp.value=''; steerNote('good', '보냈어요', true); return; }"*"steerNote('bad', '보내지 못했습니다: '+why, false);"*) : ;; *) fail "steer must clear the box only on success and surface the failure inline (var(--failed)) without discarding what was typed";; esac
+case "$HUDF" in *'.d-note.bad{color:var(--failed)}'*) : ;; *) fail "the inline send result must use an existing token for failure (--failed)";; esac
+# (e) 세션 상세 — 저장된 대본이 먼저, 없으면 지금 화면, 둘 다 없으면 **지어내지 않고** 없다고 말한다.
+case "$HUDF" in *'function loadSessionBody(runId){'*"'/api/runs/'+runId+'/chat'"*'if(turns.length) paintChat(runId, turns);'*'else loadTail(runId);'*) : ;; *) fail "a session detail must read the stored transcript (/chat) first and fall back to the scrollback";; esac
+case "$HUDF" in *'function paintTail(text){'*'이 세션의 대화 기록을 찾지 못했어요'*) : ;; *) fail "with neither a transcript nor a screen the session detail must say so plainly (never fabricate the conversation)";; esac
+# 마지막 한 마디만 넉넉히 편다 — 그리고 그 블록도 높이를 물린다(.d-q pre 와 같은 규율).
+case "$HUDF" in *'.d-chat{'*'max-height:min(45vh,260px);overflow:auto}'*) : ;; *) fail "the last-conversation block is the third place allowed to wrap, so it must carry its own height cap and scroll";; esac
+# (f) Enter 는 한 곳에서만 받는다 — 입력칸마다 또 걸면 한 번 친 것이 두 번 나간다.
+case "$HUDF" in *"inp.addEventListener('keydown'"*) fail "an element-level Enter handler is back beside the delegated one — one Enter must mean one send";; *) : ;; esac
+case "$HUDF" in *"\$('hudDetail').addEventListener('keydown', function(e){"*"if(id==='steerInput'){ e.preventDefault(); if(sel!=null) steer(sel); return; }"*"if(id==='renameInput'){"*) : ;; *) fail "the detail's Enter must be a single delegated handler covering both the steer and rename inputs";; esac
+pass "hud comfort (v6.3.9): a raised type/size scale, a real hide button (mode-persisting, hotkey to revive), steer only where tmux can take it (inline failure, text kept), and the last conversation with an honest empty state"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
