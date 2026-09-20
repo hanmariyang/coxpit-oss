@@ -3245,8 +3245,8 @@ pass "v5.28 J2/J3: board compare carries the same verdict + nudge, reusing exist
 # ══ v5.28 Part K — HUD (`/hud`), 플릿을 **작게 다시 내놓는 한 장** ═══════════
 # 한 줄로 줄이면: 알약으로 한눈에 보고, 나를 기다리는 것부터 훑고, 하나를 목록 옆에서 파고들고,
 # 코크핏을 열지 않고 대기 중인 에이전트에게 답한다.
-# ⚠ 이 실행분은 **서빙되는 페이지까지**다 — 창(프레임리스·항상 위)·전역 단축키(K1/K2)는
-#   뒤따르는 데스크톱 작업이라 여기 없다. 페이지는 원하는 크기를 data-hud 에 적어 둘 뿐이다.
+# ⚠ 페이지(K3~K7)와 창(K1/K2)은 **따로 산다** — 아래는 서빙되는 페이지의 계약이고,
+#   창·전역 단축키는 desktop/ 쪽이라 e2e 가 실행할 수 없다(맨 아래에서 소스로만 못박는다).
 # 마커는 파일 순서대로: 문서 뼈대 → 토큰 → 배치 상태 → 알약 → 목록 → 상세 → 배선.
 HUD=$(curl -s "$B/hud")
 case "$HUD" in *'<title>coxpit'*'hud'*) : ;; *) fail "/hud is not served";; esac
@@ -3260,7 +3260,10 @@ if printf '%s' "$HUD" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x
 # 배치 세 상태 = 데스크톱이 나중에 창 크기를 맞출 때 읽어 갈 자리. 여기서 창을 만지지는 않는다.
 case "$HUD" in *'<html lang="en" data-hud="pill">'*'html[data-hud="pill"] #panel{display:none}'*'html[data-hud="detail"] .panel{max-width:570px}'*) : ;; *) fail "the hud must carry pill|list|detail as in-page layout states on <html data-hud> (the desktop resize hook)";; esac
 case "$HUD" in *"document.documentElement.setAttribute('data-hud', next);"*) : ;; *) fail "the layout state must be reflected on <html> so the desktop window can read the wanted size later";; esac
-case "$HUD" in *'BrowserWindow'*|*'globalShortcut'*|*'ipcRenderer'*) fail "K1/K2 (the desktop window + hotkey) are a later run — the served page must not reach for Electron";; *) : ;; esac
+# 창이 생긴 뒤에도 페이지는 Electron 을 **직접** 만지지 않는다 — 통로는 preload 가 심은 다리 하나뿐이다.
+case "$HUD" in *'BrowserWindow'*|*'globalShortcut'*|*'ipcRenderer'*) fail "the served page must never reach for Electron directly — the only channel is the preload bridge (window.coxpitHud)";; *) : ;; esac
+# 그 다리는 **없어도 되는** 다리다: 브라우저에서 열면 window.coxpitHud 가 없어 아무 일도 일어나지 않는다.
+case "$HUD" in *"var api=window.coxpitHud;"*"if(!api||typeof api.size!=='function') return;"*) : ;; *) fail "the size bridge must be guarded on its own existence so /hud still works standing alone in a browser";; esac
 # K3 — 알약: 점 + 대기 수. 대기는 기존 주의 토큰으로 맥박치고, 조용할 때는 조용하다.
 case "$HUD" in *'.st.as-working{background:var(--running)}'*'.st.as-waiting{background:var(--blocked);animation:aspulse'*'.st.as-exited{background:var(--done)}'*) : ;; *) fail "the hud state dots must be the Part A mapping verbatim (working/waiting/idle/exited)";; esac
 case "$HUD" in *'@media (prefers-reduced-motion:reduce)'*) : ;; *) fail "the waiting pulse must respect prefers-reduced-motion";; esac
@@ -3332,7 +3335,7 @@ case "$K_DESIGN" in *'Zero new colors'*) : ;; *) fail "the HUD rows must state t
 K_EMJ=$(node -e '
 const fs=require("fs");
 const rx=/[\u{1F000}-\u{1FAFF}\u{2699}\u{26A0}\u{2B50}]/u;
-const files=["src/hud.ts","src/activity.ts","src/server.ts"];
+const files=["src/hud.ts","src/activity.ts","src/server.ts","desktop/main.cjs","desktop/preload-hud.cjs"];
 let bad=[];
 for(const f of files){ const s=fs.readFileSync(process.argv[1]+"/"+f,"utf8").split("\n");
   s.forEach((l,i)=>{ if(rx.test(l)) bad.push(f+":"+(i+1)); }); }
@@ -3340,6 +3343,59 @@ console.log(bad.length?bad.join(" "):"ASCII_OK");
 ' "$ROOT")
 case "$K_EMJ" in ASCII_OK) : ;; *) fail "emoji in a Part K source file (comments included) — mono glyphs only: $K_EMJ";; esac
 pass "v5.28 K: DESIGN.md carries the HUD components and the touched sources stay emoji-free at the source level"
+
+# ── K1/K2 — 떠 있는 창과 전역 단축키 (desktop/) ─────────────────────────────
+# e2e 는 Electron 을 띄우지 않는다 — **실제 창 거동은 앱을 켜 봐야 안다.** 여기서 못박는 것은
+# 되돌아가면 조용히 깨지는 계약뿐이다: 세 번째 창의 성질 · 크기 통로 · 단축키 · 종료 게이트.
+# 마커는 전부 **파일 순서대로**다.
+DHUD=$(cat "$ROOT/desktop/main.cjs")
+case "$DHUD" in *'globalShortcut, screen } = require('"'"'electron'"'"')'*) : ;; *) fail "desktop/main.cjs must import globalShortcut + screen from electron (built-ins only, no new deps)";; esac
+# 세 번째 창 = 프레임 없고 · 투명하고 · 늘 위에 있고 · 크기 고정이고 · **그림자가 없다**.
+# hasShadow 를 켜면 투명 창 바깥에 OS 가 네모 그림자를 덧그려서 둥근 알약이 사각형으로 보인다.
+case "$DHUD" in *'async function createHudWindow()'*'frame: false, transparent: true'*'hasShadow: false,'*'resizable: false,'*"preload: path.join(__dirname, 'preload-hud.cjs')"*) : ;; *) fail "the HUD window must be a frameless, transparent, non-resizable, shadowless BrowserWindow with its own preload";; esac
+case "$DHUD" in *"hud.setAlwaysOnTop(true, 'floating');"*) : ;; *) fail "the HUD window must float above everything ('floating' level)";; esac
+case "$DHUD" in *"await hud.loadURL(originURL(HUD_PATH));"*) : ;; *) fail "the HUD must load the daemon's own /hud on the SAME origin as the main window (shared auth cookie + WS)";; esac
+# 떠 있기만 할 때는 **포커스를 뺏지 않는다** — 불러낸 것이 사용자일 때만 focus 한다.
+case "$DHUD" in *'hud.showInactive();'*) : ;; *) fail "ambient repaints must use showInactive() — the HUD never steals the frontmost app's focus";; esac
+case "$DHUD" in *'const HUD_SIZES = { pill:'*'list:'*'detail:'*) : ;; *) fail "the three fixed HUD sizes (pill/list/detail) must live in the main process";; esac
+# 크기 통로: 페이지가 말하고, **창을 만지는 것은 메인 프로세스다**. 보낸 쪽이 HUD 창인지도 확인한다.
+case "$DHUD" in *'hud.setBounds({ x, y, width: w, height: h });'*"ipcMain.on('hud:size'"*'e.sender !== hud.webContents'*) : ;; *) fail "hud:size must be guarded to the HUD's own webContents and applied with setBounds by the main process";; esac
+# 자리는 화면마다 기억한다(멀티 모니터는 실제 상황이다) — workArea 로 물려서 화면 밖으로 나가지 않는다.
+case "$DHUD" in *'screen.getDisplayNearestPoint(screen.getCursorScreenPoint())'*'function rememberHudPos()'*"hud.on('moved', rememberHudPos);"*) : ;; *) fail "the HUD must remember its position per display (screen module) and restore it";; esac
+# 모드 둘 — ambient(알약 상주) / hidden(단축키로만). 기본은 ambient.
+case "$DHUD" in *"function hudMode() { return store().hud.mode === 'hidden' ? 'hidden' : 'ambient'; }"*) : ;; *) fail "hud.mode must persist in the desktop store and default to ambient";; esac
+case "$DHUD" in *"hud.on('blur', () => { if (!quitting && hudMode() === 'hidden') hideHud(); });"*) : ;; *) fail "hidden mode must hide the HUD again on blur";; esac
+# 전역 단축키 — 기본값 · 재바인드 가능 · 이미 잡혀 있으면 **로그만 남기고 앱은 산다**.
+case "$DHUD" in *"const HUD_ACCELS = ['CommandOrControl+Shift+"*'function registerHudShortcut()'*'globalShortcut.register(want'*'is already taken by another app'*) : ;; *) fail "the global shortcut must have the default accelerator, be rebindable, and survive a taken accelerator without crashing";; esac
+case "$DHUD" in *'function setHudAccel(accel)'*) : ;; *) fail "the accelerator must be rebindable (stored, re-registered)";; esac
+# whenReady 에서 본 창 옆에 HUD 를 세우고 단축키를 건다(setupAutoUpdate(); 는 그 블록에만 있다).
+case "$DHUD" in *'setupAutoUpdate();'*'createHudWindow();'*'registerHudShortcut();'*) : ;; *) fail "app.whenReady() must create the HUD window and register the shortcut";; esac
+case "$DHUD" in *"app.on('will-quit', () => { globalShortcut.unregisterAll(); });"*) : ;; *) fail "globalShortcut.unregisterAll() must run on quit";; esac
+# 종료 게이트 — **본 창을 닫는 것이 HUD 를 죽이지 않는다**(이 줄이 K1 의 한 문장이다).
+case "$DHUD" in *"app.on('window-all-closed', () => {"*"if (process.platform !== 'darwin' && !hudAlive()) app.quit();"*) : ;; *) fail "quit must be gated on the HUD window too — closing the main cockpit window must not kill the HUD";; esac
+case "$DHUD" in *"app.on('activate', () => { if (!win || win.isDestroyed()) createWindow(); });"*) : ;; *) fail "activate must judge by the MAIN window — the HUD keeps the window count above zero forever";; esac
+# HUD 메뉴 — 모드 토글 + 단축키 재바인드. 최소한이지만 **있어야** 설정을 만질 데가 있다.
+case "$DHUD" in *"label: 'HUD',"*"click: () => setHudMode('ambient')"*"click: () => setHudMode('hidden')"*"label: 'Shortcut',"*) : ;; *) fail "a minimal HUD menu (mode toggle + shortcut rebind) is missing";; esac
+pass "v5.28 K1/K2: a frameless transparent always-on-top /hud window (per-display position, main-process sizing, showInactive) + a rebindable global shortcut, and quit is gated on it"
+
+# preload = 한 방향 다리 하나. contextIsolated, nodeIntegration 없음(preload-auth.cjs 전례 그대로).
+PHUD=$(cat "$ROOT/desktop/preload-hud.cjs")
+case "$PHUD" in *"const { contextBridge, ipcRenderer } = require('electron');"*"contextBridge.exposeInMainWorld('coxpitHud', {"*"ipcRenderer.send('hud:size'"*) : ;; *) fail "desktop/preload-hud.cjs must expose the size bridge over contextBridge (the auth preload's shape)";; esac
+# 페이지가 보낸 값을 **그대로 믿지 않는다** — 형만 맞춰 넘기고, 물리는 것은 메인 프로세스 몫이다.
+case "$PHUD" in *"state: String((want && want.state) || 'pill'),"*'w: Number(want && want.w) || 0,'*) : ;; *) fail "the bridge must normalize what the page sends before it reaches the main process";; esac
+pass "v5.28 K1: desktop/preload-hud.cjs is the HUD's only channel — a one-way, normalized size report"
+
+# 페이지 쪽 — 손잡이(app-region)와 크기 보고. 둘 다 브라우저에서는 **아무 뜻도 없다**.
+case "$HUD" in *'.pill{'*'-webkit-app-region:drag}'*'.pill>*{-webkit-app-region:no-drag}'*) : ;; *) fail "the pill must be a drag handle whose inner controls are no-drag (a drag region swallows clicks)";; esac
+case "$HUD" in *'.hh{'*'-webkit-app-region:drag}'*'.hh>button{-webkit-app-region:no-drag}'*) : ;; *) fail "the expanded header must be a drag handle with no-drag controls";; esac
+case "$HUD" in *'function reportSize(next)'*'reportSize(next);'*) : ;; *) fail "setLayout must report the wanted size to the desktop window";; esac
+# 알약 폭은 점 수에 따라 달라진다 — 고정값으로 보내면 잘린다. 그래서 **재서** 말한다.
+case "$HUD" in *"if(next==='pill'){"*'w=Math.ceil(el.offsetWidth)+12;'*) : ;; *) fail "the pill must report its measured width (the dot count changes it) rather than a fixed number";; esac
+case "$HUD" in *"if(layout==='pill') reportSize('pill');"*) : ;; *) fail "a pill repaint must re-report its size — the dots grow and shrink without a layout change";; esac
+pass "v5.28 K1: /hud carries the drag handles and reports its wanted size, and is a no-op on both counts in a plain browser"
+
+# 컴포넌트 표 — 창도 UI 다.
+case "$K_DESIGN" in *'HUD desktop window (v5.28 K1/K2)'*) : ;; *) fail "DESIGN.md must carry the HUD desktop window component in the same commit";; esac
 
 # ══ v6.5 — 한 coxpit 세션 = 한 claude 대화 ════════════════════════════════════
 # 한 줄로 줄이면: 새 세션은 --session-id 로 **이름을 미리 정해** 뷰어가 정확히 찾게 하고,

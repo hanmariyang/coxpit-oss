@@ -5,10 +5,11 @@
 //   ① 알약으로 한눈에 본다(점 + 대기 수)  ② 펼쳐서 나를 기다리는 것부터 훑는다
 //   ③ 한 줄을 고르면 **목록 옆에** 상세가 열린다   ④ 대기 중인 에이전트에게 코크핏을 열지 않고 답한다
 //
-// [!] 이 실행분은 **서빙되는 페이지까지**다. 창(프레임리스·항상 위)·전역 단축키·크기 변경·
-// 드래그는 뒤따르는 데스크톱 작업(K1/K2)이다. 여기서는 원하는 크기 상태만
-// <html data-hud="pill|list|detail"> 에 적어 둔다 — 데스크톱이 나중에 그걸 읽어 창을 줄이고 늘린다.
-// 페이지 자신은 그 값으로 **안에서** 레이아웃만 바꾼다(브라우저에서 단독으로 돌아간다).
+// [!] 이 페이지는 **브라우저에서 단독으로 돈다**. 창(프레임리스·항상 위)·전역 단축키·크기 변경은
+// 데스크톱 쪽 일(K1/K2, desktop/main.cjs)이고, 여기는 그쪽을 한 줄도 모른다 —
+// 배치 상태를 <html data-hud="pill|list|detail"> 에 적고, 창이 붙어 있을 때만
+// window.coxpitHud.size({state,w,h}) 로 "이만큼 필요하다"고 말할 뿐이다(없으면 아무 일도 없다).
+// 창을 실제로 줄이고 늘리는 것도, 화면 밖으로 안 나가게 물리는 것도 전부 메인 프로세스다.
 //
 // 데이터는 전부 코크핏이 이미 읽는 것: GET /api/fleet(+ agentStates · real) 과 /ws 델타.
 // 새 창구는 하나뿐 — POST /api/runs/:id/input (살아 있는 tmux 에 한 줄 써 넣기, getScrollback 의 쓰기 쌍둥이).
@@ -52,6 +53,8 @@ export const HUD_HTML = /* html */ `<!doctype html>
   html[data-hud="pill"] body{align-items:flex-start}
 
   /* ── K3. 접힌 알약 — 이것이 평상시의 전부다 ───────────────────────────── */
+  /* app-region: 프레임 없는 창(K1)에서 알약과 헤더가 **손잡이**다. 안의 컨트롤은 no-drag 여야
+     눌린다 — drag 영역은 클릭을 삼킨다. 브라우저에서는 이 속성이 아무 뜻도 없다. */
   .pill{display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px;border-radius:999px;
     background:var(--surface);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35);
     font-family:var(--mono);font-size:11px;color:var(--muted);-webkit-app-region:drag}
@@ -194,12 +197,28 @@ export const HUD_HTML = /* html */ `<!doctype html>
   }
 
   // ── 레이아웃 상태 = 데스크톱이 읽어 갈 자리 ────────────────────────────
-  // 창을 줄이고 늘리는 것은 **여기가 아니다**(K1, 데스크톱 작업). 이 페이지는 원하는 크기를
+  // 창을 줄이고 늘리는 것은 **여기가 아니다**(K1, 데스크톱 창). 이 페이지는 원하는 크기를
   // <html data-hud> 에 적어 두고, 자기 안에서는 그 값으로 배치만 바꾼다.
+  // 데스크톱 창에 실려 있으면 그 크기를 한 번 더 **말해 준다** — 창을 만지는 쪽은 언제나 저쪽이다.
+  // 알약 120x26 · 목록 250 · 상세 570 (+ 지면 여백 6px 양쪽). 창은 이 값을 화면 크기로 한 번 더 물린다.
+  var HUD_SIZE={ pill:{w:132,h:38}, list:{w:262,h:380}, detail:{w:582,h:440} };
+  function reportSize(next){
+    var api=window.coxpitHud;
+    if(!api||typeof api.size!=='function') return;   // 브라우저에서 단독으로 열린 경우 — 아무 일도 없다
+    var s=HUD_SIZE[next]||HUD_SIZE.pill;
+    var w=s.w, h=s.h;
+    // 알약만은 **재서** 말한다 — 폭이 점 수에 따라 달라져서 고정값이면 잘리거나 빈자리가 남는다.
+    if(next==='pill'){
+      var el=$('pill');
+      if(el&&el.offsetWidth){ w=Math.ceil(el.offsetWidth)+12; h=Math.ceil(el.offsetHeight)+12; }
+    }
+    try{ api.size({state:next, w:w, h:h}); }catch(e){}
+  }
   var layout='pill';
   function setLayout(next){
     layout=next;
     document.documentElement.setAttribute('data-hud', next);
+    reportSize(next);
     if(next==='pill'){ try{ $('pill').focus(); }catch(e){} }
   }
   function expand(){ if(layout==='pill'){ setLayout('list'); render(); } }
@@ -335,6 +354,8 @@ ${ACTIVITY_JS}
     if(b.wait.length){ w.hidden=false; w.textContent='\\u25d4 '+b.wait.length; q.hidden=true; }
     else { w.hidden=true; q.hidden=false; q.textContent=b.run.length?(b.run.length+' running'):'quiet'; }
     $('pill').title = b.wait.length ? (b.wait.length+' 개가 답을 기다립니다') : (b.run.length+' 개가 도는 중');
+    // 점이 늘고 줄면 알약의 폭도 달라진다 — 떠 있는 창이라면 그때마다 다시 말해 준다.
+    if(layout==='pill') reportSize('pill');
   }
 
   // ── K5. 상세 — 고른 행 하나. 목록은 그대로 옆에 남는다. ────────────────
