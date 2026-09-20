@@ -1431,6 +1431,38 @@ case "$CKPT" in *'persistOpenTabs();   // 포커스 이동'*"'coxpit.opentabs'"*
 case "$CKPT" in *'.hist-note{'*'id="histAltNote"'*'전체화면 앱은 지금 화면만'*'histAltNote'*) : ;; *) fail "v6.4 2차: the 터미널 tab needs the faint alt-screen note pointing at the 대화 tab";; esac
 pass "v6.4 2차: chat resolves via the pane's own cwd (root sessions included) · scrollback joins wrapped lines (-J) · open tabs survive a reload · alt-screen note is honest"
 
+# v6.4 3차 — 고침이 기기에 **도착**하고, 탭은 **데몬**이 기억한다.
+# (1) 서빙되는 세 페이지는 JS 를 품은 한 장짜리 HTML 이다. 캐시 지시가 없으면 브라우저·PWA 가 옛 문서를
+#     계속 내놓을 수 있고, 그러면 어떤 클라이언트 고침도 그 기기에서는 "안 먹은" 것으로 보인다.
+for P in "" cockpit hud; do
+  PH=$(curl -s -D - -o /dev/null "$B/$P")
+  case "$PH" in *'no-store'*) : ;; *) fail "served page /$P must answer Cache-Control: no-store (a stale cached page never gets the fix)";; esac
+  case "$PH" in *'no-cache'*) : ;; *) fail "served page /$P should also send Pragma: no-cache (old intermediaries)";; esac
+done
+# 버전이 박힌 정적 자산은 그대로 캐시 — no-store 를 여기까지 번지게 하지 않는다.
+VH=$(curl -s -D - -o /dev/null "$B/vendor/xterm.js")
+case "$VH" in *'no-store'*) fail "versioned /vendor assets must stay cacheable (no-store belongs on the HTML pages only)";; *) : ;; esac
+case "$VH" in *'max-age=86400'*) : ;; *) fail "/vendor assets lost their cache header";; esac
+# (2) 탭 집합의 정본 = 데몬(ui-state.json). 정수만·중복 제거·최근 24개로 자른다.
+# 아직 아무것도 받아 적지 않았으면 stored:false — 빈 집합("owner 가 다 닫았다")과 구별돼야
+# 클라가 브라우저 사본을 1회만 씨앗으로 쓰고, 닫은 탭을 되살리지 않는다.
+OT0=$(curl -sf "$B/api/ui/opentabs")
+case "$OT0" in *'"stored":false'*) : ;; *) fail "v6.4 3차: a daemon that has never stored tabs must say stored:false (empty is not the same as unknown): $OT0";; esac
+curl -sf -X PUT "$B/api/ui/opentabs" -H 'content-type: application/json' \
+  -d '{"ids":[3,1,"nope",7,7,-2],"active":7}' >/dev/null || fail "PUT /api/ui/opentabs failed"
+OT=$(curl -sf "$B/api/ui/opentabs")
+OTV=$(printf '%s' "$OT" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{const o=JSON.parse(b);console.log(Array.isArray(o.ids)&&o.ids.join(",")==="3,1,7"&&o.active===7&&o.stored===true?"OT_OK":"OT_BAD "+b)})')
+case "$OTV" in OT_OK) : ;; *) fail "v6.4 3차: /api/ui/opentabs must round-trip {ids,active} and drop non-integers/duplicates: $OTV";; esac
+BIG=$(node -e 'const ids=[];for(let i=1;i<=30;i++)ids.push(i);process.stdout.write(JSON.stringify({ids,active:30}))')
+curl -sf -X PUT "$B/api/ui/opentabs" -H 'content-type: application/json' -d "$BIG" >/dev/null || fail "PUT (clamp) /api/ui/opentabs failed"
+OTC=$(curl -sf "$B/api/ui/opentabs" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>{const o=JSON.parse(b);console.log(o.ids.length===24&&o.ids[0]===7&&o.ids[23]===30?"OT_CLAMP_OK":"OT_CLAMP_BAD "+b)})')
+case "$OTC" in OT_CLAMP_OK) : ;; *) fail "v6.4 3차: the open-tab set must clamp to the most recent 24 ids: $OTC";; esac
+# 파일 한 장에 산다 — DB 테이블을 늘리지 않았다(settings.json·auth.json 과 같은 자리).
+[ -f "$(dirname "$DB")/ui-state.json" ] || fail "v6.4 3차: open tabs should persist to <dataDir>/ui-state.json"
+# (3) 클라는 정본을 데몬에서 읽고 쓴다 — localStorage 는 GET 이 실패할 때의 폴백으로만 남는다.
+case "$CKPT" in *"OPENTABS_API='/api/ui/opentabs'"*'function persistOpenTabs'*"method:'PUT'"*'function restoreOpenTabs'*'fetch(OPENTABS_API'*'폴백'*'st.stored===false'*'localStorage.getItem(OPENTABS_KEY)'*) : ;; *) fail "v6.4 3차: the cockpit must persist/restore open tabs through /api/ui/opentabs (server first, localStorage only as the offline/never-stored fallback)";; esac
+pass "v6.4 3차: served pages are no-store (vendor still cached) · open tabs live on the daemon (/api/ui/opentabs → ui-state.json, integers, max 24) · client reads the server first"
+
 # board (the landing screen) gets the mobile app-lock; Cockpit link is a ghost icon button (matches bell/remote)
 case "$BOARD_HTML" in *'user-scalable=no'*) : ;; *) fail "board mobile viewport zoom-lock missing";; esac
 case "$BOARD_HTML" in *'class="btn-ghost sm cockpit-link"'*'#i-terminal'*) : ;; *) fail "board Cockpit link should be a ghost icon button (design-system consistent)";; esac

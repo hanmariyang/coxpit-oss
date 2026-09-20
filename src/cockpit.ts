@@ -1969,32 +1969,56 @@ ${ACTIVITY_JS}
     try{ localStorage.setItem(SESSION_KEY, JSON.stringify(serializeNode(layout))); }catch(e){}
     persistOpenTabs();
   }
-  // ── 열려 있던 탭 전부 기억/복원 (localStorage 'coxpit.opentabs') ──
+  // ── 열려 있던 탭 전부 기억/복원 (정본 = 데몬 '/api/ui/opentabs') ──
   // 위 세션 스냅샷은 **페인에 보이던** 탭만 담는다. 폰은 페인이 하나라서, 새로고침하거나 데몬이 재시작하면
   // 마지막 하나만 남고 나머지 탭이 통째로 사라졌다 — tmux 세션은 멀쩡히 살아 있는데도. 그래서 탭 바를 따로 기억한다.
+  // 기억하는 자리는 **데몬**이다: localStorage 는 캐시 비우기·기기 교체·옛 페이지에 쉽게 날아가고,
+  // 그게 정확히 이 고침이 폰에 안 먹던 이유였다. 브라우저 사본은 데몬이 답을 못 주거나 아직 아무것도
+  // 받아 적지 않았을 때의 폴백으로만 남긴다.
   // 터미널 탭(run)만 담는다: 뷰어 탭은 경로가 스냅샷 쪽에 이미 있고, 죽은 run 은 복원에서 건너뛴다.
-  var OPENTABS_KEY='coxpit.opentabs', MAX_RESTORE_TABS=12;
+  var OPENTABS_KEY='coxpit.opentabs', OPENTABS_API='/api/ui/opentabs', MAX_RESTORE_TABS=24;
+  var otTimer=null, otRestoring=false;
   function persistOpenTabs(){
-    if(!sessionRestoreDone) return;
+    if(!sessionRestoreDone || otRestoring) return;   // 복원 중의 중간 상태를 정본에 덮어쓰지 않는다
     var ids=tabOrder.filter(function(id){ return !isViewer(id); }).slice(-MAX_RESTORE_TABS);
     var act=focusedRunId();
-    try{ localStorage.setItem(OPENTABS_KEY, JSON.stringify({ids:ids, active:(act!=null && !isViewer(act))?act:null})); }catch(e){}
+    var st={ids:ids, active:(act!=null && !isViewer(act))?act:null};
+    try{ localStorage.setItem(OPENTABS_KEY, JSON.stringify(st)); }catch(e){}   // 오프라인 폴백 사본
+    // 포커스 이동은 연달아 일어난다 — 잠깐 모았다가 마지막 한 번만 데몬에 쓴다.
+    if(otTimer) clearTimeout(otTimer);
+    otTimer=setTimeout(function(){
+      otTimer=null;
+      try{ fetch(OPENTABS_API,{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(st)}).catch(function(){}); }catch(e){}
+    }, 400);
   }
-  function restoreOpenTabs(){
-    var raw; try{ raw=localStorage.getItem(OPENTABS_KEY); }catch(e){ raw=null; }
-    var st=null; if(raw){ try{ st=JSON.parse(raw); }catch(e){ st=null; } }
-    if(!st || !st.ids || !st.ids.length) return;   // 기억해둔 게 없으면 위의 단일 세션 복원이 그대로 답이다
-    var added=0, first=null;
-    st.ids.slice(0,MAX_RESTORE_TABS).forEach(function(id){
-      var rid=+id;
-      if(!rid || tabs[rid] || !runById[rid]) return;   // 이미 열렸거나 플릿에서 사라진 run 은 건너뛴다(지어내지 않는다)
-      ensureTab(rid); added++; if(first==null) first=rid;
-    });
-    var act=(st.active!=null && !isViewer(st.active)) ? +st.active : null;
-    if(!act || !tabs[act]) act=first;   // 마지막으로 보던 run 이 사라졌으면 되살린 첫 탭에 착지한다
-    // 페인이 비었거나 하나(폰)일 때만 집어넣는다 — 데스크톱의 분할 배치는 위 스냅샷이 이미 복원했다.
-    if(act!=null && !leafOfTab(act) && (focusedRunId()==null || countLeaves()===1)) openTab(act);
-    else if(added){ render(); renderTree(); }
+  async function restoreOpenTabs(){
+    if(otRestoring) return;   // 다시 불러도 안전 — 진행 중인 복원과 겹치지 않는다
+    otRestoring=true;
+    try{
+      var st=null;
+      try{ var res=await fetch(OPENTABS_API,{headers:{'accept':'application/json'}}); if(res.ok) st=await res.json(); }catch(e){ st=null; }
+      // 브라우저 사본은 폴백일 뿐이다 — 데몬이 답을 못 줬거나(구버전·오프라인), 아직 한 번도 받아 적은 적이
+      // 없을 때만(stored:false, 1회 이관) 본다. 데몬이 "빈 집합"이라 답했으면 그건 owner 가 닫은 것이다.
+      if(!st || !st.ids || st.stored===false){
+        var raw; try{ raw=localStorage.getItem(OPENTABS_KEY); }catch(e){ raw=null; }
+        if(raw){ try{ var ls=JSON.parse(raw); if(ls && ls.ids && ls.ids.length) st=ls; }catch(e){} }
+      }
+      if(!st || !Array.isArray(st.ids) || !st.ids.length) return;   // 기억해둔 게 없으면 위의 단일 세션 복원이 그대로 답이다
+      var added=0, first=null;
+      st.ids.slice(-MAX_RESTORE_TABS).forEach(function(id){
+        var rid=+id;
+        if(!rid || tabs[rid] || !runById[rid]) return;   // 이미 열렸거나 플릿에서 사라진 run 은 건너뛴다(지어내지 않는다)
+        ensureTab(rid); added++; if(first==null) first=rid;
+      });
+      var act=(st.active!=null && !isViewer(st.active)) ? +st.active : null;
+      if(!act || !tabs[act]) act=first;   // 마지막으로 보던 run 이 사라졌으면 되살린 첫 탭에 착지한다
+      // 페인이 비었거나 하나(폰)일 때만 집어넣는다 — 데스크톱의 분할 배치는 위 스냅샷이 이미 복원했다.
+      if(act!=null && !leafOfTab(act) && (focusedRunId()==null || countLeaves()===1)) openTab(act);
+      else if(added){ render(); renderTree(); }   // 탭 바에는 되살린 탭이 전부 보여야 한다
+    } finally {
+      otRestoring=false;
+      persistOpenTabs();   // 복원 결과(= 지금 열린 탭)를 정본으로 굳힌다
+    }
   }
   function restoreSession(){
     if(sessionRestoreDone) return;    // 1회만(이후 hydrate 는 통과)

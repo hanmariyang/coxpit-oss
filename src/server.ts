@@ -17,6 +17,7 @@ import {
 } from './authkey';
 import { config } from './config';
 import { readSettings, writeSettings } from './settings';
+import { readOpenTabs, writeOpenTabs, sanitizeOpenTabs } from './uistate';
 import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
@@ -254,13 +255,19 @@ export async function buildServer(): Promise<FastifyInstance> {
     };
   });
 
+  // 서빙되는 한 장짜리 페이지는 **절대 캐시하지 않는다**. 세 페이지 전부 HTML 안에 JS 가 들어 있어서,
+  // 브라우저·PWA 가 옛 문서를 물고 있으면 고친 코드가 기기에 아예 도착하지 않는다(폰에서 "고쳤는데
+  // 그대로"의 진짜 원인). 버전이 박힌 /vendor/*·/brand/* 정적 자산은 그대로 캐시한다 — 여기만 no-store.
+  const freshPage = (reply: FastifyReply): FastifyReply =>
+    reply.header('cache-control', 'no-store').header('pragma', 'no-cache');
+
   // 플릿 보드(단일 페이지). 인증 게이트 적용됨(무인증 요청은 게이트가 login/setup 페이지로 응답).
-  app.get('/', async (_req, reply) => reply.type('text/html').send(BOARD_HTML));
+  app.get('/', async (_req, reply) => freshPage(reply).type('text/html').send(BOARD_HTML));
   // 터미널 우선 셸(병행 개발) — 백엔드는 보드와 공유. Phase 5에서 데스크톱 기본을 여기로 플립 예정.
-  app.get('/cockpit', async (_req, reply) => reply.type('text/html').send(COCKPIT_PAGE));
+  app.get('/cockpit', async (_req, reply) => freshPage(reply).type('text/html').send(COCKPIT_PAGE));
   // HUD(v5.28 K) — 플릿을 작게 다시 내놓는 한 장. 데스크톱의 떠 있는 작은 창이 이걸 띄운다.
   // 서빙되는 **페이지**라 /cockpit 과 같은 게이트 뒤다(무인증 예외 아님 — 헬스가 아니다).
-  app.get('/hud', async (_req, reply) => reply.type('text/html').send(HUD_PAGE));
+  app.get('/hud', async (_req, reply) => freshPage(reply).type('text/html').send(HUD_PAGE));
 
   // ─── 접근키 인증(access-key) ────────────────────────────────────
   // 요청이 tunnel/https 를 탔나 — Secure 쿠키 여부 결정용.
@@ -501,6 +508,19 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (authMode().mode === 'env' || config.envLocked.authDisabled) return reply.code(409).send({ error: 'auth is controlled by env' });
     clearStored();
     return { ok: true };
+  });
+
+  // ── 소유자 UI 상태 — 열어둔 탭 (ui-state.json) ───────────────────
+  // 탭 바를 **데몬**이 기억한다. 브라우저 저장소는 캐시 비우기·기기 교체·옛 페이지에 쉽게 날아가는데,
+  // 그동안 tmux 세션은 살아 있다 — 새로고침이 돌고 있는 일을 닫아버려선 안 된다.
+  app.get('/api/ui/opentabs', async () => readOpenTabs());
+  app.put('/api/ui/opentabs', async (req, reply) => {
+    try {
+      return { ok: true, ...writeOpenTabs(sanitizeOpenTabs(req.body)) };
+    } catch (e) {
+      // 디스크에 못 썼으면 조용히 성공한 척하지 않는다 — 클라이언트는 localStorage 사본으로 버틴다.
+      return reply.code(500).send({ error: `could not persist ui state: ${(e as Error).message}` });
+    }
   });
 
   // 아카이브 — 닫힌 태스크 목록(최신순, 페이지네이션·필터). 카드가 아니라 한 줄 행.
