@@ -897,7 +897,7 @@ async function matchTranscriptByPane(
     screen.push(l);
   }
   // claude TUI 는 node 로 뜬다(래퍼에 따라 이름이 다르다) — 평범한 셸 페인에서 남의 대본을 집지 않기 위한 문지기.
-  if (!/^(claude|node|bun|deno)$/.test(cmd)) return '';
+  if (!/claude|^(node|bun|deno)$/.test(cmd)) return '';
   const needles = paneNeedles(screen);
   if (needles.length < 2) return '';
   const greps = needles.map((n) => `grep -qF ${shq(n)} "$f" 2>/dev/null && n=$((n+1));`).join(' ');
