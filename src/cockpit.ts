@@ -1086,7 +1086,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   }
   var V_GLYPH = { pass:'✓ verify', fail:'✗ verify', running:'⋯ verify', error:'! verify' };
   function vbadge(status){ if (!status || !V_GLYPH[status]) return ''; return '<span class="vbadge '+status+'" data-role="vbadge">'+V_GLYPH[status]+'</span>'; }
-  // 라이브 상태 + "지금" 한 줄 — HUD(v5.28 K)와 **같은 한 벌**(src/activity.ts). 사본을 만들지 않는다.
+  // 라이브 상태 + "지금" 한 줄 — 한 벌을 공유한다(src/activity.ts). 사본을 만들지 않는다.
 ${ACTIVITY_JS}
 
   // ── fleet 상태 ──
@@ -3811,7 +3811,7 @@ ${HUMANIZE_JS}
     render();
   }
 
-  // "지금" 한 줄(actNowText)은 위 ACTIVITY_JS 에 산다 — HUD 와 같은 한 벌.
+  // "지금" 한 줄(actNowText)은 위 ACTIVITY_JS 에 산다 — 공유하는 한 벌.
   function actPath(runId){
     var r=runById[runId]; if(!r) return '';
     var task=taskById[r.taskId]; var rp=task&&repoById[task.repoId];

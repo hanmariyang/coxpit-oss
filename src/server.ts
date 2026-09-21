@@ -31,7 +31,6 @@ import { getProvider, listProviders } from './providers';
 import { remoteState, setServe, setFunnel } from './remote';
 import { BOARD_HTML } from './board';
 import { COCKPIT_HTML } from './cockpit';
-import { HUD_HTML } from './hud';
 import { listDir as fsListDir, readForView as fsReadForView, readRaw as fsReadRaw, writeText as fsWriteText, findFiles as fsFindFiles, uploadFile as fsUploadFile, withinFilesRoot } from './files';
 import { ensureWorkDoc, readWorkDoc, writeWorkDoc, removeWorkDoc, workDocPath, workDocSize } from './workdoc';
 
@@ -51,9 +50,8 @@ const VENDOR: Record<string, { pkg: string; rel: string; type: string }> = {
 
 // 버전 치환은 **모듈 로드 때 한 번** — config.version 은 부트 후 변하지 않고, cockpit.ts 는
 // 281KB 짜리 한 문자열이다. 요청마다 전역 정규식으로 다시 훑던 것을 상수로 굳혔다
-// (보드는 원래 상수를 그대로 내보낸다 — 세 페이지가 같은 방식이 됐다).
+// (보드는 원래 상수를 그대로 내보낸다 — 두 페이지가 같은 방식이 됐다).
 const COCKPIT_PAGE = COCKPIT_HTML.replace(/__COXPIT_VER__/g, config.version);
-const HUD_PAGE = HUD_HTML.replace(/__COXPIT_VER__/g, config.version);
 
 // ─── 읽기 전용 공유 페이지 (서버 렌더 스냅샷 — 스크립트 0, 액션 0) ───────────
 const escH = (x: unknown): string =>
@@ -255,7 +253,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     };
   });
 
-  // 서빙되는 한 장짜리 페이지는 **절대 캐시하지 않는다**. 세 페이지 전부 HTML 안에 JS 가 들어 있어서,
+  // 서빙되는 한 장짜리 페이지는 **절대 캐시하지 않는다**. 두 페이지 전부 HTML 안에 JS 가 들어 있어서,
   // 브라우저·PWA 가 옛 문서를 물고 있으면 고친 코드가 기기에 아예 도착하지 않는다(폰에서 "고쳤는데
   // 그대로"의 진짜 원인). 버전이 박힌 /vendor/*·/brand/* 정적 자산은 그대로 캐시한다 — 여기만 no-store.
   const freshPage = (reply: FastifyReply): FastifyReply =>
@@ -265,9 +263,6 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/', async (_req, reply) => freshPage(reply).type('text/html').send(BOARD_HTML));
   // 터미널 우선 셸(병행 개발) — 백엔드는 보드와 공유. Phase 5에서 데스크톱 기본을 여기로 플립 예정.
   app.get('/cockpit', async (_req, reply) => freshPage(reply).type('text/html').send(COCKPIT_PAGE));
-  // HUD(v5.28 K) — 플릿을 작게 다시 내놓는 한 장. 데스크톱의 떠 있는 작은 창이 이걸 띄운다.
-  // 서빙되는 **페이지**라 /cockpit 과 같은 게이트 뒤다(무인증 예외 아님 — 헬스가 아니다).
-  app.get('/hud', async (_req, reply) => freshPage(reply).type('text/html').send(HUD_PAGE));
 
   // ─── 접근키 인증(access-key) ────────────────────────────────────
   // 요청이 tunnel/https 를 탔나 — Secure 쿠키 여부 결정용.
@@ -1327,8 +1322,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     return res;
   });
 
-  // 살아 있는 run 의 tmux 에 한 줄 써 넣기 (v5.28 K) — 위 scrollback 의 **쓰기 쌍둥이**.
-  // HUD 가 코크핏을 열지 않고 "대기 중인 에이전트"에게 답하는 길이다(steer 는 정착한 run 전용이라
+  // 살아 있는 run 의 tmux 에 한 줄 써 넣기 — 위 scrollback 의 **쓰기 쌍둥이**.
+  // "대기 중인 에이전트"에게 답하는 길이다(steer 는 정착한 run 전용이라
   // 프롬프트 앞에 서 있는 run 에는 쓸 수 없다). 보내는 것은 언제나 사람이 고른 문자열이다 —
   // 서버는 에이전트의 질문을 읽지도, 답을 고르지도 않는다.
   // 세션이 없으면(정리됐거나 애초에 없음) 409, 모르는 run 은 404.

@@ -970,12 +970,10 @@ grep -qF 'PRAGMA synchronous=NORMAL' src/db/index.ts || fail "the libSQL client 
 grep -qF 'inArray(agentRuns.taskId, pageIds)' src/server.ts || fail "archive must fetch the page's runs in one query (the N+1 is the bug)"
 # 서빙 페이지의 버전 치환은 모듈 로드 때 한 번(요청마다 281KB 를 다시 훑지 않는다).
 grep -qF 'const COCKPIT_PAGE = COCKPIT_HTML.replace(/__COXPIT_VER__/g, config.version)' src/server.ts || fail "the cockpit page's version substitution must be hoisted to module load"
-grep -qF 'const HUD_PAGE = HUD_HTML.replace(/__COXPIT_VER__/g, config.version)' src/server.ts || fail "the hud page's version substitution must be hoisted to module load"
-case "$(cat src/server.ts)" in *'send(COCKPIT_HTML.replace('*|*'send(HUD_HTML.replace('*) fail "a served route still substitutes the version per request";; *) : ;; esac
+case "$(cat src/server.ts)" in *'send(COCKPIT_HTML.replace('*) fail "a served route still substitutes the version per request";; *) : ;; esac
 # 치환이 실제로 됐는지 — 서빙된 페이지에 플레이스홀더가 남아 있으면 안 된다.
-CKV=$(curl -s "$B/cockpit"); HDV=$(curl -s "$B/hud")
+CKV=$(curl -s "$B/cockpit")
 case "$CKV" in *'__COXPIT_VER__'*) fail "the hoisted cockpit page still carries the placeholder";; *) : ;; esac
-case "$HDV" in *'__COXPIT_VER__'*) fail "the hoisted hud page still carries the placeholder";; *) : ;; esac
 # 1.5초 워처는 조용한 틱에 DB 를 안 건드린다 — 더러울 때만 현황을 읽는다.
 grep -qF 'if (consumed || rev !== seenRev)' src/orchestrator.ts || fail "startOrchWatch must skip listSubtasks on quiet ticks (spawn consumed or a run moved)"
 grep -qF "eq(agentEvents.kind, 'result')" src/orchestrator.ts || fail "runAnswerText must ask for the result events only, not the whole timeline"
@@ -1450,9 +1448,9 @@ case "$CKPT" in *'.hist-note{'*'id="histAltNote"'*'전체화면 앱은 지금 �
 pass "v6.4 2차: chat resolves via the pane's own cwd (root sessions included) · scrollback joins wrapped lines (-J) · open tabs survive a reload · alt-screen note is honest"
 
 # v6.4 3차 — 고침이 기기에 **도착**하고, 탭은 **데몬**이 기억한다.
-# (1) 서빙되는 세 페이지는 JS 를 품은 한 장짜리 HTML 이다. 캐시 지시가 없으면 브라우저·PWA 가 옛 문서를
+# (1) 서빙되는 두 페이지는 JS 를 품은 한 장짜리 HTML 이다. 캐시 지시가 없으면 브라우저·PWA 가 옛 문서를
 #     계속 내놓을 수 있고, 그러면 어떤 클라이언트 고침도 그 기기에서는 "안 먹은" 것으로 보인다.
-for P in "" cockpit hud; do
+for P in "" cockpit; do
   PH=$(curl -s -D - -o /dev/null "$B/$P")
   case "$PH" in *'no-store'*) : ;; *) fail "served page /$P must answer Cache-Control: no-store (a stale cached page never gets the fix)";; esac
   case "$PH" in *'no-cache'*) : ;; *) fail "served page /$P should also send Pragma: no-cache (old intermediaries)";; esac
@@ -2035,8 +2033,6 @@ DPID=$!
 for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 0.5; done
 expect_code 401 "$B/api/machines"
 expect_code 401 "$B/api/browse"
-# v5.28 K — /hud 는 서빙되는 **페이지**라 /cockpit 과 같은 게이트 뒤다(헬스처럼 무인증 예외가 아니다)
-expect_code 401 "$B/hud"
 expect_code 401 "$B/cockpit"
 # Basic back-compat: any user, key in the password slot (no username in the UX)
 expect_code 200 -u x:pw-e2e "$B/api/machines"
@@ -2231,16 +2227,13 @@ pass "v6.0 W2: with the data dir inside the viewer root, WORK.md is read/written
 HEXES=$(node -e "
 const fs=require('fs');const rx=/#[0-9a-fA-F]{3,8}(?![0-9a-zA-Z-])/g;
 const c=(p)=>((fs.readFileSync(p,'utf8').match(rx)||[]).length);
-console.log(c('$ROOT/src/board.ts')+' '+c('$ROOT/src/cockpit.ts')+' '+c('$ROOT/src/login.ts')+' '+c('$ROOT/src/hud.ts'));
+console.log(c('$ROOT/src/board.ts')+' '+c('$ROOT/src/cockpit.ts')+' '+c('$ROOT/src/login.ts'));
 ")
 set -- $HEXES
 [ "$1" -le 60 ] || fail "design ratchet: board.ts hard-coded colors grew ($1 > 60) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
 [ "$2" -le 46 ] || fail "design ratchet: cockpit.ts hard-coded colors grew ($2 > 46) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
 [ "$3" -le 29 ] || fail "design ratchet: login.ts hard-coded colors grew ($3 > 29) — use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
-# v5.28 K — hud.ts 의 기준선은 **:root 팔레트 그대로 18개**다(코크핏에서 그대로 옮긴 토큰 블록).
-# 래칫의 일은 "나중에 새 색이 생기지 않게" 하는 것이므로, 처음 값을 여기 적립해 둔다.
-[ "$4" -le 18 ] || fail "design ratchet: hud.ts hard-coded colors grew ($4 > 18) — the hud is palette-only; use var(--tokens), or extend DESIGN.md and bump this baseline in the same commit"
-pass "design ratchet: no new hard-coded colors (board $1/60 · cockpit $2/46 · login $3/29 · hud $4/18)"
+pass "design ratchet: no new hard-coded colors (board $1/60 · cockpit $2/46 · login $3/29)"
 
 # pty master fd 누수 회귀(issue #9). darwin 에서 실검증, 리눅스 CI 는 self-skip(성공).
 kill "$DPID" 2>/dev/null || true; sleep 0.3
@@ -3242,171 +3235,41 @@ J_DESIGN=$(cat "$ROOT/DESIGN.md")
 case "$J_DESIGN" in *'Post-merge verify line (v5.28 J)'*'verifyBase'*'Zero new colors'*) : ;; *) fail "DESIGN.md must record the post-merge verify surfacing in the same commit";; esac
 pass "v5.28 J2/J3: board compare carries the same verdict + nudge, reusing existing status tokens, and DESIGN.md carries the rule"
 
-# ══ v5.28 Part K — HUD (`/hud`), 플릿을 **작게 다시 내놓는 한 장** ═══════════
-# 한 줄로 줄이면: 알약으로 한눈에 보고, 나를 기다리는 것부터 훑고, 하나를 목록 옆에서 파고들고,
-# 코크핏을 열지 않고 대기 중인 에이전트에게 답한다.
-# ⚠ 페이지(K3~K7)와 창(K1/K2)은 **따로 산다** — 아래는 서빙되는 페이지의 계약이고,
-#   창·전역 단축키는 desktop/ 쪽이라 e2e 가 실행할 수 없다(맨 아래에서 소스로만 못박는다).
-# 마커는 파일 순서대로: 문서 뼈대 → 토큰 → 배치 상태 → 알약 → 목록 → 상세 → 배선.
-HUD=$(curl -s "$B/hud")
-case "$HUD" in *'<title>coxpit'*'hud'*) : ;; *) fail "/hud is not served";; esac
-case "$HUD" in *'__COXPIT_VER__'*) fail "the hud version placeholder must be substituted at serve time";; *) : ;; esac
-case "$HUD" in *'class="hver">v'*) : ;; *) fail "the hud should show the loaded version (cache diagnosis), like the cockpit";; esac
-# 모노·다크 — 토큰은 코크핏 팔레트 **그대로**다(새 색 0개, 래칫이 18개로 적립돼 있다).
-case "$HUD" in *'--bg:#0b0d12'*'--brand:#4ec9b0'*'--blocked:#d6a249'*) : ;; *) fail "the hud must reuse the cockpit palette verbatim (same :root token block)";; esac
-case "$HUD" in *'--mono:ui-monospace'*) : ;; *) fail "the hud is a mono instrument like the board/cockpit";; esac
-# 서빙된 /hud 에 이모지가 없어야 한다(게이트 확장 — 코크핏·로그인과 같은 규칙).
-if printf '%s' "$HUD" | perl -CSD -ne 'exit 1 if /[\x{1F000}-\x{1FAFF}\x{2699}\x{26A0}\x{2B50}]/'; then : ; else fail "the hud contains emoji — use monochrome glyphs (design system)"; fi
-# 배치 세 상태 = 데스크톱이 나중에 창 크기를 맞출 때 읽어 갈 자리. 여기서 창을 만지지는 않는다.
-case "$HUD" in *'<html lang="en" data-hud="pill">'*'html[data-hud="pill"] #panel{display:none}'*'html[data-hud="detail"] .hlist{width:260px;flex:none}'*) : ;; *) fail "the hud must carry pill|list|detail as in-page layout states on <html data-hud> (the desktop resize hook), with detail as a two-pane master-detail";; esac
-case "$HUD" in *"document.documentElement.setAttribute('data-hud', next);"*) : ;; *) fail "the layout state must be reflected on <html> so the desktop window can read the wanted size later";; esac
-# 창이 생긴 뒤에도 페이지는 Electron 을 **직접** 만지지 않는다 — 통로는 preload 가 심은 다리 하나뿐이다.
-case "$HUD" in *'BrowserWindow'*|*'globalShortcut'*|*'ipcRenderer'*) fail "the served page must never reach for Electron directly — the only channel is the preload bridge (window.coxpitHud)";; *) : ;; esac
-# 그 다리는 **없어도 되는** 다리다: 브라우저에서 열면 window.coxpitHud 가 없어 아무 일도 일어나지 않는다.
-case "$HUD" in *"var api=window.coxpitHud;"*"if(!api||typeof api.size!=='function') return;"*) : ;; *) fail "the size bridge must be guarded on its own existence so /hud still works standing alone in a browser";; esac
-# K3 — 알약: 점 + 대기 수. 대기는 기존 주의 토큰으로 맥박치고, 조용할 때는 조용하다.
-case "$HUD" in *'.st.as-working{background:var(--running)}'*'.st.as-waiting{background:var(--blocked);animation:aspulse'*'.st.as-exited{background:var(--done)}'*) : ;; *) fail "the hud state dots must be the Part A mapping verbatim (working/waiting/idle/exited)";; esac
-case "$HUD" in *'@media (prefers-reduced-motion:reduce)'*) : ;; *) fail "the waiting pulse must respect prefers-reduced-motion";; esac
-case "$HUD" in *'id="pill"'*'id="pillDots"'*'id="pillWait"'*'id="pillQuiet"'*) : ;; *) fail "the collapsed pill (dots + waiting count) is missing";; esac
-pass "v5.28 K3: /hud serves a mono, palette-only collapsed pill (state dots + waiting count, amber pulse only while something waits)"
-
-# K4 — 펼친 분류 목록: needs-you 가 앞장서고, running 은 접힌 요약, idle/session 은 숫자 한 줄.
-case "$HUD" in *'id="hudLead"'*'id="hudList"'*'id="hudDetail"'*) : ;; *) fail "the expanded triage list + side-by-side detail pane are missing";; esac
-case "$HUD" in *"' needs you'"*"'all clear'"*) : ;; *) fail "the header must lead with N needs you (amber) or all clear (green)";; esac
-case "$HUD" in *"+b.run.length+' running "*"+b.rest.length+' idle'"*) : ;; *) fail "the header must carry the compact running/idle counts";; esac
-case "$HUD" in *'<div class="lbl">needs you</div>'*'<div class="lbl">running '*"' idle / session '"*) : ;; *) fail "needs-you must lead, running follows folded, idle/sessions collapse to a count";; esac
-case "$HUD" in *'<div class="clearbox"><span class="big">all clear</span>'*) : ;; *) fail "with nothing waiting the body must be a calm all-clear summary, never an empty list";; esac
-# 키보드가 이 화면의 전부다.
-case "$HUD" in *"if(e.key==='j')"*"if(e.key==='k')"*"if(e.key==='Enter'){ e.preventDefault(); if(cur>=0) openDetail(rowIds[cur]); return; }"*) : ;; *) fail "j/k move and enter opens the detail";; esac
-case "$HUD" in *"e.key==='y'||e.key==='n'||e.key==='c'"*"agentStateOf(id)!=='waiting'"*) : ;; *) fail "y/n/c must act on the highlighted row and refuse anything that is not waiting";; esac
-pass "v5.28 K4: triage list leads with needs-you, folds running, counts the rest, all-clear when quiet, j/k/enter/y/n/c"
-
-# K5 — 행 선택 → **목록 옆** 상세. 세 변종(대기 에이전트 · 도는 에이전트 · 세션).
-# (v6.3.9) steer 는 자리(steerslot)만 잡아 두고 **살아 있는 페인이 확인된 뒤에** 채운다 — 아래 steer 블록 참고.
-case "$HUD" in *'data-role="qbox"'*'data-qr="'*'data-role="dnow"'*'data-role="dtl"'*'data-diff="'*'data-role="steerslot"'*'data-stop="'*) : ;; *) fail "the waiting/running detail must carry the question card, replies, now line, timeline, diff peek, the steer slot and stop";; esac
-case "$HUD" in *'data-role="sbody"'*'>터미널 열기<'*'data-rename="'*'data-del="'*) : ;; *) fail "the session detail must be a read-only body + open/rename/delete (no question, no steer)";; esac
-case "$HUD" in *"function closeDetail(){"*"setLayout('list'); render();"*) : ;; *) fail "esc must close the detail and keep the list";; esac
-# 질문은 **지어내지 않는다** — 출처를 이름표로 밝히고, 못 읽으면 못 읽었다고 말한다.
-case "$HUD" in *'터미널 마지막 화면'*'마지막 말'*'무엇을 묻는지 읽지 못했습니다'*) : ;; *) fail "the waiting card must name its source and say so when the question cannot be read (never fabricate it)";; esac
-# 빠른 답은 Part C 의 계약 그대로 — 사람이 고른 **고정 문자열** 셋.
-case "$HUD" in *"{ k:'approve', label:'승인', send:'1' }"*"{ k:'cont',    label:'계속', send:'계속' }"*) : ;; *) fail "the hud quick replies must be the same fixed human-chosen literals as Part C (never read the prompt to pick an answer)";; esac
-pass "v5.28 K5: row select opens a side-by-side detail (waiting · running · session) with honest question sourcing and fixed quick replies"
-
-# K6 — 재사용만 한다: 읽기는 /api/fleet + /ws, 행동은 이미 있는 창구(새 것은 input 하나).
-case "$HUD" in *'/api/fleet?view=all'*) : ;; *) fail "the hud must read the same fleet payload the cockpit reads";; esac
-case "$HUD" in *"var s=asm[k]&&asm[k].state; if(s&&s!=='unknown') agentState[k]=s;"*) : ;; *) fail "agent states must be seeded from the fleet's agentStates map (Part A), never guessed";; esac
-case "$HUD" in *'function isDryRun(r){ return !!r && r.real===false; }'*) : ;; *) fail "the dry chip must gate on real===false only (Part H) — a falsy check would accuse unknown runs";; esac
-case "$HUD" in *"if(ev && ev.type==='agentstate'){ paintAgentState(ev.runId, ev.state); return; }"*) : ;; *) fail "an agentstate delta must paint in place — never a full rehydrate (Part A discipline)";; esac
-case "$HUD" in *"rp.kind==='sessions'"*) : ;; *) fail "the hud includes sessions as a selectable kind (unlike the board, Part I)";; esac
-# (v6.3.9) /steer 는 빠졌다 — 입력칸은 **살아 있는 페인에만** 서므로 갈 길이 tmux 하나로 줄었다.
-# 대신 세션 상세가 저장된 대본(/chat)을 먼저 읽는다.
-case "$HUD" in *"'/api/runs/'+runId+'/scrollback?lines=60'"*"'/api/runs/'+runId+'/chat'"*"'/api/runs/'+runId+'/diff'"*"'/api/runs/'+runId+'/input'"*"'/api/runs/'+runId+'/stop'"*) : ;; *) fail "the detail actions must reuse the existing run endpoints in order (scrollback · chat · diff · input · stop)";; esac
-case "$HUD" in *"fetch('/api/tasks/'+r.taskId"*"fetch('/api/runs/'+runId, {method:'DELETE'})"*) : ;; *) fail "session rename/delete must reuse PATCH /api/tasks/:id and DELETE /api/runs/:id";; esac
-case "$HUD" in *"/cockpit?run='+encodeURIComponent(runId)"*) : ;; *) fail "the escape hatch must be the cockpit deep link /cockpit?run=N";; esac
-# humanize·latestActivity 는 **같은 한 벌**이다 — 페이지마다 사본을 두지 않는다.
-case "$HUD" in *'function humanize(e)'*'function humanLines(events)'*'function latestActivity(runId)'*'function actNowText(runId)'*) : ;; *) fail "the hud must inject the shared humanize + activity helpers";; esac
-HUD_SRC=$(cat "$ROOT/src/hud.ts")
-case "$HUD_SRC" in *"import { HUMANIZE_JS } from './humanize';"*"import { ACTIVITY_JS } from './activity';"*) : ;; *) fail "the hud must import the shared modules, not carry copies";; esac
-case "$HUD_SRC" in *'function humanize('*|*'function latestActivity('*) fail "a second copy of humanize/latestActivity in hud.ts — they live in src/humanize.ts and src/activity.ts";; *) : ;; esac
+# latestActivity·actNowText 는 **한 벌**이다(src/activity.ts) — 페이지가 사본을 들지 않는다.
 CKPT_SRC=$(cat "$ROOT/src/cockpit.ts")
-case "$CKPT_SRC" in *"import { ACTIVITY_JS } from './activity';"*) : ;; *) fail "the cockpit must read the same shared activity module (one copy, two pages)";; esac
+case "$CKPT_SRC" in *"import { ACTIVITY_JS } from './activity';"*) : ;; *) fail "the cockpit must read the shared activity module (one copy, injected)";; esac
 case "$CKPT_SRC" in *'function latestActivity('*|*'function actNowText('*) fail "latestActivity/actNowText must live only in src/activity.ts (the humanize precedent)";; *) : ;; esac
-pass "v5.28 K6: the hud is the cockpit's data re-surfaced — shared fleet/ws/humanize/activity, existing action endpoints, sessions included"
+pass "shared activity: the cockpit injects src/activity.ts rather than carrying a copy"
 
-# K7 — 새 창구는 **하나**: POST /api/runs/:id/input (살아 있는 tmux 에 한 줄 = getScrollback 의 쓰기 쌍둥이).
+# 살아 있는 tmux 에 한 줄 써 넣기 = POST /api/runs/:id/input (getScrollback 의 쓰기 쌍둥이).
 # 에이전트가 정말 읽는지에는 기대지 않는다 — 창구와 가드만 못박는다.
-KDIR="$WORK/k-hud-session"; mkdir -p "$KDIR"
-KS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$KDIR\",\"title\":\"hud\"}")
+KDIR="$WORK/input-session"; mkdir -p "$KDIR"
+KS=$(curl -sf -X POST "$B/api/session" -H 'content-type: application/json' -d "{\"machineSlug\":\"local\",\"path\":\"$KDIR\",\"title\":\"input\"}")
 KRUN=$(echo "$KS" | node -e 'let b="";process.stdin.on("data",d=>b+=d);process.stdin.on("end",()=>console.log(JSON.parse(b).runId))')
-[ -n "$KRUN" ] || fail "Part K: the scratch session for the input endpoint was not created: $KS"
-KI=$(curl -s -X POST "$B/api/runs/$KRUN/input" -H 'content-type: application/json' -d '{"text":"# hud-e2e-ping"}')
-case "$KI" in *'"ok":true'*) : ;; *) fail "Part K: writing a line into a live tmux session should succeed: $KI";; esac
+[ -n "$KRUN" ] || fail "the scratch session for the input endpoint was not created: $KS"
+KI=$(curl -s -X POST "$B/api/runs/$KRUN/input" -H 'content-type: application/json' -d '{"text":"# input-e2e-ping"}')
+case "$KI" in *'"ok":true'*) : ;; *) fail "writing a line into a live tmux session should succeed: $KI";; esac
 # 빈 문자열은 보내지 않는다(사람이 아무것도 고르지 않은 것을 엔터로 바꾸지 않는다).
 expect_code 400 -X POST "$B/api/runs/$KRUN/input" -H 'content-type: application/json' -d '{"text":"   "}'
 expect_code 404 -X POST "$B/api/runs/999999/input" -H 'content-type: application/json' -d '{"text":"x"}'
 # 세션이 사라진 run 은 409 — 없는 터미널에 썼다고 하지 않는다.
 curl -s -X POST "$B/api/runs/$KRUN/cleanup" >/dev/null
 expect_code 409 -X POST "$B/api/runs/$KRUN/input" -H 'content-type: application/json' -d '{"text":"x"}'
-[ -d "$KDIR" ] || fail "Part K: the session folder must survive cleanup"
-pass "v5.28 K7: POST /api/runs/:id/input writes one line into a LIVE tmux session (empty 400 · unknown run 404 · no session 409)"
+[ -d "$KDIR" ] || fail "the session folder must survive cleanup"
+pass "POST /api/runs/:id/input writes one line into a LIVE tmux session (empty 400 · unknown run 404 · no session 409)"
 
-# 컴포넌트 표는 같은 커밋에서 갱신된다(DESIGN.md 는 강제되는 계약이다).
-K_DESIGN=$(cat "$ROOT/DESIGN.md")
-case "$K_DESIGN" in *'HUD pill (v5.28 K3)'*'HUD triage list (v5.28 K4)'*'HUD detail pane (v5.28 K5)'*'HUD waiting card (v5.28 K5/K7)'*'HUD session tail (v5.28 K5)'*) : ;; *) fail "DESIGN.md must carry the HUD components in the same commit";; esac
-case "$K_DESIGN" in *'Zero new colors'*) : ;; *) fail "the HUD rows must state the zero-new-colors rule";; esac
-# 손댄 파일은 주석까지 ASCII 다(위 게이트는 서빙된 HTML 만 훑는다).
+# 손댄 파일은 주석까지 ASCII 다(위 게이트들은 서빙된 HTML 만 훑는다).
 K_EMJ=$(node -e '
 const fs=require("fs");
 const rx=/[\u{1F000}-\u{1FAFF}\u{2699}\u{26A0}\u{2B50}]/u;
-const files=["src/hud.ts","src/activity.ts","src/server.ts","desktop/main.cjs","desktop/preload-hud.cjs"];
+const files=["src/activity.ts","src/server.ts","desktop/main.cjs"];
 let bad=[];
 for(const f of files){ const s=fs.readFileSync(process.argv[1]+"/"+f,"utf8").split("\n");
   s.forEach((l,i)=>{ if(rx.test(l)) bad.push(f+":"+(i+1)); }); }
 console.log(bad.length?bad.join(" "):"ASCII_OK");
 ' "$ROOT")
-case "$K_EMJ" in ASCII_OK) : ;; *) fail "emoji in a Part K source file (comments included) — mono glyphs only: $K_EMJ";; esac
-pass "v5.28 K: DESIGN.md carries the HUD components and the touched sources stay emoji-free at the source level"
-
-# ── K1/K2 — 떠 있는 창과 전역 단축키 (desktop/) ─────────────────────────────
-# e2e 는 Electron 을 띄우지 않는다 — **실제 창 거동은 앱을 켜 봐야 안다.** 여기서 못박는 것은
-# 되돌아가면 조용히 깨지는 계약뿐이다: 세 번째 창의 성질 · 크기 통로 · 단축키 · 종료 게이트.
-# 마커는 전부 **파일 순서대로**다.
-DHUD=$(cat "$ROOT/desktop/main.cjs")
-case "$DHUD" in *'globalShortcut, screen } = require('"'"'electron'"'"')'*) : ;; *) fail "desktop/main.cjs must import globalShortcut + screen from electron (built-ins only, no new deps)";; esac
-# 세 번째 창 = 프레임 없고 · 투명하고 · 늘 위에 있고 · **그림자가 없다**.
-# hasShadow 를 켜면 투명 창 바깥에 OS 가 네모 그림자를 덧그려서 둥근 알약이 사각형으로 보인다.
-# 크기는 **고정이 아니다**(v6.4 재설계): 알약으로 시작하니 처음만 잠겨 있고, 상태마다 풀렸다 잠긴다.
-case "$DHUD" in *'async function createHudWindow()'*'frame: false, transparent: true'*'hasShadow: false,'*'resizable: false,'*"preload: path.join(__dirname, 'preload-hud.cjs')"*) : ;; *) fail "the HUD window must be a frameless, transparent, shadowless BrowserWindow (locked at the pill size it starts in) with its own preload";; esac
-case "$DHUD" in *"hud.setAlwaysOnTop(true, 'floating');"*) : ;; *) fail "the HUD window must float above everything ('floating' level)";; esac
-case "$DHUD" in *"await hud.loadURL(originURL(HUD_PATH));"*) : ;; *) fail "the HUD must load the daemon's own /hud on the SAME origin as the main window (shared auth cookie + WS)";; esac
-# 떠 있기만 할 때는 **포커스를 뺏지 않는다** — 불러낸 것이 사용자일 때만 focus 한다.
-case "$DHUD" in *'hud.showInactive();'*) : ;; *) fail "ambient repaints must use showInactive() — the HUD never steals the frontmost app's focus";; esac
-# 크기 표는 **기본값 + 최소값**이다(고정 높이 표가 아니다 — 그 시절의 창은 내용보다 훨씬 컸다).
-case "$DHUD" in *'const HUD_SIZES = {'*'pill: { w:'*'list: { w:'*'detail: { w:'*) : ;; *) fail "the HUD size table (pill/list/detail defaults) must live in the main process";; esac
-# 크기 통로: 페이지가 말하고, **창을 만지는 것은 메인 프로세스다**. 보낸 쪽이 HUD 창인지도 확인한다.
-case "$DHUD" in *'hud.setBounds({ x, y, width: w, height: h });'*"ipcMain.on('hud:size'"*'e.sender !== hud.webContents'*) : ;; *) fail "hud:size must be guarded to the HUD's own webContents and applied with setBounds by the main process";; esac
-# 자리는 화면마다 기억한다(멀티 모니터는 실제 상황이다) — workArea 로 물려서 화면 밖으로 나가지 않는다.
-case "$DHUD" in *'screen.getDisplayNearestPoint(screen.getCursorScreenPoint())'*'function rememberHudPos()'*"hud.on('moved', rememberHudPos);"*) : ;; *) fail "the HUD must remember its position per display (screen module) and restore it";; esac
-# 모드 둘 — ambient(알약 상주) / hidden(단축키로만). 기본은 ambient.
-case "$DHUD" in *"function hudMode() { return store().hud.mode === 'hidden' ? 'hidden' : 'ambient'; }"*) : ;; *) fail "hud.mode must persist in the desktop store and default to ambient";; esac
-case "$DHUD" in *"hud.on('blur', () => { if (!quitting && hudMode() === 'hidden') hideHud(); });"*) : ;; *) fail "hidden mode must hide the HUD again on blur";; esac
-# 전역 단축키 — 기본값 · 재바인드 가능 · 이미 잡혀 있으면 **로그만 남기고 앱은 산다**.
-case "$DHUD" in *"const HUD_ACCELS = ['CommandOrControl+Shift+"*'function registerHudShortcut()'*'globalShortcut.register(want'*'is already taken by another app'*) : ;; *) fail "the global shortcut must have the default accelerator, be rebindable, and survive a taken accelerator without crashing";; esac
-case "$DHUD" in *'function setHudAccel(accel)'*) : ;; *) fail "the accelerator must be rebindable (stored, re-registered)";; esac
-# whenReady 에서 본 창 옆에 HUD 를 세우고 단축키를 건다(setupAutoUpdate(); 는 그 블록에만 있다).
-case "$DHUD" in *'setupAutoUpdate();'*'createHudWindow();'*'registerHudShortcut();'*) : ;; *) fail "app.whenReady() must create the HUD window and register the shortcut";; esac
-case "$DHUD" in *"app.on('will-quit', () => { globalShortcut.unregisterAll(); });"*) : ;; *) fail "globalShortcut.unregisterAll() must run on quit";; esac
-# 종료 게이트 — **본 창을 닫는 것이 HUD 를 죽이지 않는다**(이 줄이 K1 의 한 문장이다).
-case "$DHUD" in *"app.on('window-all-closed', () => {"*"if (process.platform !== 'darwin' && !hudAlive()) app.quit();"*) : ;; *) fail "quit must be gated on the HUD window too — closing the main cockpit window must not kill the HUD";; esac
-case "$DHUD" in *"app.on('activate', () => { if (!win || win.isDestroyed()) createWindow(); });"*) : ;; *) fail "activate must judge by the MAIN window — the HUD keeps the window count above zero forever";; esac
-# HUD 메뉴 — 모드 토글 + 단축키 재바인드. 최소한이지만 **있어야** 설정을 만질 데가 있다.
-case "$DHUD" in *"label: 'HUD',"*"click: () => setHudMode('ambient')"*"click: () => setHudMode('hidden')"*"label: 'Shortcut',"*) : ;; *) fail "a minimal HUD menu (mode toggle + shortcut rebind) is missing";; esac
-pass "v5.28 K1/K2: a frameless transparent always-on-top /hud window (per-display position, main-process sizing, showInactive) + a rebindable global shortcut, and quit is gated on it"
-
-# preload = 한 방향 다리 하나. contextIsolated, nodeIntegration 없음(preload-auth.cjs 전례 그대로).
-PHUD=$(cat "$ROOT/desktop/preload-hud.cjs")
-case "$PHUD" in *"const { contextBridge, ipcRenderer } = require('electron');"*"contextBridge.exposeInMainWorld('coxpitHud', {"*"ipcRenderer.send('hud:size'"*) : ;; *) fail "desktop/preload-hud.cjs must expose the size bridge over contextBridge (the auth preload's shape)";; esac
-# 페이지가 보낸 값을 **그대로 믿지 않는다** — 형만 맞춰 넘기고, 물리는 것은 메인 프로세스 몫이다.
-case "$PHUD" in *"state: String((want && want.state) || 'pill'),"*'w: Number(want && want.w) || 0,'*) : ;; *) fail "the bridge must normalize what the page sends before it reaches the main process";; esac
-pass "v5.28 K1: desktop/preload-hud.cjs is the HUD's only channel — a one-way, normalized size report"
-
-# 페이지 쪽 — 손잡이(app-region)와 크기 보고. 둘 다 브라우저에서는 **아무 뜻도 없다**.
-# 알약은 **눌리는 것**이다. drag 영역은 클릭을 삼켜(창이 대신 움직인다) expand() 가 영영 안 불린다 —
-# 그래서 no-drag 선언이 .pill{} 블록 **뒤에** 와서 어떤 식으로 되돌려도 알약은 클릭 대상으로 남고,
-# 창을 옮기는 일은 알약 안의 홈 하나(.pgrip)가 따로 맡는다. 둘은 같은 요소일 수 없다.
-case "$HUD" in *'.pill{'*'.pill,.pill>*{-webkit-app-region:no-drag}'*'.pill>.pgrip{-webkit-app-region:drag}'*) : ;; *) fail "the pill (and its inner spans) must be no-drag so a click reaches expand(), with a separate .pgrip handle carrying the drag region";; esac
-case "$HUD" in *'color:var(--muted);-webkit-app-region:drag}'*) fail "the pill rule is a full drag region again — a drag region swallows the click that opens the hud";; *) : ;; esac
-case "$HUD" in *'<span class="pgrip" id="pillGrip"'*) : ;; *) fail "the drag grip element is missing — the HUD window would be unmovable once the pill stopped dragging";; esac
-case "$HUD" in *"\$('pill').addEventListener('click', expand);"*) : ;; *) fail "a click on the pill must expand it";; esac
-case "$HUD" in *'.hh{'*'-webkit-app-region:drag}'*'.hh>button{-webkit-app-region:no-drag}'*) : ;; *) fail "the expanded header must be a drag handle with no-drag controls";; esac
-case "$HUD" in *'function reportSize(next)'*'reportSize(next);'*) : ;; *) fail "setLayout must report the wanted size to the desktop window";; esac
-# 알약 폭은 점 수에 따라 달라진다 — 고정값으로 보내면 잘린다. 그래서 **재서** 말한다.
-case "$HUD" in *"if(next==='pill'){"*'w=Math.ceil(el.offsetWidth)+12;'*) : ;; *) fail "the pill must report its measured width (the dot count changes it) rather than a fixed number";; esac
-case "$HUD" in *"if(layout==='pill') reportSize('pill');"*) : ;; *) fail "a pill repaint must re-report its size — the dots grow and shrink without a layout change";; esac
-pass "v5.28 K1: /hud's pill is clickable (the window moves by its own grip instead) and it reports its wanted size — both inert in a plain browser"
-
-# 컴포넌트 표 — 창도 UI 다.
-case "$K_DESIGN" in *'HUD desktop window (v5.28 K1/K2)'*) : ;; *) fail "DESIGN.md must carry the HUD desktop window component in the same commit";; esac
+case "$K_EMJ" in ASCII_OK) : ;; *) fail "emoji in a source file (comments included) — mono glyphs only: $K_EMJ";; esac
+pass "source hygiene: the daemon's shared modules and the desktop shell stay emoji-free at the source level"
 
 # ══ v6.5 — 한 coxpit 세션 = 한 claude 대화 ════════════════════════════════════
 # 한 줄로 줄이면: 새 세션은 --session-id 로 **이름을 미리 정해** 뷰어가 정확히 찾게 하고,
@@ -3561,125 +3424,16 @@ case "$V65_EMJ" in ASCII_OK) : ;; *) fail "emoji in a v6.5 source file (comments
 pass "v6.5 discipline: exact → pane content match (bounded, clear winner, cached once) → newest fallback, and the touched sources stay ASCII"
 
 # v6.3.6 — 패키징 가드: main.cjs 가 preload 로 부르는 파일은 전부 electron-builder 의 build.files 화이트리스트에 있어야 한다.
-# (6.3.4·6.3.5 는 preload-hud.cjs 없이 나갔다 → .app 안에서 window.coxpitHud 가 undefined → HUD 창이 알약 크기에서 영영 안 컸다.
+# (빠뜨린 preload 는 .app 안에서만 사라진다 — 그 다리는 undefined 가 되고 그 기능만 조용히 죽는다.
 #  dev 에선 파일이 그냥 옆에 있으니 안 잡힌다 — 오직 패키징에서만 죽는 종류의 버그라, 소스 레벨에서 못 박는다.)
 PKG_PRELOADS=$(grep -oE "preload: path\.join\(__dirname, '[^']+'\)" "$ROOT/desktop/main.cjs" | grep -oE "'[^']+'" | tr -d "'" | sort -u)
 [ -n "$PKG_PRELOADS" ] || fail "packaging guard: no preload references found in desktop/main.cjs (the grep is broken, not the app)"
 for P in $PKG_PRELOADS; do
   [ -f "$ROOT/desktop/$P" ] || fail "packaging guard: main.cjs loads preload '$P' but desktop/$P does not exist"
   node -e 'const f=require(process.argv[1]+"/desktop/package.json").build.files||[];process.exit(f.includes(process.argv[2])?0:1)' "$ROOT" "$P" \
-    || fail "packaging guard: main.cjs loads preload '$P' but desktop/package.json build.files does not ship it — in the .app that preload is missing and its bridge (window.coxpitHud) is undefined"
+    || fail "packaging guard: main.cjs loads preload '$P' but desktop/package.json build.files does not ship it — in the .app that preload is missing and its bridge is undefined"
 done
 pass "packaging guard: every preload desktop/main.cjs references exists and is shipped by electron-builder build.files ($(echo $PKG_PRELOADS | tr '\n' ' '))"
-
-# ══ HUD 재설계 — 창은 **내용을 따르고**, 사람은 창을 이기고, 어떤 줄도 접히지 않는다 ═══════
-# K1/K2 가 창을 세웠다면 여기는 그 창의 **크기와 글자**에 대한 계약이다. 되돌아가면 조용히 깨지는 것들:
-#   ① 카드가 창을 채우지 않으면 남는 자리가 투명한 채로 그 아래 것의 클릭을 먹는다(보이지 않아 진단도 안 된다).
-#   ② fit 을 안 보내면 창은 다시 고정 높이로 열리고, 내용보다 한참 큰 판이 늘 떠 있게 된다.
-#   ③ 사람이 끈 크기를 기억하지 않으면 "크기 조절도 안 되는" 그 창으로 돌아간다.
-#   ④ 글자가 다시 작아지면 한눈에 읽으라고 띄운 판을 들여다봐야 한다.
-#   ⑤ 헤더·행이 접히면 250px 짜리 판이 두 줄로 깨진다(처음 이 일을 부른 증상이다).
-# 마커는 **파일 순서대로**다.
-HUDF=$(curl -s "$B/hud")
-# (a) 카드 = 뷰포트. 우리 안에서 스크롤하고, 바깥에 빈 창을 남기지 않는다.
-case "$HUDF" in *'html,body{height:100%'*) : ;; *) fail "the hud page must fill its window (html,body{height:100%}) — a card floating in a bigger transparent window is a dead click zone";; esac
-case "$HUDF" in *'.panel{width:100%;height:100%;min-height:0;display:flex;flex-direction:column;'*) : ;; *) fail "the hud card must fill the viewport (width/height 100%), not sit at a fixed max-width inside it";; esac
-case "$HUDF" in *'max-width:250px'*|*'max-height:calc(100vh'*) fail "the old fixed card cage is back — the card follows the window and the window follows the content";; *) : ;; esac
-case "$HUDF" in *'.hlist{width:100%;flex:1 1 auto;min-width:0;min-height:0;overflow-y:auto;'*) : ;; *) fail "the list region must take the leftover height and scroll INSIDE the card (flex:1 + min-height:0)";; esac
-case "$HUDF" in *'html[data-hud="detail"] .hlist{width:260px;flex:none}'*'.hdetail{flex:1;min-width:0;'*) : ;; *) fail "detail must be two panes — a fixed 260px list column and a flexible pane that can shrink (min-width:0)";; esac
-# (b) 페이지는 자기 내용을 **재서** 말한다. 다리가 없으면(브라우저) 여전히 아무 일도 없다.
-case "$HUDF" in *'function contentH(el)'*'function fitHeight()'*) : ;; *) fail "the page must measure the height it wants (fitHeight) rather than repeat a fixed table";; esac
-# scrollHeight 는 clientHeight 아래로 내려가지 않는다 — 그걸로 재면 창은 자랄 줄만 알고 **줄 줄은 모른다**.
-case "$HUDF" in *'.scrollHeight'*) fail "fitHeight must not measure with scrollHeight — it never drops below clientHeight, so the window could grow but never shrink back";; *) : ;; esac
-case "$HUDF" in *'fit=true;'*'api.size({state:next, w:w, h:h, fit:fit});'*) : ;; *) fail "reportSize must send fit:true for list/detail so the window opens at the content height";; esac
-case "$HUDF" in *"var api=window.coxpitHud;"*"if(!api||typeof api.size!=='function') return;"*) : ;; *) fail "the fit report must stay guarded on the bridge's existence — /hud still runs standing alone in a browser";; esac
-case "$HUDF" in *'function reflow()'*) : ;; *) fail "growth/shrink after the first render (a late terminal tail, a fold opening) must be re-reported";; esac
-# (c) 창 쪽 — 상태별 최소 크기 · 크기 조절 토글 · 사람이 끈 크기 저장 · 저장된 크기가 fit 을 이긴다.
-DHUDF=$(cat "$ROOT/desktop/main.cjs")
-case "$DHUDF" in *'min: { w: 300, h: 240 }'*'min: { w: 560, h: 360 }'*) : ;; *) fail "list/detail must carry per-state minimum sizes (the window can be dragged small, but not to nothing)";; esac
-# 기본 폭도 한 단 올라갔다 — 1x 로 쓰는 4K 에서 320/680 은 "펼쳐도 작은" 판이었다.
-case "$DHUDF" in *'list: { w: 340,'*'detail: { w: 740,'*) : ;; *) fail "the list/detail default widths must be the raised ones (340/740) — the comfort scale needs the room";; esac
-case "$DHUDF" in *'Math.round(wa.height * 0.7)'*) : ;; *) fail "the HUD must never grow past ~70% of the display workArea — an always-on-top panel does not own the screen";; esac
-case "$DHUDF" in *"hud.setResizable(hudState !== 'pill');"*) : ;; *) fail "the HUD must be resizable in list/detail and locked in pill (setResizable per state)";; esac
-# 순서까지 못박는다 — 이전 상태의 최소/최대가 남아 있어 그냥 주면 한쪽이 다른 쪽을 막는다.
-case "$DHUDF" in *'hud.setMinimumSize(1, 1);'*'hud.setMaximumSize(cap.w, cap.h);'*'hud.setMinimumSize(floor.w, floor.h);'*) : ;; *) fail "the per-state bounds must be enforced with setMinimumSize/setMaximumSize, released before they are re-applied (a stale limit from the previous state blocks the new one)";; esac
-case "$DHUDF" in *'function rememberHudSize()'*'if (!hudAlive() || hudSizing) return;'*) : ;; *) fail "only a USER resize may be persisted — remembering our own setBounds would freeze the first fit forever";; esac
-case "$DHUDF" in *"hud.on('will-resize', () => { if (!hudSizing) hudUserResizeAt = Date.now(); });"*"hud.on('resized', rememberHudSize);"*) : ;; *) fail "the user's manual resize must be persisted (hud.size[state] in desktop-state.json) and must not be fought mid-drag by a content report";; esac
-case "$DHUDF" in *'if (!changing && Date.now() - hudUserResizeAt < 700) return;'*) : ;; *) fail "a fit report must stand down while the person is dragging the window (only a layout change overrides)";; esac
-case "$DHUDF" in *'} else if (saved) {'*'want && want.fit ? want.h : base.h'*) : ;; *) fail "a saved user size must win over the page's reported fit height (and fit must win over the default)";; esac
-# (d) 글자 래칫 — 이 판은 **한눈에** 읽는 것이고, 온종일 떠 있는 것이다. (v6.3.9) 바닥이 올라갔다:
-# 12px 아래는 없고, 예외는 **대문자 꼬리표뿐**(text-transform:uppercase 를 가진 규칙)이며 그것도 11px 까지다.
-# 의뢰자의 화면은 3840x2160 을 1x 로 쓴다 — 거기서 13px 은 물리적으로 너무 작다는 것이 이 래칫을 올린 이유다.
-# 규칙 단위(중괄호)로 끊어 읽어야 "이 크기가 꼬리표의 것인지"를 알 수 있다.
-HUD_TYPE=$(node -e '
-const s=require("fs").readFileSync(process.argv[1]+"/src/hud.ts","utf8");
-const bad=[];
-for(const chunk of s.split("}")){
-  const label=/text-transform:\s*uppercase/.test(chunk);
-  let m; const rx=/font-size:\s*([0-9.]+)px/g;
-  while((m=rx.exec(chunk))){
-    const n=Number(m[1]);
-    if(n<11) bad.push(m[1]+"px");
-    else if(n<12 && !label) bad.push(m[1]+"px(not-a-label)");
-  }
-}
-console.log(bad.length?bad.join(" "):"TYPE_OK");
-' "$ROOT")
-case "$HUD_TYPE" in TYPE_OK) : ;; *) fail "type ratchet: src/hud.ts carries font sizes below 12px outside the uppercase labels ($HUD_TYPE) — a panel you keep on screen all day has no fine print";; esac
-# 기준선 자체도 못박는다(개별 규칙이 다 통과해도 body 가 13px 로 내려가면 상속받는 곳이 조용히 작아진다).
-case "$HUDF" in *'font-family:var(--sans);font-size:14px;line-height:1.45;'*) : ;; *) fail "the hud body type must be 14px — the whole scale hangs off it";; esac
-# (e) 한 줄 규칙 — 헤더는 언제나 한 줄이고(꼬리=idle 부터 잘린다), 행의 칸들도 저마다 한 줄이다.
-case "$HUDF" in *'.lead{flex:none;'*'.subs{flex:1 1 auto;min-width:0;'*'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the header summary must ellipsize in place (flex:1, min-width:0, nowrap) instead of wrapping to a second line";; esac
-case "$HUDF" in *'font-size:14px;color:var(--muted);white-space:nowrap}'*) : ;; *) fail "the row itself must be nowrap";; esac
-case "$HUDF" in *'.row .rn{flex:0 1 auto;min-width:0;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the row name must shrink and ellipsize (never a % cap that crowds at narrow widths)";; esac
-case "$HUDF" in *'.row .rp{flex:1 1 0;min-width:0;'*'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the row path must take the leftover width and ellipsize";; esac
-case "$HUDF" in *'.row .rel{flex:none;'*) : ;; *) fail "the elapsed time must never be pushed out of the row (flex:none)";; esac
-case "$HUDF" in *'max-width:46%'*) fail "the old 46% name cap is back — it crowds the row instead of letting the name ellipsize";; *) : ;; esac
-# 접히는 것은 **에이전트가 내놓은 글** 하나뿐이고, 그것도 높이를 물린 채다.
-case "$HUDF" in *'.d-q pre{'*'white-space:pre-wrap;word-break:break-word;'*'max-height:min(40vh,260px);overflow:auto}'*) : ;; *) fail "the question/output pre is the only thing allowed to wrap, and it must be height-capped with its own scroll";; esac
-case "$HUDF" in *'.d-meta{'*'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'*) : ;; *) fail "the detail meta line must stay a single ellipsized line";; esac
-# (f) 다리는 fit 까지 실어 나른다 — 그 다리가 .app 에 안 들어가면 창은 다시 알약에서 안 큰다(위 패키징 가드).
-PHUDF=$(cat "$ROOT/desktop/preload-hud.cjs")
-case "$PHUDF" in *'fit: !!(want && want.fit),'*) : ;; *) fail "the size bridge must normalize and forward the fit flag (the main process cannot tell a measured height from a default without it)";; esac
-pass "hud redesign: the window follows the content (fit + per-state min/max, 70% cap), the person overrides the window (saved user size wins), type is >=12px, and only the agent's own output wraps"
-
-# ══ HUD 편의 (v6.3.9) — 크게 읽히고 · 치울 수 있고 · 못 보내면 못 보낸다 하고 · 마지막 말이 보인다 ══
-# 의뢰자가 실제로 띄워 놓고 쓴 뒤 말한 넷이다. 되돌아가면 조용히 깨지는 것들:
-#   ① 글자 단이 내려가면 1x 로 쓰는 4K 에서 다시 들여다봐야 하는 판이 된다(위 래칫이 막는다).
-#   ② 치우는 단추가 없으면 끄는 법이 단축키뿐인데, 그걸 모르는 채로 만나면 끌 수 없는 판이다.
-#   ③ 죽은 페인 위의 입력칸은 **조용한 상자**다 — 글자는 실리고 아무 일도 안 난 것처럼 보인다.
-#   ④ 세션 화면이 비어 있다고 대화까지 없는 것은 아니다(대본은 남아 있다).
-# 마커는 **파일 순서대로**다.
-# (a) 다리 — 한 방향 한 마디 더. 페이지 쪽은 다리가 없을 수도 있다는 전제로 부른다.
-case "$PHUDF" in *"hide: () => ipcRenderer.send('hud:hide'),"*) : ;; *) fail "preload-hud.cjs must expose the one-way hide bridge (hud:hide), the same shape as size";; esac
-case "$HUDF" in *"var api=window.coxpitHud;"*"if(api&&typeof api.hide==='function')"*) : ;; *) fail "the hide call must stay guarded on the bridge's existence — /hud still runs standing alone in a browser";; esac
-# (b) 창 쪽 — 치우면 **모드까지 hidden** 이다(다시 켤 때 알약이 혼자 돌아오지 않게). 보낸 쪽이 HUD 창인지도 본다.
-case "$DHUDF" in *"ipcMain.on('hud:hide', (e) => {"*'e.sender !== hud.webContents'*"setHudMode('hidden');"*) : ;; *) fail "desktop/main.cjs must handle hud:hide (guarded to the HUD's own webContents) by persisting hidden mode and hiding the window";; esac
-case "$DHUDF" in *'function applyHudMode()'*'else hideHud();'*'function setHudMode(mode)'*'applyHudMode();'*) : ;; *) fail "hidden mode must actually hide the window (setHudMode persists, then applyHudMode -> hideHud)";; esac
-# 되살리는 문은 **이미 있는** 단축키 하나다 — 두 번째 창도, 두 번째 채널도 만들지 않는다.
-case "$DHUDF" in *'async function toggleHud()'*"if (hudMode() === 'hidden') {"*'else summonHud();'*) : ;; *) fail "the existing hotkey must be the way back from hidden (summonHud) — no second window, no second channel";; esac
-# (c) 머리의 단추는 둘이고 하는 일이 다르다 — 접기(-)와 치우기(x). 같은 것으로 합치면 끄는 법이 사라진다.
-case "$HUDF" in *'id="hudMin" title="알약으로 접기 (esc)">&minus;<'*'id="hudHide" title="숨기기 ('*'>&times;<'*) : ;; *) fail "the header must carry TWO distinct controls: minimize (collapse to pill) and a hide button (mono glyph, no emoji)";; esac
-case "$HUDF" in *"\$('hudMin').addEventListener('click', collapse);"*"\$('hudHide').addEventListener('click', hideWidget);"*) : ;; *) fail "minimize must still collapse to the pill and the new button must hide the widget (they are not the same action)";; esac
-# (d) steer 는 **보낼 데가 있을 때만** 선다. 판정은 짐작이 아니라 창구에 물어서(스크롤백 = send-keys 와 같은 근거).
-case "$HUDF" in *'function runLive('*) fail "runLive is back — status says 'open' for sessions with no pane, which is exactly how the silent input box came about";; *) : ;; esac
-case "$HUDF" in *'function loadPane(runId){'*"'/api/runs/'+runId+'/scrollback?lines=60'"*'paintSteerSlot(runId, res.ok);'*) : ;; *) fail "the live-pane verdict must come from the endpoint that sees what send-keys sees (scrollback), not from run.status";; esac
-case "$HUDF" in *'function paintSteerSlot(runId, live){'*'if(live){'*'<input id="steerInput"'*'이 세션엔 살아있는 터미널이 없어요'*'코크핏에서 열기'*) : ;; *) fail "the steer input may only be rendered in the live branch; a dead pane must show an inline explanation + the cockpit link instead of a box that swallows text";; esac
-# 위 글로브는 "살아 있는 가지에 칸이 있다"까지만 본다 — **다른 곳에도** 있으면 게이트가 뚫린다. 그래서 수를 센다.
-STEER_N=$(printf '%s' "$HUDF" | grep -o 'id="steerInput"' | wc -l | tr -d ' ')
-[ "$STEER_N" = "1" ] || fail "the steer input must be written in exactly ONE place (the live branch of paintSteerSlot) — found $STEER_N"
-# 성공에만 칸을 비운다. 실패는 칸 아래에 남고(토스트만으로는 놓친다), 친 글자는 그대로 둔다.
-case "$HUDF" in *"if(res.code===200 && res.j && res.j.ok){ inp.value=''; steerNote('good', '보냈어요', true); return; }"*"steerNote('bad', '보내지 못했습니다: '+why, false);"*) : ;; *) fail "steer must clear the box only on success and surface the failure inline (var(--failed)) without discarding what was typed";; esac
-case "$HUDF" in *'.d-note.bad{color:var(--failed)}'*) : ;; *) fail "the inline send result must use an existing token for failure (--failed)";; esac
-# (e) 세션 상세 — 저장된 대본이 먼저, 없으면 지금 화면, 둘 다 없으면 **지어내지 않고** 없다고 말한다.
-case "$HUDF" in *'function loadSessionBody(runId){'*"'/api/runs/'+runId+'/chat'"*'if(turns.length) paintChat(runId, turns);'*'else loadTail(runId);'*) : ;; *) fail "a session detail must read the stored transcript (/chat) first and fall back to the scrollback";; esac
-case "$HUDF" in *'function paintTail(text){'*'이 세션의 대화 기록을 찾지 못했어요'*) : ;; *) fail "with neither a transcript nor a screen the session detail must say so plainly (never fabricate the conversation)";; esac
-# 마지막 한 마디만 넉넉히 편다 — 그리고 그 블록도 높이를 물린다(.d-q pre 와 같은 규율).
-case "$HUDF" in *'.d-chat{'*'max-height:min(45vh,260px);overflow:auto}'*) : ;; *) fail "the last-conversation block is the third place allowed to wrap, so it must carry its own height cap and scroll";; esac
-# (f) Enter 는 한 곳에서만 받는다 — 입력칸마다 또 걸면 한 번 친 것이 두 번 나간다.
-case "$HUDF" in *"inp.addEventListener('keydown'"*) fail "an element-level Enter handler is back beside the delegated one — one Enter must mean one send";; *) : ;; esac
-case "$HUDF" in *"\$('hudDetail').addEventListener('keydown', function(e){"*"if(id==='steerInput'){ e.preventDefault(); if(sel!=null) steer(sel); return; }"*"if(id==='renameInput'){"*) : ;; *) fail "the detail's Enter must be a single delegated handler covering both the steer and rename inputs";; esac
-pass "hud comfort (v6.3.9): a raised type/size scale, a real hide button (mode-persisting, hotkey to revive), steer only where tmux can take it (inline failure, text kept), and the last conversation with an honest empty state"
 
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

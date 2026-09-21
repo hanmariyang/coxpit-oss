@@ -1033,8 +1033,8 @@ export async function getScrollback(runId: number, lines: number): Promise<{ ok:
 }
 
 /**
- * 살아 있는 tmux 페인에 한 줄 써 넣기 (v5.28 K) — getScrollback 의 **쓰기 쌍둥이**.
- * HUD 가 코크핏을 열지 않고 "대기 중인 에이전트"에게 답하는 유일한 길이다(steer 는 정착한 run 전용).
+ * 살아 있는 tmux 페인에 한 줄 써 넣기 — getScrollback 의 **쓰기 쌍둥이**.
+ * 코크핏을 열지 않고 "대기 중인 에이전트"에게 답하는 길이다(steer 는 정착한 run 전용).
  * 타깃 규율은 capture-pane 과 똑같이 맞춘다: send-keys 도 '=' 접두사를 못 받는 tmux 가 있어
  * 세션명을 그대로 쓴다. 사람이 친 것과 같게 하려고 Enter 를 따로 한 번 더 보낸다.
  * 세션이 없거나(정리됨) 죽었으면 ok:false — 라우트가 409 로 돌려준다. 지어내지 않는다.
