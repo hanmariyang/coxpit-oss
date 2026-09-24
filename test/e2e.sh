@@ -3435,5 +3435,50 @@ for P in $PKG_PRELOADS; do
 done
 pass "packaging guard: every preload desktop/main.cjs references exists and is shipped by electron-builder build.files ($(echo $PKG_PRELOADS | tr '\n' ' '))"
 
+# ── #18 — 데몬도 tmux 서버도, 발밑이 사라질 수 있는 자리에서 태어나면 안 된다 ──────────────
+# 자동 업데이트(ShipIt)가 옛 앱 번들을 옮겼다 지우면, 그 번들 안에서 태어난 tmux 서버의 cwd 가
+# 삭제된 무명 폴더가 된다. tmux(>=3.4, spawn.c)는 서버의 getcwd() 가 죽으면 새 페인의 `-c` 를
+# **조용히** 건너뛴다 → 모든 새 터미널이 그 죽은 폴더에서 열리고 프롬프트엔 `.` 만 남는다.
+# 여기서 못 박는 것은 넷: 서버 출생지 · tsx 절대경로 · 데몬 cwd · 어긋났을 때의 말.
+
+# (a) tmux 서버는 **안정된 폴더**에서 태어난다 — 페인의 `-c` 는 그대로 호출부가 정한다.
+grep -qF '( cd "$HOME" 2>/dev/null || cd / ; tmux start-server \\; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \\; new-session ${rest} )' "$ROOT/src/orchestrator.ts" \
+  || fail "#18: tmuxNewSession must start the server from a stable dir (cd \$HOME, fallback /) — otherwise the first start-server inherits a cwd an auto-update can delete"
+# 감싸도 원래 하던 일은 그대로여야 한다(한 호출 안에서 한도 올리고 세션 생성 — 페인은 태어날 때의 한도를 쓴다).
+grep -qF 'set-option -g history-limit ${TMUX_HISTORY_LIMIT}' "$ROOT/src/orchestrator.ts" \
+  || fail "#18: the subshell wrap dropped the history-limit raise"
+grep -qF 'new-session ${rest}' "$ROOT/src/orchestrator.ts" \
+  || fail "#18: the subshell wrap dropped new-session"
+# #4 는 업스트림 몫 — 코드에는 이유만 남긴다(왜 이 우회가 있는지 다음 사람이 알아야 한다).
+grep -qF 'spawn.c' "$ROOT/src/orchestrator.ts" \
+  || fail "#18: leave the upstream note (tmux >=3.4 spawn.c silently skips -c when the server's getcwd fails) next to the workaround"
+
+# (b) 데스크톱 데몬 스폰 — tsx 는 절대경로로, cwd 는 앱 번들이 아니라 데이터 폴더로.
+grep -qF "pathToFileURL(require_.resolve('tsx')).href" "$ROOT/desktop/main.cjs" \
+  || fail "#18: spawnDaemon must resolve tsx to an absolute path (createRequire at the daemon root, like bin/coxpit.js) — a bare specifier is resolved against cwd"
+grep -qF "'--import', tsxEntry," "$ROOT/desktop/main.cjs" \
+  || fail "#18: the resolved tsx entry must be what --import receives"
+grep -qF "'--import', 'tsx'" "$ROOT/desktop/main.cjs" \
+  && fail "#18: bare 'tsx' in --import is exactly what forced cwd to stay inside the app bundle" || :
+SPD=$(awk '/^function spawnDaemon/,/^}/' "$ROOT/desktop/main.cjs")
+case "$SPD" in *'cwd: dataDir,'*) : ;; *) fail "#18: the daemon must be spawned with cwd = its data dir (stable across auto-update), not the app bundle";; esac
+case "$SPD" in *'cwd: root,'*) fail "#18: spawnDaemon still uses the app-bundle dir as cwd — an auto-update deletes that folder out from under the running daemon";; *) : ;; esac
+
+# (c) 느린 데몬을 없는 데몬으로 오해하지 않는다 — 락의 pid 가 살아 있으면 기다렸다 다시 묻는다.
+PA=$(awk '/^function pidAlive/,/^}/' "$ROOT/desktop/main.cjs")
+case "$PA" in *'process.kill(pid, 0)'*) : ;; *) fail "#18: liveness must be a real signal-0 check (process.kill(pid, 0))";; esac
+FRD=$(awk '/^async function findRunningDaemon/,/^}/' "$ROOT/desktop/main.cjs")
+case "$FRD" in *'pidAlive(lockPid)'*) : ;; *) fail "#18: findRunningDaemon must check whether the lock's pid is still alive before concluding there is no daemon";; esac
+case "$FRD" in *'await sleep('*) : ;; *) fail "#18: with a live lock pid the probe must back off and retry — spawning a second daemon breaks the one-daemon-per-machine invariant (two daemons settle each other's live runs as orphans)";; esac
+
+# (d) 그래도 페인이 엉뚱한 데 서면 — 조용히 `.` 로 남기지 않고 말한다.
+grep -qF 'async function warnIfPaneElsewhere' "$ROOT/src/orchestrator.ts" \
+  || fail "#18: there must be a pane-path check — tmux reports no error when it skips -c, so the only signal left is asking where the pane actually stands"
+grep -qF 'but ${wanted} was requested' "$ROOT/src/orchestrator.ts" \
+  || fail "#18: the warning must name both the requested and the actual path"
+W18=$(grep -c 'await warnIfPaneElsewhere(' "$ROOT/src/orchestrator.ts" || true)
+[ "$W18" -ge 3 ] || fail "#18: every session-creation path (run launch · workbench · free session) must run the pane-path check (found $W18)"
+pass "#18: tmux server born in a stable dir (pane -c untouched) · daemon spawned with absolute tsx + data-dir cwd · a live lock pid is waited on, not overtaken · a misplaced pane is said out loud"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

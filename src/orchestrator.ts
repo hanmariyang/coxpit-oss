@@ -167,9 +167,45 @@ export function claudeTagEnvForRun(machine: MachineTarget, sid: string): string 
  */
 export const TMUX_HISTORY_LIMIT = 100000;
 
-/** `tmux new-session <rest>` 대신 쓰는 셸 조각 — history-limit 을 올린 뒤 세션을 만든다. rest 는 호출부가 인용한다. */
+/**
+ * `tmux new-session <rest>` 대신 쓰는 셸 조각 — history-limit 을 올린 뒤 세션을 만든다. rest 는 호출부가 인용한다.
+ *
+ * 서브셸로 감싸 **$HOME 에서** tmux 를 부른다(#18). 이 호출이 그 기계의 tmux 서버를 처음 띄우는 경우,
+ * 서버는 여기서의 cwd 를 평생 물고 산다. 데스크톱 앱이 자동 업데이트되면 옛 번들이 통째로 지워지므로,
+ * 그 안에서 태어난 tmux 서버의 cwd 는 이름 없는 삭제된 폴더가 되고 getcwd() 가 ENOENT 를 낸다.
+ * 그러면 tmux(>=3.4, spawn.c)는 새 페인의 `-c` 를 **조용히 건너뛴다** — 모든 새 터미널이 죽은 폴더에서 열리고
+ * 프롬프트엔 `.` 만 남는다(#{pane_start_path} 는 요청한 경로를 그대로 보여줘서 멀쩡해 보인다).
+ * tmux 쪽 수정은 업스트림에 맡기고, 여기선 서버가 사라질 수 없는 자리에서 태어나게 한다.
+ * 페인 자신의 폴더는 그대로 호출부의 `-c <path>` 가 정한다 — 바뀌는 건 서버의 출생지뿐이다.
+ */
 export function tmuxNewSession(rest: string): string {
-  return `tmux start-server \\; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \\; new-session ${rest}`;
+  return `( cd "$HOME" 2>/dev/null || cd / ; tmux start-server \\; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \\; new-session ${rest} )`;
+}
+
+/**
+ * 요청한 자리에 페인이 실제로 섰는지 한 번 본다(#18) — best-effort, 세션 생성을 막지 않는다.
+ * 위 함수가 막는 실패는 조용하다: `-c` 가 무시돼도 tmux 는 아무 말이 없고 에러 코드도 없다.
+ * 그래서 남은 확인은 결과를 직접 묻는 것뿐이고, 어긋나면 데몬 로그에 요청/실제를 나란히 적는다.
+ * 비교는 /private 접두와 끝 슬래시를 흡수한다(macOS 의 /var → /private/var 심링크로 헛경고가 난다).
+ */
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => p.replace(/\/+$/, '').replace(/^\/private\//, '/');
+  return norm(a) === norm(b);
+}
+async function warnIfPaneElsewhere(machine: MachineTarget, session: string, wanted: string): Promise<void> {
+  try {
+    // '=' 정확 일치 — 방금 이 이름으로 만든 세션이다. 접두 매칭이면 coxpit-r5 가 coxpit-r50 을 집어
+    // 엉뚱한 경고를 낸다. display 가 '=' 를 못 받는 tmux 는 뒤의 list-panes 가 받는다(getRunPwd 와 같은 이중 경로).
+    const t = shq('=' + session);
+    const cmd = `tmux display -p -t ${t} '#{pane_current_path}' 2>/dev/null || tmux list-panes -s -t ${t} -F '#{pane_current_path}' 2>/dev/null | head -1`;
+    const r = await runShellOn(machine, cmd, 5000);
+    const actual = ((r.stdout || '').split('\n')[0] || '').trim();
+    if (!actual || samePath(actual, wanted)) return;
+    console.warn(
+      `[coxpit] pane ${session} landed in ${actual} but ${wanted} was requested — the tmux server on '${machine.slug}' is probably standing in a deleted folder, `
+      + 'which makes it skip -c without saying so. Fix it with: tmux kill-server (then reopen the session).',
+    );
+  } catch { /* 진단이다 — 여기서 넘어져도 세션은 그대로 산다 */ }
 }
 
 // 실행 중 run 의 자식 프로세스(stop 용). stoppedRuns = 사용자가 멈춘 run 표식.
@@ -569,6 +605,7 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     const runEnv = await secretEnvArgs();
     await runShellOn(ctx.machine,
       `export LANG=${shq(config.lang)}; tmux kill-session -t ${shq('=' + session)} 2>/dev/null; ${tmuxNewSession(`-d${runEnv} -s ${shq(session)} -c ${shq(wtPath)}`)} 2>/dev/null || true`, 8000);
+    await warnIfPaneElsewhere(ctx.machine, session, wtPath);
 
     await setRun(runId, { status: 'running' });
     await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, real: useReal, ...(inPlace ? { inPlace: true } : {}) }));
@@ -1437,6 +1474,7 @@ export async function openWorkbench(repoId: number, title: string, root = false)
     await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'session prep failed' });
     return { ok: false, detail: (prep.stderr || prep.stdout).trim().slice(0, 300) };
   }
+  await warnIfPaneElsewhere(machine, session, root ? repo.path : wtPath);
   await setRun(runId, { status: 'open', branch, worktreePath: wtPath, tmuxWindow: session, startedAt: new Date() });
   await recordEvent(runId, 'meta', JSON.stringify({ branch, worktree: wtPath, workbench: !root, rootSession: root }));
   return { ok: true, detail: root ? 'root session open' : 'workbench open', taskId: task.id, runId };
@@ -1492,6 +1530,7 @@ export async function openSessionAt(machineSlug: string, path: string, title: st
     await setRun(runId, { status: 'error', endedAt: new Date(), exitSummary: 'session prep failed' });
     return { ok: false, detail: (prep.stderr || prep.stdout).trim().slice(0, 300) };
   }
+  await warnIfPaneElsewhere(machine, session, dir);
   await setRun(runId, { status: 'open', branch: '', worktreePath: dir, tmuxWindow: session, startedAt: new Date() });
   await recordEvent(runId, 'meta', JSON.stringify({ session: true, path: dir }));
   return { ok: true, detail: 'session open', taskId: task.id, runId };

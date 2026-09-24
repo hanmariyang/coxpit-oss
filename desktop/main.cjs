@@ -5,6 +5,8 @@
 // our own (ELECTRON_RUN_AS_NODE; libsql/node-pty are N-API prebuilds, no rebuilds).
 const { app, BrowserWindow, shell, Menu, dialog, ipcMain, safeStorage } = require('electron');
 const { spawn } = require('node:child_process');
+const { createRequire } = require('node:module');
+const { pathToFileURL } = require('node:url');
 const path = require('node:path');
 const http = require('node:http');
 const os = require('node:os');
@@ -83,18 +85,38 @@ function probeHealth(host, port, timeout = 1200) {
   });
 }
 
+// 그 pid 가 아직 이 기계에 있나. EPERM = 남의 프로세스지만 **있다**.
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return !!e && e.code === 'EPERM'; }
+}
+
 // 이미 도는 데몬 찾기: ~/.coxpit 의 락 파일 → 없으면 표준 포트 8210(레거시 cwd-DB 데몬 대비).
+// #18 — 락이 가리키는 pid 가 살아 있으면 그 데몬은 "없는" 것이 아니라 "느린" 것이다.
+// 스왑 압박에 health 한 번이 늦었다고 두 번째 데몬을 띄우면 한 기계 한 데몬 불변이 깨지고,
+// 두 데몬이 같은 DB 위에서 서로의 살아있는 run 을 고아로 정리해 버린다. 그래서 pid 가 살아 있는 동안은
+// 기다렸다 다시 묻는다. 락이 없거나 그 pid 가 죽어 있을 때만 스폰으로 떨어진다.
 async function findRunningDaemon() {
-  const candidates = [];
-  try {
-    const lock = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'daemon.lock.json'), 'utf8'));
-    if (Number.isInteger(lock.port)) {
-      candidates.push({ host: lock.host === '0.0.0.0' || !lock.host ? '127.0.0.1' : lock.host, port: lock.port });
-    }
-  } catch { /* no lock */ }
-  candidates.push({ host: '127.0.0.1', port: 8210 });
-  for (const c of candidates) {
-    if (await probeHealth(c.host, c.port)) return c;
+  let lock = null;
+  try { lock = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'daemon.lock.json'), 'utf8')); } catch { /* no lock */ }
+  const locked = lock && Number.isInteger(lock.port)
+    ? { host: lock.host === '0.0.0.0' || !lock.host ? '127.0.0.1' : lock.host, port: lock.port }
+    : null;
+  const lockPid = lock && Number.isInteger(lock.pid) ? lock.pid : 0;
+  const waiting = !!(locked && pidAlive(lockPid));   // 살아 있는 주인이 있다 → 기다릴 값어치가 있다
+  // 기다림은 **벽시계로** 묶는다(시도 횟수가 아니라). 한 바퀴가 프로브 두 번이라 횟수로 묶으면
+  // 최악의 경우 1분을 넘고, 그동안 앱 창이 비어 있다. 락이 없거나 pid 가 죽었으면 deadline=지금 → 예전 그대로 1바퀴.
+  const deadline = Date.now() + (waiting ? 12000 : 0);
+  let said = false;
+
+  for (;;) {
+    if (locked && await probeHealth(locked.host, locked.port, waiting ? 2000 : 1200)) return locked;
+    if (await probeHealth('127.0.0.1', 8210)) return { host: '127.0.0.1', port: 8210 };
+    if (Date.now() >= deadline) break;
+    if (!pidAlive(lockPid)) break;                   // 기다리는 사이 죽었다 → 더 기다릴 이유가 없다
+    if (!said) { said = true; console.log('[coxpit] daemon pid ' + lockPid + ' is alive but not answering yet — waiting instead of starting a second one'); }
+    await sleep(400);
   }
   return null;
 }
@@ -164,10 +186,19 @@ function daemonRoot() {
 }
 
 // 데몬 스폰 — COXPIT_PORT 는 선호값(점유 시 데몬이 자동으로 빈 포트로 이동). 실제 포트는 락에서 읽는다.
+// #18 — 데몬은 **앱 번들 밖**에서 태어나야 한다. cwd 를 번들 안(resources/daemon)에 두면
+// 자동 업데이트(ShipIt)가 옛 번들을 옮겼다 지우는 순간 데몬의 cwd 가 삭제된 폴더가 되고,
+// 그 데몬이 처음 띄운 tmux 서버가 그 cwd 를 평생 물고 살아 모든 새 터미널이 죽은 폴더에서 열린다.
+// 대신 cwd 는 데이터 폴더(~/.coxpit) — 업데이트가 건드리지 않는 자리다.
+// cwd 가 번들을 떠나면 bare 'tsx' 는 더는 풀리지 않는다(--import 의 bare 지정자는 cwd 기준) →
+// bin/coxpit.js 와 같은 방식으로 패키지 루트 기준 절대경로로 해석해 넘긴다.
 function spawnDaemon({ dataDir, preferPort }) {
   const root = daemonRoot();
-  const child = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'index.ts')], {
-    cwd: root,
+  const require_ = createRequire(path.join(root, 'package.json'));
+  const tsxEntry = pathToFileURL(require_.resolve('tsx')).href;
+  try { fs.mkdirSync(dataDir, { recursive: true }); } catch { /* 이미 있음 */ }
+  const child = spawn(process.execPath, ['--import', tsxEntry, path.join(root, 'src', 'index.ts')], {
+    cwd: dataDir,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
