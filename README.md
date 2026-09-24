@@ -6,6 +6,8 @@
 
 **Own your agent fleet. A terminal-first cockpit for parallel AI coding agents on your own machines — steer them from any browser.**
 
+> **Why not a hosted agent console?** Every agent runs in a real tmux session on hardware you own — you attach to the exact terminal it's using, and no code, key, or telemetry leaves your network.
+
 **[Landing & downloads](https://hanmariyang.github.io/coxpit-oss/)** · [Latest release](https://github.com/hanmariyang/coxpit-oss/releases/latest)
 
 ![coxpit fleet board — three agents racing the same task](docs/demo.gif)

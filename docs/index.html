@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Coxpit — own your agent fleet</title>
-<meta name="description" content="Self-hosted cockpit for running a fleet of AI coding agents across your own machines. Parallel worktree runs, live board, compare & merge, web terminal." />
+<meta name="description" content="Unlike hosted agent consoles, coxpit runs every agent in a real tmux session on your own machines — attach to the exact terminal, nothing leaves your network. Fleet runs, live board, compare & merge, web terminal." />
 <link rel="icon" href="brand/favicon.ico" sizes="any" />
 <link rel="icon" type="image/png" sizes="32x32" href="brand/favicon-32.png" />
 <link rel="icon" type="image/png" sizes="16x16" href="brand/favicon-16.png" />
@@ -58,6 +58,7 @@
   .hero h1{font-family:var(--mono);font-size:clamp(30px,5.4vw,52px);line-height:1.15;margin:0 0 18px;
     letter-spacing:-.01em;text-wrap:balance;font-weight:700}
   .hero h1 .b{color:var(--brand)}
+  .hero p.lead{font-family:var(--mono);color:var(--ink);font-weight:600;font-size:clamp(14px,1.9vw,17px);line-height:1.4;max-width:660px;margin:0 auto 14px;text-wrap:balance}
   .hero p.sub{color:var(--muted);font-size:clamp(15px,2vw,18px);max-width:640px;margin:0 auto 30px;text-wrap:balance}
   .cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
   .btn{display:inline-flex;align-items:center;gap:8px;padding:12px 22px;border-radius:9px;font-weight:600;
@@ -136,6 +137,7 @@
 
   <div class="hero">
     <h1 data-i18n="hero.h1">Own your <span class="b">agent fleet</span>.</h1>
+    <p class="lead" data-i18n="hero.diff">Unlike hosted agent consoles, every agent runs in a real tmux session on hardware you own — attach to the exact terminal it's using, and nothing leaves your network.</p>
     <p class="sub" data-i18n="hero.sub">A terminal-first cockpit for AI coding agents — Claude Code and Codex — on your own machines. A workspace tree of project, work and session, with a real terminal behind every row; add a second agent to a work and it is a fleet, each in its own isolated git worktree. Compare the diffs, merge the winner, keep the records in the board next door. Self-hosted. Your code never leaves your network.</p>
     <div class="cta-row">
       <a class="btn primary" href="#download" data-i18n="hero.cta1">Download</a>
@@ -260,6 +262,7 @@
     'nav.updates':{en:'Updates',ko:'업데이트'},
     'nav.guide':{en:'Guide',ko:'가이드'},
     'hero.h1':{en:'Own your <span class="b">agent fleet</span>.',ko:'당신의 <span class="b">에이전트 플릿</span>을 소유하세요.'},
+    'hero.diff':{en:'Unlike hosted agent consoles, every agent runs in a real tmux session on hardware you own — attach to the exact terminal it\'s using, and nothing leaves your network.',ko:'호스팅형 에이전트 콘솔과 달리, 모든 에이전트가 당신 하드웨어의 실제 tmux 세션에서 돕니다 — 그 에이전트가 쓰는 터미널에 그대로 붙고, 아무것도 네트워크 밖으로 나가지 않습니다.'},
     'hero.sub':{en:'A terminal-first cockpit for AI coding agents — Claude Code and Codex — on your own machines. A workspace tree of project, work and session, with a real terminal behind every row; add a second agent to a work and it is a fleet, each in its own isolated git worktree. Compare the diffs, merge the winner, keep the records in the board next door. Self-hosted. Your code never leaves your network.',
       ko:'내 기계에서 AI 코딩 에이전트(Claude Code·Codex)를 돌리는 터미널 우선 코크핏. 프로젝트 ▸ 작업 ▸ 세션 워크스페이스 트리의 모든 행 뒤에 진짜 터미널이 있고, 한 작업에 에이전트를 하나 더 붙이면 그게 곧 플릿입니다 — 각자 격리된 git worktree에서. diff를 비교해 승자를 머지하고, 기록은 옆방 보드에 남습니다. 자가 호스팅이라 코드는 내 네트워크를 벗어나지 않습니다.'},
     'hero.cta1':{en:'Download',ko:'다운로드'},
