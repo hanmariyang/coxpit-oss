@@ -124,12 +124,16 @@ export type AuthMode =
  * 0.0.0.0 이나 라우팅 가능한 IP 면 노출(true). 노출일 때만 접근키 인증을 적용한다.
  * (npx coxpit 로컬 = 무마찰; 레지던트 COXPIT_HOST=0.0.0.0 = 키 필요.)
  */
-export function isExposedBind(): boolean {
-  const host = (config.host ?? '').trim().toLowerCase();
-  if (host === '' || host === '127.0.0.1' || host === '::1' || host === 'localhost' || host === '::ffff:127.0.0.1') {
+export function isExposedHost(host: string): boolean {
+  const h = (host ?? '').trim().toLowerCase();
+  if (h === '' || h === '127.0.0.1' || h === '::1' || h === 'localhost' || h === '::ffff:127.0.0.1') {
     return false;
   }
   return true;
+}
+
+export function isExposedBind(): boolean {
+  return isExposedHost(config.host ?? '');
 }
 
 export function authMode(): AuthMode {

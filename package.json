@@ -39,7 +39,10 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "npm run typecheck && npm run test:unit",
+    "test:unit": "node --import tsx --test test/unit/*.test.*",
+    "test:e2e": "bash test/e2e.sh"
   },
   "dependencies": {
     "@fastify/websocket": "^11",

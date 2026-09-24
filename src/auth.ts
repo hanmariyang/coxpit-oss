@@ -2,17 +2,21 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import {
   authMode, verifyKey, verifySession, readCookie, SESSION_COOKIE, isLoopback, isExposedBind,
 } from './authkey';
+import type { AuthMode } from './authkey';
 import { loginPageHTML } from './login';
+
+/** 이 요청이 리버스 프록시/터널을 타고 왔나 — 포워딩 헤더가 그 표식. */
+export function hasForwardedHeader(headers: Record<string, unknown>): boolean {
+  return headers['x-forwarded-for'] != null || headers['cf-connecting-ip'] != null;
+}
 
 /**
  * 이 요청이 "진짜 로컬"인가 — 소켓 peer 가 loopback 이고 포워딩 헤더가 없어야 한다.
  * 리버스 프록시/터널을 탄 요청은 소켓이 127.0.0.1 이라도 x-forwarded-for·cf-connecting-ip 를
  * 실어 오므로 로컬로 신뢰하지 않는다(issue #11 — 바인드가 아니라 요청별로 신뢰 판단).
  */
-function isTrustedLocalReq(req: FastifyRequest): boolean {
-  const ip = req.socket?.remoteAddress ?? '';
-  const hasFwd = req.headers['x-forwarded-for'] != null || req.headers['cf-connecting-ip'] != null;
-  return isLoopback(ip) && !hasFwd;
+export function isTrustedLocal(remoteIp: string, headers: Record<string, unknown>): boolean {
+  return isLoopback(remoteIp) && !hasForwardedHeader(headers);
 }
 
 // /api/design/capture · /design/bookmarklet.js 는 외부 앱(북마클릿)에서 오므로
@@ -27,6 +31,38 @@ const EXEMPT = new Set([
 // /brand/* — 공개 브랜드 에셋(로고·마스코트·워드마크 폰트·favicon). 미인증 로그인 페이지가
 // 이걸 불러와야 하므로 게이트 앞. 시크릿 아님(패키지 동봉 정적물).
 const EXEMPT_PREFIX = ['/share/', '/brand/'];
+
+/** 게이트 앞 예외 경로인가(EXEMPT 정확 일치 또는 EXEMPT_PREFIX 접두). */
+export function isExemptPath(path: string): boolean {
+  if (EXEMPT.has(path)) return true;
+  return EXEMPT_PREFIX.some((p) => path.startsWith(p));
+}
+
+/**
+ * 자격증명을 보기 **전**의 판정 — 이 요청이 그냥 통과인가, 아니면 쿠키/키를 따져야 하는가.
+ * I/O 없는 순수 함수라 데몬을 띄우지 않고 그대로 찌를 수 있다(issue #15 — 회귀는 밀리초에 잡는다).
+ * 'credentials' 는 "인증이 필요하다"는 뜻이고, 나머지 셋은 통과 사유다.
+ */
+export type GateStep = 'disabled' | 'exempt' | 'trusted-local' | 'credentials';
+
+export function gatePrecheck(input: {
+  mode: AuthMode['mode'];
+  path: string;
+  exposedBind: boolean;
+  remoteIp: string;
+  headers: Record<string, unknown>;
+}): GateStep {
+  if (input.mode === 'disabled') return 'disabled';
+  if (isExemptPath(input.path)) return 'exempt';
+  // 키 미구성(setup)이고 loopback 바인드일 때만, 진짜 로컬 요청을 무마찰 통과(npx coxpit 랩탑 경로).
+  // ‑ 프록시/원격 요청(포워딩 헤더)은 loopback 바인드라도 통과시키지 않는다 → 프록시 뒤 무인증 노출 차단.
+  // ‑ 노출 바인드(0.0.0.0)에 키가 없으면 로컬 포함 전원에게 setup 페이지를 강제한다(먼저 키를 걸게).
+  // env/stored(키 구성됨)는 어떤 경우에도 우회 없음(issue #11).
+  if (input.mode === 'setup' && !input.exposedBind && isTrustedLocal(input.remoteIp, input.headers)) {
+    return 'trusted-local';
+  }
+  return 'credentials';
+}
 
 /** 이 요청이 HTML 문서를 원하는 GET 인가(→ 팝업 대신 login/setup 페이지 서빙). */
 function wantsHtml(req: FastifyRequest): boolean {
@@ -43,17 +79,14 @@ function wantsHtml(req: FastifyRequest): boolean {
  */
 export async function authGate(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const m = authMode();
-  if (m.mode === 'disabled') return;
-
-  const path = req.url.split('?')[0] ?? '';
-  if (EXEMPT.has(path)) return;
-  if (EXEMPT_PREFIX.some((p) => path.startsWith(p))) return;
-
-  // 키 미구성(setup)이고 loopback 바인드일 때만, 진짜 로컬 요청을 무마찰 통과(npx coxpit 랩탑 경로).
-  // ‑ 프록시/원격 요청(포워딩 헤더)은 loopback 바인드라도 통과시키지 않는다 → 프록시 뒤 무인증 노출 차단.
-  // ‑ 노출 바인드(0.0.0.0)에 키가 없으면 로컬 포함 전원에게 setup 페이지를 강제한다(먼저 키를 걸게).
-  // env/stored(키 구성됨)는 어떤 경우에도 우회 없음(issue #11).
-  if (m.mode === 'setup' && !isExposedBind() && isTrustedLocalReq(req)) return;
+  const step = gatePrecheck({
+    mode: m.mode,
+    path: req.url.split('?')[0] ?? '',
+    exposedBind: isExposedBind(),
+    remoteIp: req.socket?.remoteAddress ?? '',
+    headers: req.headers as Record<string, unknown>,
+  });
+  if (step !== 'credentials') return;
 
   // 세션 쿠키(언락 완료 기기) — 무상태 서명 검증.
   const sess = readCookie(req.headers.cookie, SESSION_COOKIE);

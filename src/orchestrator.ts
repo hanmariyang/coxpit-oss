@@ -13,6 +13,10 @@ import { agentRuns, agentEvents, tasks, repos, machines, designCaptures, docSnap
 import { runShellOn, spawnShellOn, shq, type MachineTarget } from './exec';
 import { broadcast } from './hub';
 import { getProvider, type Provider } from './providers';
+import {
+  isSettled, settleStatus, canSteer, canOpenPr, canMerge, checkBaseRepo,
+  classifyMergeResult, MERGE_FAIL_MARK,
+} from './runstate';
 import { workContextBlock, removeWorkDoc } from './workdoc';
 
 // ── 산출물 계약(deliverable contract) ─────────────────────────
@@ -698,7 +702,7 @@ async function runAgentChild(runId: number, machine: MachineTarget, wtPath: stri
   const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
 
   const wasStopped = stoppedRuns.delete(runId);
-  const status = wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed';
+  const status = settleStatus(wasStopped, code);
   const exitSummary = wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`;
   await setRun(runId, { status, endedAt: new Date(), filesChanged, exitSummary, agentPid: 0 });
   // 문서 산출물을 정착 시점에 스냅샷 — worktree 소멸(머지·Close) 후에도 렌더 뷰 유지. best-effort.
@@ -819,8 +823,8 @@ export async function steerRun(runId: number, message: string, mode: 'work' | 'a
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
   if (!ctx || !run) return { ok: false, detail: 'run not found' };
-  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — attach the terminal to intervene' };
-  if (!['done', 'failed', 'stopped'].includes(run.status)) return { ok: false, detail: `cannot steer a '${run.status}' run` };
+  const steerable = canSteer(run.status, liveChildren.has(runId));
+  if (!steerable.ok) return steerable;
   if (!run.worktreePath) return { ok: false, detail: 'worktree gone (cleaned up)' };
   if (!run.sessionId) return { ok: false, detail: 'no agent session on this run (dry-run runs cannot be steered)' };
 
@@ -1384,7 +1388,8 @@ export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: st
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
   if (!ctx || !run || !run.worktreePath || !run.branch) return { ok: false, detail: 'no worktree/branch' };
-  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — stop it first' };
+  const entry = canMerge({ live: liveChildren.has(runId), worktreePath: run.worktreePath, branch: run.branch });
+  if (!entry.ok) return entry;
   const wt = shq(run.worktreePath);
   const repo = shq(ctx.repoPath);
   const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
@@ -1405,22 +1410,19 @@ export async function mergeRun(runId: number): Promise<{ ok: boolean; detail: st
   );
   if (!guard.ok) return { ok: false, detail: 'repo check failed' };
   const [head = '', dirty = ''] = guard.stdout.split('---S---');
-  if (head.trim() !== ctx.baseBranch) {
-    return { ok: false, detail: `repo is on '${head.trim()}', expected '${ctx.baseBranch}'` };
-  }
-  if (dirty.trim() !== '') return { ok: false, detail: 'repo working tree not clean' };
+  const base = checkBaseRepo(head, dirty, ctx.baseBranch);
+  if (!base.ok) return base;
 
   // 3) merge (충돌 시 abort)
   const mg = await runShellOn(
     ctx.machine,
-    `git -C ${repo} ${ident} -c commit.gpgsign=false merge --no-ff -m ${shq(`coxpit: merge r${runId} (${run.branch})`)} ${shq(run.branch)} 2>&1 || (git -C ${repo} merge --abort 2>/dev/null; echo COXPIT_MERGE_FAILED)`,
+    `git -C ${repo} ${ident} -c commit.gpgsign=false merge --no-ff -m ${shq(`coxpit: merge r${runId} (${run.branch})`)} ${shq(run.branch)} 2>&1 || (git -C ${repo} merge --abort 2>/dev/null; echo ${MERGE_FAIL_MARK})`,
     30000,
   );
-  if (mg.stdout.includes('COXPIT_MERGE_FAILED')) {
-    return { ok: false, conflict: true, detail: 'merge conflict — aborted: ' + mg.stdout.replace('COXPIT_MERGE_FAILED', '').trim().slice(0, 300) };
-  }
+  const verdict = classifyMergeResult(mg.stdout);
+  if (!verdict.ok) return verdict;
   await setRun(runId, { status: 'merged' });
-  return { ok: true, detail: mg.stdout.trim().slice(0, 300) };
+  return { ok: true, detail: verdict.detail };
 }
 
 /**
@@ -1661,7 +1663,7 @@ export async function reviewTask(taskId: number, real: boolean): Promise<{ ok: b
   const machine: MachineTarget = { slug: m.slug, kind: m.kind, address: m.address, sshUser: m.sshUser };
 
   const trs = (await db.select().from(agentRuns).where(eq(agentRuns.taskId, taskId)))
-    .filter((r) => ['done', 'failed', 'stopped', 'merged'].includes(r.status));
+    .filter((r) => isSettled(r.status));
   if (trs.length < 2) return { ok: false, detail: 'need at least 2 settled runs to review' };
 
   const sections: string[] = [];
@@ -1743,13 +1745,12 @@ export async function askGroupCoordinator(
   }
 
   // bounded 컨텍스트: run 요약 + 정착 run 의 diff 요약(각 ~1500자, 합 ~12k 상한).
-  const SETTLED = ['done', 'failed', 'stopped', 'merged'];
   const sections: string[] = [];
   let budget = 12000;
   for (const { run, task } of rows) {
     let sec = `### run r${run.id} — ${task.title.slice(0, 80)}\n`
       + `status: ${run.status} · agent: ${run.agent} · files changed: ${run.filesChanged}`;
-    if (SETTLED.includes(run.status) && budget > 0) {
+    if (isSettled(run.status) && budget > 0) {
       const d = await getRunDiff(run.id).catch(() => ({ ok: false, diff: '', stat: '' }));
       const raw = (d.ok ? (d.diff || d.stat || '(no changes)') : '(worktree gone — diff unavailable)');
       const cap = Math.min(1500, Math.max(0, budget));
@@ -1768,7 +1769,7 @@ export async function askGroupCoordinator(
 
   // 드라이: 결정적 mock 답변 + 합성 세션 id(첫 호출 시 저장, 이후 재사용). e2e 크레딧 0.
   if (!real) {
-    const done = rows.filter((r) => SETTLED.includes(r.run.status)).length;
+    const done = rows.filter((r) => isSettled(r.run.status)).length;
     const running = rows.filter((r) => r.run.status === 'running').length;
     const answer = `[dry coordinator] ${rows.length} attempt(s) · ${done} settled · ${running} running.\n`
       + `Q: ${msg.slice(0, 120)}\n`
@@ -1928,8 +1929,8 @@ export async function prRun(runId: number): Promise<{ ok: boolean; detail: strin
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
   const run = rr[0];
   if (!ctx || !run || !run.worktreePath || !run.branch) return { ok: false, detail: 'no worktree/branch' };
-  if (liveChildren.has(runId)) return { ok: false, detail: 'still running — stop it first' };
-  if (!['done', 'failed', 'stopped', 'open'].includes(run.status)) return { ok: false, detail: `cannot open a PR from a '${run.status}' run` };
+  const prGuard = canOpenPr(run.status, liveChildren.has(runId));
+  if (!prGuard.ok) return prGuard;
   const wt = shq(run.worktreePath);
   const ident = `-c user.name='coxpit' -c user.email='coxpit@local'`;
 
@@ -2131,7 +2132,7 @@ async function reAdoptRun(run: typeof agentRuns.$inferSelect): Promise<void> {
   const stat = await runShellOn(machine, `git -C ${shq(run.worktreePath)} status --porcelain | wc -l`, 10000);
   const filesChanged = stat.ok ? parseInt(stat.stdout.trim(), 10) || 0 : 0;
   const wasStopped = stoppedRuns.delete(run.id) || wasStopped0;
-  const status = wasStopped ? 'stopped' : code === 0 ? 'done' : 'failed';
+  const status = settleStatus(wasStopped, code);
   const exitSummary = wasStopped ? 'stopped by user' : lastResult ? lastResult.slice(0, 500) : `exit ${code}`;
   await setRun(run.id, { status, endedAt: new Date(), filesChanged, exitSummary, agentPid: 0 });
   if (filesChanged > 0) void snapshotRunDocs(run.id);
