@@ -4,6 +4,10 @@ name: release-desktop
 #  - e2e: 리눅스에서 전체 E2E 스위트
 #  - desktop: 3-OS 인스톨러 빌드 → GitHub Release 업로드
 #  - ghcr: 컨테이너 이미지 → ghcr.io/hanmariyang/coxpit
+#
+# 정책(#14): 태그는 마일스톤·의미있는 배치·긴급/보안일 때만 아껴 찍는다. 잔변경은 main/develop 커밋만.
+#  dispatch = 검증만(e2e·pty-fd), desktop·ghcr 는 태그에서만 → notarize 분·이미지 push 를 태그당 한 번만 낸다.
+#  옛 컨테이너 버전은 ghcr 잡 끝의 delete-package-versions(keep 10) 가 자동 정리한다.
 on:
   push:
     tags: ['v*']
@@ -44,6 +48,8 @@ jobs:
       - run: bash test/e2e.sh
 
   desktop:
+    # #14 — 인스톨러 빌드·서명·notarize·게시는 릴리스(태그)에서만. 수동 dispatch 는 e2e·pty-fd 검증만 돈다(비싼 macOS 분·게시 안 함).
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
     strategy:
       fail-fast: false
       matrix:
@@ -143,6 +149,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   ghcr:
+    # #14 — 컨테이너 이미지 push 는 릴리스(태그)에서만. dispatch 에선 :latest 를 밀지 않는다(저장공간·과금).
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
