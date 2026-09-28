@@ -528,10 +528,11 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .scrim{display:none;position:fixed;inset:46px 0 0 0;background:rgba(5,7,10,.5);z-index:39}
   .scrim.on{display:block}
   /* 모바일/터치 터미널 입력바 — 소프트키보드 IME 자모분리 방지: 조합 완료 텍스트를 통째로 PTY 로.
-     2행 구성(입력 줄 + 스크롤되는 키 줄)이라 방향키·조합키가 많아도 안 잘린다.
-     줄 순서는 헤지다 — 입력칸·전송이 **위**, 키 줄이 **아래**. 액세서리 바 감지가 틀려 바닥
-     ~50px 가 가려지는 날에도 잘리는 건 esc/tab/방향키지 치는 자리와 전송이 아니다.
-     (마크업 순서로 맞춘다 — CSS order 를 쓰면 desktop/flow 쪽 기본 규칙까지 손대야 한다.) */
+     2행 구성(스크롤되는 키 줄 + 입력 줄)이라 방향키·조합키가 많아도 안 잘린다.
+     줄 순서는 키 줄이 **위**, 입력칸·전송이 **아래** — 치는 자리가 키보드에 제일 가깝다.
+     6.3.15 에서 클리핑 헤지로 입력 줄을 위로 올렸다가 6.3.16 에서 되돌렸다: 입력칸이 맨 위로
+     가자 iOS 가 그 칸에 AutoFill Contact(주소 채우기)를 띄웠고, 아래 지연 감지(ACC_BAR)가
+     이미 바 전체를 액세서리 바 위로 올려 주니 헤지가 막아 주는 몫이 따로 없었다. */
   .term-ibar{display:none;flex-direction:column;gap:6px;padding:7px 9px;border-top:1px solid var(--line);background:var(--surface2);padding-bottom:calc(7px + env(safe-area-inset-bottom))}
   .tkeys{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
   .tinput{display:flex;gap:6px;align-items:center}
@@ -709,10 +710,6 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       </div>
     </div>
     <div class="term-ibar" id="termIbar">
-      <div class="tinput">
-        <input id="termInput" placeholder="입력 → 한글 OK · Enter 전송" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-        <button type="button" class="tsend" id="termSend">전송</button>
-      </div>
       <div class="tkeys">
         <button type="button" class="tkey scroll hv-main" id="histBtn" title="뷰어 — 대화/터미널로 위 내용 보기(읽기 전용)">뷰어</button>
         <button type="button" class="tkey scroll" data-k="copymode" title="터미널 안에서 스크롤 — tmux copy-mode 진입(⇞/↑ 로 위로, esc 로 나가기)">⇡ 스크롤</button>
@@ -730,6 +727,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <button type="button" class="tkey" data-k="cd" title="Ctrl-D">^D</button>
         <button type="button" class="tkey" data-k="cr" title="Ctrl-R (검색)">^R</button>
         <button type="button" class="tkey" data-k="cu" title="Ctrl-U (줄 지우기)">^U</button>
+      </div>
+      <div class="tinput">
+        <input id="termInput" placeholder="입력 → 한글 OK · Enter 전송" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <button type="button" class="tsend" id="termSend">전송</button>
       </div>
     </div>
     <div class="reqbar">
