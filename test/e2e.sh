@@ -3509,5 +3509,40 @@ case "$CKPT" in *'id="termInput"'*'id="termSend"'*'function termSendLine()'*'isC
 # (소스 수준 이모지 금지는 위 v5.28 C 게이트가 src/cockpit.ts 를 이미 훑는다 — 여기서 겹쳐 세지 않는다.)
 pass "mobile ibar: interactive-widget=resizes-content + body.touch fixed bar riding the visualViewport overlap (accessory bar cleared), terminal reserves --ibar-h + --kb-h, IME commit path untouched"
 
+# ── 모바일 입력바 2: 하드웨어 키보드의 액세서리 바 ──────────────────────────────────
+# 블루투스·하드웨어 키보드가 붙어 있으면 화면 키보드가 안 뜨고 액세서리 바만 떠 있다 — vv 는
+# 안 줄어드니 위 경로의 겹침이 0 이고, 바는 그 바 뒤에 남는다. 포커스만 보고 여유를 주면(6.3.13)
+# 액세서리 바가 **없는** 경우에도 떠서 가짜 틈이 생겼다(그래서 되돌렸다). 브라우저 없는 e2e 는
+# 진짜 키보드를 못 띄우니, 서빙된 소스에 세 안(지연 감지 · 레이아웃 헤지 · 내리기)을 못 박는다.
+# (a) 지연 감지 — 포커스에 타이머를 걸고, hwKb 플래그와 ACC_BAR 상수가 함께 있어야 한다.
+case "$CKPT" in *'var ACC_BAR = 52;'*) : ;; *) fail "mobile ibar 2: ACC_BAR (the accessory-bar allowance) must be a named constant";; esac
+case "$CKPT" in *'var hwKb = false, probe = null;'*) : ;; *) fail "mobile ibar 2: the hardware-keyboard verdict must live in a flag (hwKb) fed by a probe timer, not be inferred per event";; esac
+case "$CKPT" in *'hwKb = true; schedule();'*'}, 450);'*) : ;; *) fail "mobile ibar 2: the probe must confirm the hardware keyboard only after ~450ms (a software keyboard shrinks the visualViewport well inside that window)";; esac
+case "$CKPT" in *"inp.addEventListener('focus', function(){"*'probe = setTimeout(function(){'*) : ;; *) fail "mobile ibar 2: the probe must be armed on #termInput focus";; esac
+case "$CKPT" in *'if (document.activeElement !== inp) return;'*'if (overlap() > 0) return;'*) : ;; *) fail "mobile ibar 2: when the probe fires it must re-check BOTH that the input is still focused and that the viewport never shrank — otherwise it is the software-keyboard case";; esac
+# (b) 여유는 "겹침 0 + 하드웨어 확인 + 치는 중" 일 때만 — 포커스 하나로는 절대 안 뜬다(가짜 틈의 원인).
+case "$CKPT" in *"var kb = vvKb > 0 ? vvKb : ((hwKb && document.activeElement === inp) ? ACC_BAR : 0);"*) : ;; *) fail "mobile ibar 2: the effective lift must prefer the measured overlap and fall back to ACC_BAR only when it is 0 AND hwKb AND the input is focused";; esac
+# 하드웨어 판정을 켜는 자리는 하나뿐이어야 한다 — 지연 감지 콜백. 둘째 자리가 생기면 그게 가짜 틈의 길이다.
+HWN=$(printf '%s' "$CKPT" | grep -c 'hwKb = true' || true)   # pipefail — 0건이면 grep 이 1 을 낸다
+[ "$HWN" = "1" ] || fail "mobile ibar 2: 'hwKb = true' must be set in exactly one place (the 450ms probe) — found $HWN; a second one is a path that reserves space before the verdict"
+# (c) 화면 키보드가 뜨거나 손을 떼면 여유는 즉시 걷힌다.
+case "$CKPT" in *'if (vvKb > 0 && hwKb){ hwKb = false; clearProbe(); }'*) : ;; *) fail "mobile ibar 2: the moment the visualViewport shrinks, the hardware verdict must be dropped (the measured overlap takes over)";; esac
+case "$CKPT" in *"inp.addEventListener('blur', function(){"*'hwKb = false; clearProbe();'*) : ;; *) fail "mobile ibar 2: blur must clear both the verdict and the pending probe, then re-run the positioner so the bar drops flush";; esac
+# (d) 레이아웃 헤지 — 입력 줄이 키 줄보다 **위**. 감지가 틀려 바닥이 가려져도 잘리는 건 키 줄이다.
+# (.tinput/.tkeys 는 페이지에 한 번씩만 나온다 — 그래서 등장 순서가 곧 바 안의 순서다.)
+IB2_TIN=$(printf '%s' "$CKPT" | grep -c '<div class="tinput">' || true)   # (bash 3.2 중첩따옴표 — 변수로 먼저 받는다)
+IB2_TKE=$(printf '%s' "$CKPT" | grep -c '<div class="tkeys">' || true)
+[ "$IB2_TIN" = "1" ] || fail "mobile ibar 2: .tinput must appear exactly once (the order check below relies on it) — found $IB2_TIN"
+[ "$IB2_TKE" = "1" ] || fail "mobile ibar 2: .tkeys must appear exactly once (the order check below relies on it) — found $IB2_TKE"
+case "$CKPT" in *'id="termIbar">'*'<div class="tinput">'*'<div class="tkeys">'*) : ;; *) fail "mobile ibar 2: inside #termIbar the input row (.tinput) must come before the key row (.tkeys) — a clipped bottom should cost esc/tab/arrows, not the text field and 전송";; esac
+# (e) 내리기 — 액세서리 바를 지울 수는 없으니 보낼 방법을 준다(모노 글리프, 이모지 아님).
+case "$CKPT" in *'id="kbDown" title="키보드 내리기">⌄<'*) : ;; *) fail "mobile ibar 2: the key row must carry a #kbDown dismiss button drawn with the mono glyph U+2304";; esac
+case "$CKPT" in *"b=\$('kbDown')"*"inp.blur()"*) : ;; *) fail "mobile ibar 2: #kbDown must blur #termInput (that is what sends the OS keyboard and its accessory bar away)";; esac
+case "$CKPT" in *'<button type="button" class="tkey" id="kbDown"'*) : ;; *) fail "mobile ibar 2: the dismiss button must be a plain .tkey (existing tokens, no new colors)";; esac
+# 컴포넌트 표는 같은 커밋에서 갱신된다(DESIGN.md 는 강제되는 계약이다).
+IB2_DESIGN=$(cat "$ROOT/DESIGN.md")
+case "$IB2_DESIGN" in *'Row order is a hedge'*'450ms probe'*'#kbDown'*) : ;; *) fail "DESIGN.md must record the row-order hedge, the delayed accessory-bar probe and the dismiss button in the same commit";; esac
+pass "mobile ibar 2: accessory-bar allowance only after a 450ms probe confirms no software keyboard (no false gap) · input row above the key row · ⌄ dismiss blurs the input · DESIGN.md carries the rule"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"

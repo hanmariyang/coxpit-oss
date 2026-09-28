@@ -31,7 +31,9 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
      앱셸 자체는 흐름에 둔다(overscroll-behavior:none 으로 충분). 예외는 터치 입력바 하나 —
      iOS 는 키보드가 열려도 레이아웃 뷰포트를 줄이지 않아 흐름 맨 아래 바가 키보드와 액세서리
      바("^ ∨ ✓") 뒤로 숨는다. 그래서 그 바만 fixed 로 두고 visualViewport 가 알려 준 겹침만큼
-     태워 올린다(아래 body.touch .term-ibar + --kb-h · --ibar-h). */
+     태워 올린다(아래 body.touch .term-ibar + --kb-h · --ibar-h). 하드웨어 키보드라 화면 키보드가
+     안 뜨는 경우는 vv 가 안 줄어 겹침이 0 이다 — 그건 포커스 뒤 450ms 지연 감지로만 따로 본다
+     (JS 쪽 ACC_BAR). 확신 전에 자리를 비우지 않는 게 규칙이다. */
   html,body{height:100%;overscroll-behavior:none}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;
     -webkit-font-smoothing:antialiased;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
@@ -526,7 +528,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   .scrim{display:none;position:fixed;inset:46px 0 0 0;background:rgba(5,7,10,.5);z-index:39}
   .scrim.on{display:block}
   /* 모바일/터치 터미널 입력바 — 소프트키보드 IME 자모분리 방지: 조합 완료 텍스트를 통째로 PTY 로.
-     2행 구성(스크롤되는 키 줄 + 입력 줄)이라 방향키·조합키가 많아도 안 잘린다. */
+     2행 구성(입력 줄 + 스크롤되는 키 줄)이라 방향키·조합키가 많아도 안 잘린다.
+     줄 순서는 헤지다 — 입력칸·전송이 **위**, 키 줄이 **아래**. 액세서리 바 감지가 틀려 바닥
+     ~50px 가 가려지는 날에도 잘리는 건 esc/tab/방향키지 치는 자리와 전송이 아니다.
+     (마크업 순서로 맞춘다 — CSS order 를 쓰면 desktop/flow 쪽 기본 규칙까지 손대야 한다.) */
   .term-ibar{display:none;flex-direction:column;gap:6px;padding:7px 9px;border-top:1px solid var(--line);background:var(--surface2);padding-bottom:calc(7px + env(safe-area-inset-bottom))}
   .tkeys{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
   .tinput{display:flex;gap:6px;align-items:center}
@@ -704,9 +709,14 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
       </div>
     </div>
     <div class="term-ibar" id="termIbar">
+      <div class="tinput">
+        <input id="termInput" placeholder="입력 → 한글 OK · Enter 전송" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        <button type="button" class="tsend" id="termSend">전송</button>
+      </div>
       <div class="tkeys">
         <button type="button" class="tkey scroll hv-main" id="histBtn" title="뷰어 — 대화/터미널로 위 내용 보기(읽기 전용)">뷰어</button>
         <button type="button" class="tkey scroll" data-k="copymode" title="터미널 안에서 스크롤 — tmux copy-mode 진입(⇞/↑ 로 위로, esc 로 나가기)">⇡ 스크롤</button>
+        <button type="button" class="tkey" id="kbDown" title="키보드 내리기">⌄</button>
         <button type="button" class="tkey" data-k="esc" title="Esc">esc</button>
         <button type="button" class="tkey" data-k="tab" title="Tab">tab</button>
         <button type="button" class="tkey" data-k="enter" title="Enter">⏎</button>
@@ -720,10 +730,6 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
         <button type="button" class="tkey" data-k="cd" title="Ctrl-D">^D</button>
         <button type="button" class="tkey" data-k="cr" title="Ctrl-R (검색)">^R</button>
         <button type="button" class="tkey" data-k="cu" title="Ctrl-U (줄 지우기)">^U</button>
-      </div>
-      <div class="tinput">
-        <input id="termInput" placeholder="입력 → 한글 OK · Enter 전송" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-        <button type="button" class="tsend" id="termSend">전송</button>
       </div>
     </div>
     <div class="reqbar">
@@ -2652,15 +2658,29 @@ ${ACTIVITY_JS}
   // 겹침 = innerHeight(레이아웃) - vv.height(보이는 높이) - vv.offsetTop(스크롤로 밀린 만큼).
   // 데스크톱은 이 블록 밖(예전 동작 그대로). visualViewport 가 없는 터치 브라우저에서는 겹침을 0 으로 두고
   // 바 높이만 재 둔다 — 바가 fixed 가 된 이상 --ibar-h 는 항상 있어야 터미널 마지막 줄이 안 가린다.
+  //
+  // 하드웨어·블루투스 키보드가 붙어 있으면 화면 키보드가 안 뜨고 액세서리 바만 떠 있다 — 그때는
+  // visualViewport 가 줄지 않아 겹침이 0 으로 나오고, 바는 그 바("^ ∨ ✓") 뒤에 그대로 남는다.
+  // 포커스만 보고 여유를 주면(6.3.13) 액세서리 바가 **없는** 경우에도 바가 떠 가짜 틈이 생긴다.
+  // 그래서 자리를 먼저 비우지 않는다 — 포커스 뒤 450ms 를 기다려 "화면 키보드가 끝내 안 떴다" 를
+  // 확인한 다음에만 액세서리 바 높이(ACC_BAR)만큼 올린다. 화면 키보드는 그 안에 반드시 vv 를 줄인다.
   (function(){
     if (!document.body.classList.contains('touch')) return;
     var vv = window.visualViewport;
     var ibar = $('termIbar'), inp = $('termInput'), body = document.body;
     var pend = false, lastKb = -1, lastH = -1;
+    var ACC_BAR = 52;                                   // 액세서리 바("^ ∨ ✓") 높이 — 하드웨어 키보드일 때만
+    var hwKb = false, probe = null;                     // hwKb = 지연 감지로 확인된 "하드웨어 키보드"
+    function clearProbe(){ if (probe){ clearTimeout(probe); probe = null; } }
+    // 화면 키보드가 먹은 높이. 반올림 잔값은 "닫힘" — 바가 1px 떠 보이지 않게.
+    function overlap(){ var v = vv ? Math.round(Math.max(0, window.innerHeight - vv.height - vv.offsetTop)) : 0; return v < 2 ? 0 : v; }
     function apply(){
       pend = false;
-      var kb = vv ? Math.round(Math.max(0, window.innerHeight - vv.height - vv.offsetTop)) : 0;
-      if (kb < 2) kb = 0;                               // 반올림 잔값은 "닫힘" — 바가 1px 떠 보이지 않게
+      var vvKb = overlap();
+      if (vvKb > 0 && hwKb){ hwKb = false; clearProbe(); }   // 화면 키보드가 떴다 — vv 경로가 맡는다
+      // 실제로 아래가 가려진 높이: 화면 키보드가 있으면 그 겹침, 없는데 하드웨어 키보드로 확인됐고
+      // 지금 치는 중이면 액세서리 바만큼. 둘 다 아니면 0 — 확신 전에는 자리를 비우지 않는다.
+      var kb = vvKb > 0 ? vvKb : ((hwKb && document.activeElement === inp) ? ACC_BAR : 0);
       var moved = false;
       if (kb !== lastKb){
         lastKb = kb;
@@ -2677,11 +2697,26 @@ ${ACTIVITY_JS}
     if (vv){ vv.addEventListener('resize', schedule); vv.addEventListener('scroll', schedule); }
     window.addEventListener('resize', schedule);        // 바 높이(키 줄 줄바꿈)는 회전·폭 변화로도 바뀐다
     // 포커스·블러 직후엔 아직 키보드가 움직이는 중 — 한 번 더 늦게 확인한다(iOS 는 애니메이션 끝에야 값이 맞다).
-    inp.addEventListener('focus', function(){ schedule(); setTimeout(schedule, 260); });
-    inp.addEventListener('blur', function(){ schedule(); setTimeout(schedule, 260); });
+    inp.addEventListener('focus', function(){
+      schedule(); setTimeout(schedule, 260);
+      clearProbe();
+      probe = setTimeout(function(){                    // 지연 감지 — 여기까지 조용하면 화면 키보드는 없다
+        probe = null;
+        if (document.activeElement !== inp) return;     // 이미 손을 뗐다
+        if (overlap() > 0) return;                      // 화면 키보드가 떴다 — 여유는 필요 없다
+        hwKb = true; schedule();
+      }, 450);
+    });
+    inp.addEventListener('blur', function(){
+      hwKb = false; clearProbe();                       // 안 치면 여유도 없다 — 바가 곧바로 바닥으로
+      schedule(); setTimeout(schedule, 260);
+    });
     window.addEventListener('orientationchange', function(){ setTimeout(schedule, 260); });
     schedule();
   })();
+  // 내리기(⌄) — 액세서리 바를 웹페이지가 지울 수는 없으니, 보낼 방법을 준다. 블러 한 번이면
+  // OS 키보드·액세서리 바가 물러나고 위 blur 핸들러가 여유를 걷어 바가 바닥에 내려앉는다.
+  (function(){ var b=$('kbDown'); if(!b) return; b.addEventListener('click', function(){ var inp=$('termInput'); if(inp) inp.blur(); }); })();
 
   // ── 자유 세션 — 폴더를 지정해 tmux 셸(프로젝트 비소속). ──
   var pickPathCur = '';
