@@ -8,7 +8,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
 <title>coxpit · cockpit</title>
 <link rel="icon" href="/brand/favicon.ico" sizes="any" />
 <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
@@ -28,7 +28,10 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   *{box-sizing:border-box}
   /* 모바일 앱처럼 잠금 — 러버밴드·핀치줌 차단(뷰포트 meta user-scalable=no 와 함께).
      body overflow:hidden 이라 앱셸은 스크롤 안 하고, 안쪽 컨테이너(터미널·트리)만 스크롤.
-     position:fixed 는 iOS 소프트키보드가 입력바를 가려 회피 — overscroll-behavior:none 으로 충분. */
+     앱셸 자체는 흐름에 둔다(overscroll-behavior:none 으로 충분). 예외는 터치 입력바 하나 —
+     iOS 는 키보드가 열려도 레이아웃 뷰포트를 줄이지 않아 흐름 맨 아래 바가 키보드와 액세서리
+     바("^ ∨ ✓") 뒤로 숨는다. 그래서 그 바만 fixed 로 두고 visualViewport 가 알려 준 겹침만큼
+     태워 올린다(아래 body.touch .term-ibar + --kb-h · --ibar-h). */
   html,body{height:100%;overscroll-behavior:none}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;
     -webkit-font-smoothing:antialiased;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
@@ -587,6 +590,18 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
   body.touch .term-ibar{display:flex}
   body.touch .reqbar{display:none}
   body.touch #splitRow, body.touch #splitCol{display:none}
+  /* 치는 자리는 언제나 키보드 위에 있다 — 액세서리 바까지 포함해서.
+     바를 화면 바닥에 고정하고(fixed), 키보드가 열리면 JS 가 style.bottom = 겹침(px) 으로 태워 올린다.
+     같은 겹침이 --kb-h 로 stage 에 물려, 터미널은 "바 높이 + 키보드" 만큼 아래를 비운다 —
+     그래서 마지막 줄이 바 뒤로 숨지 않고 입력칸 바로 위에 선다. 키보드가 닫히면 둘 다 0 으로 돌아온다.
+     z-index 15 = 터미널·거터 위 · 리뷰(20)·스크림(39)·레일(40)·모달(60) 아래. 데스크톱은 이 규칙 밖.
+     왼쪽은 stage 가 시작하는 자리 — 레일이 상주하는 폭(아이패드 가로)에선 270px, 레일이 드로어이거나
+     포커스 모드로 접혔으면 0. fixed 라 흐름이 대신 정해 주지 않으니 이것만은 직접 적는다. */
+  body.touch{--ibar-h:0px;--kb-h:0px;--ibar-l:270px}
+  body.touch .layout.focusmode{--ibar-l:0px}
+  body.touch .term-ibar{position:fixed;left:var(--ibar-l);right:0;bottom:0;z-index:15}
+  body.touch .term-ibar.kbup{padding-bottom:7px}   /* 키보드 위에선 홈바 여백이 필요 없다 */
+  body.touch .stage{padding-bottom:calc(var(--ibar-h) + var(--kb-h))}
   /* 뷰어는 폰·터치에서 가운데 팝업이 아니라 화면 전체 — 전체화면 터미널(.modal.term)과 같은 문법.
      헤더 / 검색바 / 줄·대화(flex:1, 여기만 스크롤) / FAB. 노치·홈바는 safe-area 로 비킨다. 아래 @media 에 쌍둥이. */
   body.touch #histModal .hist-pick{position:fixed;inset:0;width:100%;max-width:100%;height:100%;max-height:100%;border:0;border-radius:0;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
@@ -612,6 +627,7 @@ export const COCKPIT_HTML = /* html */ `<!doctype html>
     .tc-btn{font-size:11px;padding:3px 7px}
     .leaf-h{height:24px;font-size:10.5px}
     .term-ibar{display:flex}
+    body.touch{--ibar-l:0px}   /* 레일이 드로어로 떠 있으니 입력바는 전폭 — 위 body.touch 쌍둥이 */
     .tkey{font-size:12px;padding:7px 9px;min-width:38px}
     .tinput input{font-size:15px;padding:8px 10px}
   }
@@ -2627,6 +2643,45 @@ ${ACTIVITY_JS}
   $('histModal').addEventListener('click', function(e){ if(e.target===this) closeHistory(); });
   // 터치 기기(아이패드 포함) 판별 → body.touch (화면폭 무관하게 입력바 노출)
   if (window.matchMedia('(pointer:coarse)').matches || (navigator.maxTouchPoints||0) > 0) document.body.classList.add('touch');
+
+  // ── 입력바는 키보드를 타고 오른다(터치 전용) ──────────────────────────────────
+  // 뷰포트 meta 의 interactive-widget=resizes-content 로 크로미움 계열은 레이아웃이 줄어 저절로 해결된다.
+  // iOS 는 그 값을 무시하고 "보이는 뷰포트"만 줄인다 — 레이아웃은 그대로라 바닥의 입력바가 키보드와
+  // 액세서리 바("^ ∨ ✓") 뒤에 남는다. visualViewport 가 그 겹침을 알려 주니, 그만큼 바를 올리고
+  // 같은 값을 --kb-h 로 stage 에 물려 터미널이 바 뒤로 들어가지 않게 한다.
+  // 겹침 = innerHeight(레이아웃) - vv.height(보이는 높이) - vv.offsetTop(스크롤로 밀린 만큼).
+  // 데스크톱은 이 블록 밖(예전 동작 그대로). visualViewport 가 없는 터치 브라우저에서는 겹침을 0 으로 두고
+  // 바 높이만 재 둔다 — 바가 fixed 가 된 이상 --ibar-h 는 항상 있어야 터미널 마지막 줄이 안 가린다.
+  (function(){
+    if (!document.body.classList.contains('touch')) return;
+    var vv = window.visualViewport;
+    var ibar = $('termIbar'), inp = $('termInput'), body = document.body;
+    var pend = false, lastKb = -1, lastH = -1;
+    function apply(){
+      pend = false;
+      var kb = vv ? Math.round(Math.max(0, window.innerHeight - vv.height - vv.offsetTop)) : 0;
+      if (kb < 2) kb = 0;                               // 반올림 잔값은 "닫힘" — 바가 1px 떠 보이지 않게
+      var moved = false;
+      if (kb !== lastKb){
+        lastKb = kb;
+        ibar.style.bottom = kb + 'px';                  // 바가 키보드 위에 내려앉는다
+        ibar.classList.toggle('kbup', kb > 0);
+        body.style.setProperty('--kb-h', kb + 'px');
+        moved = true;
+      }
+      var h = ibar.offsetHeight;                        // kbup 반영 뒤에 잰다(패딩이 높이를 바꾼다)
+      if (h !== lastH){ lastH = h; body.style.setProperty('--ibar-h', h + 'px'); moved = true; }
+      if (moved) fitAllVisible();                       // 줄어든 만큼 터미널 재핏 — 마지막 줄이 입력칸 바로 위
+    }
+    function schedule(){ if (pend) return; pend = true; requestAnimationFrame(apply); }
+    if (vv){ vv.addEventListener('resize', schedule); vv.addEventListener('scroll', schedule); }
+    window.addEventListener('resize', schedule);        // 바 높이(키 줄 줄바꿈)는 회전·폭 변화로도 바뀐다
+    // 포커스·블러 직후엔 아직 키보드가 움직이는 중 — 한 번 더 늦게 확인한다(iOS 는 애니메이션 끝에야 값이 맞다).
+    inp.addEventListener('focus', function(){ schedule(); setTimeout(schedule, 260); });
+    inp.addEventListener('blur', function(){ schedule(); setTimeout(schedule, 260); });
+    window.addEventListener('orientationchange', function(){ setTimeout(schedule, 260); });
+    schedule();
+  })();
 
   // ── 자유 세션 — 폴더를 지정해 tmux 셸(프로젝트 비소속). ──
   var pickPathCur = '';

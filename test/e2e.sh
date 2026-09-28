@@ -3480,5 +3480,34 @@ W18=$(grep -c 'await warnIfPaneElsewhere(' "$ROOT/src/orchestrator.ts" || true)
 [ "$W18" -ge 3 ] || fail "#18: every session-creation path (run launch · workbench · free session) must run the pane-path check (found $W18)"
 pass "#18: tmux server born in a stable dir (pane -c untouched) · daemon spawned with absolute tsx + data-dir cwd · a live lock pid is waited on, not overtaken · a misplaced pane is said out loud"
 
+# ── 모바일 입력바 — 치는 자리는 키보드(액세서리 바 포함) 위에 있다 ────────────────────
+# iOS Safari 의 기본 interactive-widget 은 resizes-visual: 키보드가 열려도 **레이아웃** 뷰포트는
+# 그대로라, 흐름 맨 아래에 놓인 입력바가 키보드와 "^ ∨ ✓" 액세서리 바 뒤에 남는다.
+# 브라우저 없는 e2e 는 진짜 키보드를 못 띄우니, 서빙된 소스 수준에서 넷을 못 박는다.
+# (a) 뷰포트 meta 가 interactive-widget=resizes-content 를 말한다 — 크로미움 계열은 이것만으로 해결.
+case "$CKPT" in *'name="viewport"'*'interactive-widget=resizes-content'*) : ;; *) fail "mobile ibar: the viewport meta must declare interactive-widget=resizes-content (Chromium shrinks the layout viewport; iOS falls back to the visualViewport handler)";; esac
+case "$CKPT" in *'width=device-width'*'viewport-fit=cover'*) : ;; *) fail "mobile ibar: the viewport meta lost width=device-width / viewport-fit=cover";; esac
+# (b) 터치에서만 바가 화면 바닥에 고정된다 — 데스크톱 흐름은 건드리지 않는다.
+case "$CKPT" in *'body.touch .term-ibar{position:fixed;left:var(--ibar-l);right:0;bottom:0;z-index:15}'*) : ;; *) fail "mobile ibar: .term-ibar must be position:fixed under a body.touch guard (a flow-bottom bar stays under the keyboard)";; esac
+case "$CKPT" in *'.term-ibar{display:none;flex-direction:column;gap:6px;padding:7px 9px;border-top:1px solid var(--line);background:var(--surface2);padding-bottom:calc(7px + env(safe-area-inset-bottom))}'*) : ;; *) fail "mobile ibar: the base (desktop/flow) .term-ibar rule must stay as it was — only body.touch takes it out of flow";; esac
+# (c) visualViewport 가 겹침을 재고, 그 값이 #termIbar 의 bottom 이 된다.
+case "$CKPT" in *'window.visualViewport'*'window.innerHeight - vv.height - vv.offsetTop'*) : ;; *) fail "mobile ibar: the keyboard overlap must be measured as innerHeight - vv.height - vv.offsetTop";; esac
+case "$CKPT" in *"ibar.style.bottom = kb + 'px'"*) : ;; *) fail "mobile ibar: the measured overlap must be written to #termIbar's bottom (that is what lifts the bar above the accessory pill)";; esac
+case "$CKPT" in *"vv.addEventListener('resize', schedule)"*"vv.addEventListener('scroll', schedule)"*) : ;; *) fail "mobile ibar: both visualViewport resize and scroll must drive the positioner";; esac
+case "$CKPT" in *'requestAnimationFrame(apply)'*) : ;; *) fail "mobile ibar: the positioner must be rAF-debounced, not run per event";; esac
+case "$CKPT" in *"document.body.classList.contains('touch')"*) : ;; *) fail "mobile ibar: the positioner must no-op on desktop (touch gate)";; esac
+# (d) 바가 흐름에서 빠진 만큼 터미널이 아래를 비운다 — 마지막 줄이 입력칸 뒤로 숨지 않게.
+case "$CKPT" in *'body.touch{--ibar-h:0px;--kb-h:0px'*) : ;; *) fail "mobile ibar: --ibar-h / --kb-h must exist (the reserved bottom space the fixed bar no longer takes in flow)";; esac
+case "$CKPT" in *'body.touch .stage{padding-bottom:calc(var(--ibar-h) + var(--kb-h))}'*) : ;; *) fail "mobile ibar: the terminal container must reserve bar height + keyboard overlap, or the newest lines hide behind the bar";; esac
+case "$CKPT" in *"body.style.setProperty('--kb-h', kb + 'px')"*"body.style.setProperty('--ibar-h', h + 'px')"*) : ;; *) fail "mobile ibar: both reserve vars must be kept live by the positioner (keyboard overlap first, then the measured bar height)";; esac
+case "$CKPT" in *'if (moved) fitAllVisible();'*) : ;; *) fail "mobile ibar: a changed reserve must refit the visible terminals (xterm rows follow the shrunken host)";; esac
+# 키보드가 닫히면 전부 0 으로 — 평소엔 홈바 여백을 지킨 바닥 고정 바 그대로.
+case "$CKPT" in *'padding-bottom:calc(7px + env(safe-area-inset-bottom))'*) : ;; *) fail "mobile ibar: the keyboard-closed case must keep the safe-area bottom padding";; esac
+case "$CKPT" in *'body.touch .term-ibar.kbup{padding-bottom:7px}'*) : ;; *) fail "mobile ibar: above the keyboard the home-indicator inset is dead space — drop it while lifted";; esac
+# IME 커밋 경로는 그대로다(이 수정은 배치와 위치만 바꾼다).
+case "$CKPT" in *'id="termInput"'*'id="termSend"'*'function termSendLine()'*'isComposing'*) : ;; *) fail "mobile ibar: the IME-safe commit path (#termInput + #termSend markup -> termSendLine with the isComposing guard) must be untouched";; esac
+# (소스 수준 이모지 금지는 위 v5.28 C 게이트가 src/cockpit.ts 를 이미 훑는다 — 여기서 겹쳐 세지 않는다.)
+pass "mobile ibar: interactive-widget=resizes-content + body.touch fixed bar riding the visualViewport overlap (accessory bar cleared), terminal reserves --ibar-h + --kb-h, IME commit path untouched"
+
 echo "---"
 echo "E2E PASS ($PASS_COUNT checks)"
