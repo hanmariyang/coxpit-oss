@@ -2657,14 +2657,10 @@ ${ACTIVITY_JS}
     var vv = window.visualViewport;
     var ibar = $('termIbar'), inp = $('termInput'), body = document.body;
     var pend = false, lastKb = -1, lastH = -1;
-    var ACC_BAR = 52;   // iOS 하드웨어/블루투스 키보드의 떠다니는 액세서리 바 여유(px) — 웹으로 높이를 못 재서 고정값
     function apply(){
       pend = false;
       var kb = vv ? Math.round(Math.max(0, window.innerHeight - vv.height - vv.offsetTop)) : 0;
       if (kb < 2) kb = 0;                               // 반올림 잔값은 "닫힘" — 바가 1px 떠 보이지 않게
-      // 하드웨어/블루투스 키보드는 화면 키보드가 안 떠 vv 가 안 줄지만, 떠다니는 액세서리 바(^ ∨ ✓)가
-      // 하단을 덮는다. 그 바 높이는 웹으로 못 재니, 입력칸이 포커스인데 화면 키보드가 없으면 고정 여유를 준다.
-      if (document.activeElement === inp && kb < ACC_BAR) kb = ACC_BAR;
       var moved = false;
       if (kb !== lastKb){
         lastKb = kb;
