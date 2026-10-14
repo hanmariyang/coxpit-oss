@@ -1,4 +1,4 @@
-// run 상태 기계 + 머지 가드 — src/runstate.ts 의 순수 판정만 찌른다.
+// run 상태 기계 + 머지 가드 — src/core/runstate.ts 의 순수 판정만 찌른다.
 // git 도 DB 도 데몬도 띄우지 않는다: 머지 셸의 **출력**을 흉내 내 판정 경로를 직접 태운다.
 // e2e.sh 는 같은 가드를 실제 저장소로 확인하지만(409 두 건), 그건 왜 막혔는지를 말해주지 않는다.
 import { test } from 'node:test';
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 const {
   isSettled, SETTLED_STATUSES, settleStatus, canSteer, canOpenPr,
   canMerge, checkBaseRepo, classifyMergeResult, MERGE_FAIL_MARK,
-} = await import('../../src/runstate.ts');
+} = await import('../../src/core/runstate.ts');
 
 // ── 정착 판정 ──────────────────────────────────────────────────
 test('settled = the agent is no longer running', () => {

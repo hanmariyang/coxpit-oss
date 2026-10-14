@@ -1,5 +1,10 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { config } from './config';
+import { shq, isLocalMachine, type MachineTarget } from './core';
+
+// 셸 인용과 머신 모양은 커널에 있다 — 여기서 다시 쓰지 않고 그대로 넘겨준다.
+export { shq };
+export type { MachineTarget };
 
 export interface RunResult {
   ok: boolean;        // 프로세스가 exit 0 인가
@@ -21,21 +26,6 @@ function run(file: string, args: string[], timeoutMs = 12000): Promise<RunResult
   });
 }
 
-/** POSIX 싱글쿼트 이스케이프 — 사용자 경로를 셸 커맨드에 안전하게 삽입. */
-export function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-export interface MachineTarget {
-  slug: string;
-  kind: string;
-  address: string;
-  sshUser: string;
-}
-
-function isLocal(m: MachineTarget): boolean {
-  return m.kind === 'local' || m.address === '';
-}
 
 /**
  * 머신에서 셸 커맨드 1줄 실행.
@@ -43,7 +33,7 @@ function isLocal(m: MachineTarget): boolean {
  * BatchMode=yes 라 비밀번호 프롬프트로 매달리지 않음(키/에이전트 없으면 즉시 실패).
  */
 export async function runShellOn(m: MachineTarget, shellCmd: string, timeoutMs = 12000): Promise<RunResult> {
-  if (isLocal(m)) return run('sh', ['-c', shellCmd], timeoutMs);
+  if (isLocalMachine(m)) return run('sh', ['-c', shellCmd], timeoutMs);
   const args: string[] = [
     '-o', 'BatchMode=yes',
     '-o', 'ConnectTimeout=6',
@@ -62,7 +52,7 @@ export async function runShellOn(m: MachineTarget, shellCmd: string, timeoutMs =
 export function spawnShellOn(m: MachineTarget, shellCmd: string): ChildProcess {
   // detached → 자체 프로세스 그룹. stop 시 그룹 전체(-pid) SIGTERM 으로
   // sh 의 손자(실제 에이전트)까지 확실히 종료.
-  if (isLocal(m)) return spawn('sh', ['-c', shellCmd], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  if (isLocalMachine(m)) return spawn('sh', ['-c', shellCmd], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   const args: string[] = [
     '-o', 'BatchMode=yes',
     '-o', 'ConnectTimeout=6',

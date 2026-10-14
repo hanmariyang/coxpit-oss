@@ -1,0 +1,11 @@
+{
+  "name": "@coxpit/core",
+  "version": "0.1.0",
+  "description": "Terminal cockpit kernel — PTY lifecycle, worktree/session naming, run state machine. No product, no HTTP, no database.",
+  "type": "module",
+  "main": "./index.ts",
+  "exports": { ".": "./index.ts" },
+  "license": "SEE LICENSE IN LICENSE",
+  "peerDependencies": { "node-pty": "^1.1.0" },
+  "engines": { "node": ">=20" }
+}
