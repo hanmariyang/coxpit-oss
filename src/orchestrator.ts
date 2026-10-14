@@ -16,7 +16,12 @@ import { getProvider, type Provider } from './providers';
 import {
   isSettled, settleStatus, canSteer, canOpenPr, canMerge, checkBaseRepo,
   classifyMergeResult, MERGE_FAIL_MARK,
-} from './runstate';
+  TMUX_HISTORY_LIMIT, tmuxNewSession, samePath,
+} from './core';
+import { names } from './naming';
+
+// 커널로 옮긴 것들을 그대로 넘겨준다 — 기존 소비자의 import 경로를 깨지 않는다.
+export { TMUX_HISTORY_LIMIT, tmuxNewSession };
 import { workContextBlock, removeWorkDoc } from './workdoc';
 
 // ── 산출물 계약(deliverable contract) ─────────────────────────
@@ -169,33 +174,12 @@ export function claudeTagEnvForRun(machine: MachineTarget, sid: string): string 
  * new-session 뒤에 세션 옵션으로 올리면 첫 pane 에는 안 먹는다. 그래서 같은 tmux 호출 안에서
  * 전역 옵션을 먼저 올리고 세션을 만든다(start-server 로 서버를 띄워 둬야 set -g 가 산다).
  */
-export const TMUX_HISTORY_LIMIT = 100000;
-
-/**
- * `tmux new-session <rest>` 대신 쓰는 셸 조각 — history-limit 을 올린 뒤 세션을 만든다. rest 는 호출부가 인용한다.
- *
- * 서브셸로 감싸 **$HOME 에서** tmux 를 부른다(#18). 이 호출이 그 기계의 tmux 서버를 처음 띄우는 경우,
- * 서버는 여기서의 cwd 를 평생 물고 산다. 데스크톱 앱이 자동 업데이트되면 옛 번들이 통째로 지워지므로,
- * 그 안에서 태어난 tmux 서버의 cwd 는 이름 없는 삭제된 폴더가 되고 getcwd() 가 ENOENT 를 낸다.
- * 그러면 tmux(>=3.4, spawn.c)는 새 페인의 `-c` 를 **조용히 건너뛴다** — 모든 새 터미널이 죽은 폴더에서 열리고
- * 프롬프트엔 `.` 만 남는다(#{pane_start_path} 는 요청한 경로를 그대로 보여줘서 멀쩡해 보인다).
- * tmux 쪽 수정은 업스트림에 맡기고, 여기선 서버가 사라질 수 없는 자리에서 태어나게 한다.
- * 페인 자신의 폴더는 그대로 호출부의 `-c <path>` 가 정한다 — 바뀌는 건 서버의 출생지뿐이다.
- */
-export function tmuxNewSession(rest: string): string {
-  return `( cd "$HOME" 2>/dev/null || cd / ; tmux start-server \\; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \\; new-session ${rest} )`;
-}
-
 /**
  * 요청한 자리에 페인이 실제로 섰는지 한 번 본다(#18) — best-effort, 세션 생성을 막지 않는다.
  * 위 함수가 막는 실패는 조용하다: `-c` 가 무시돼도 tmux 는 아무 말이 없고 에러 코드도 없다.
  * 그래서 남은 확인은 결과를 직접 묻는 것뿐이고, 어긋나면 데몬 로그에 요청/실제를 나란히 적는다.
  * 비교는 /private 접두와 끝 슬래시를 흡수한다(macOS 의 /var → /private/var 심링크로 헛경고가 난다).
  */
-function samePath(a: string, b: string): boolean {
-  const norm = (p: string) => p.replace(/\/+$/, '').replace(/^\/private\//, '/');
-  return norm(a) === norm(b);
-}
 async function warnIfPaneElsewhere(machine: MachineTarget, session: string, wanted: string): Promise<void> {
   try {
     // '=' 정확 일치 — 방금 이 이름으로 만든 세션이다. 접두 매칭이면 coxpit-r5 가 coxpit-r50 을 집어
@@ -363,7 +347,7 @@ function orchestrationNote(): string {
  * 로컬 run 전용(원격은 데몬이 파일에 못 닿음). 반환된 타이머는 run 종료 시 정리.
  */
 export function startOrchWatch(runId: number, wtPath: string, real: boolean): NodeJS.Timeout {
-  const dir = ppath.join(wtPath, '.coxpit');
+  const dir = names.statePath(wtPath);
   let last = '';
   let busy = false;
   let seenRev = -1; // 현황을 마지막으로 읽은 시점의 runRev. -1 = 아직 한 번도 안 읽음(첫 틱은 읽는다)
@@ -480,7 +464,7 @@ export async function listSubtasks(parentRunId: number): Promise<Array<{
  * TERM 후에도 살아 있으면 KILL 로 에스컬레이션, 끝나면 pid 파일 제거.
  */
 function remoteKillScript(worktreePath: string): string {
-  const pidFile = shq(`${worktreePath}/.coxpit-agent.pid`);
+  const pidFile = shq(names.agentPidFile(worktreePath));
   return (
     `P=$(cat ${pidFile} 2>/dev/null); [ -n "$P" ] && {` +
     ` PG=$(ps -o pgid= -p "$P" 2>/dev/null | tr -d ' ');` +
@@ -580,10 +564,10 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
   const useReal = real ?? ctx.real;
 
   const inPlace = ctx.inPlace;
-  const branch = inPlace ? '' : `coxpit/r${runId}`;
-  const wtParent = ppath.join(ppath.dirname(ctx.repoPath), '.coxpit-worktrees');
-  const wtPath = inPlace ? ctx.repoPath : ppath.join(wtParent, `r${runId}`);
-  const session = `coxpit-r${runId}`;
+  const branch = inPlace ? '' : names.branch(runId);
+  const wtParent = names.worktreeParent(ctx.repoPath);
+  const wtPath = inPlace ? ctx.repoPath : names.worktreePath(ctx.repoPath, runId);
+  const session = names.session(runId);
 
   try {
     // real 은 여기서 각인한다 — 명령을 고르는 그 값이 곧 run 의 사실이다(v5.28 H1).
@@ -617,7 +601,7 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     // 3) 에이전트 spawn(스트리밍)
     // 원격은 ssh 채널이 죽어도 프로세스가 남을 수 있어 pid 파일을 남긴다(stop 시 원격 kill).
     const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
-    const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
+    const pidPrefix = isRemote ? `printf '%s' "$$" > ${names.stateDir}-agent.pid && ` : '';
     // 드라이런 모의 스트림은 claude 형태 — 파서도 claude 로 (배관 리허설은 프로바이더 불문)
     const provider = useReal ? getProvider(ctx.agent) : getProvider('claude-code');
     // 셀프 오케스트레이션 — real+로컬 run 에만 토큰/API env 와 능력 고지를 준다
@@ -635,7 +619,7 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     let orchTimer: NodeJS.Timeout | null = null;
     if (!isRemote && config.agentOrch) {
       await runShellOn(ctx.machine,
-        `EX=$(git -C ${shq(wtPath)} rev-parse --git-path info/exclude) && { grep -qxF '.coxpit/' "$EX" 2>/dev/null || echo '.coxpit/' >> "$EX"; }`, 8000);
+        `EX=$(git -C ${shq(wtPath)} rev-parse --git-path info/exclude) && { grep -qxF '${names.stateDir}/' "$EX" 2>/dev/null || echo '${names.stateDir}/' >> "$EX"; }`, 8000);
       orchTimer = startOrchWatch(runId, wtPath, useReal);
     }
     try {
@@ -843,7 +827,7 @@ export async function steerRun(runId: number, message: string, mode: 'work' | 'a
     : message) + workContextBlock(ctx.taskId);
 
   const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
-  const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
+  const pidPrefix = isRemote ? `printf '%s' "$$" > ${names.stateDir}-agent.pid && ` : '';
   const provider = getProvider(ctx.agent);
   // steer 세션도 셀프 오케스트레이션 유지(데몬 재시작으로 무효화된 토큰 재발급)
   const envPrefix = (!isRemote && config.agentOrch)
@@ -1299,7 +1283,7 @@ export async function computeRunOutputs(runId: number): Promise<RunOutputCard[]>
     if (ls.ok) {
       const paths = ls.stdout.split('\n').map(porcelainPath).filter(Boolean);
       for (const p of paths) {
-        if (p.startsWith('.coxpit/')) continue; // 오케스트레이션 파일은 산출물 아님
+        if (p.startsWith(names.stateDir + '/')) continue; // 오케스트레이션 파일은 산출물 아님
         const t = extType(p);
         if (t === 'doc' || t === 'page') {
           present.add(t);
@@ -1453,10 +1437,10 @@ export async function openWorkbench(repoId: number, title: string, root = false)
   const runId = run.id;
   broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent, branch: '', filesChanged: 0 });
 
-  const session = `coxpit-r${runId}`;
-  const branch = root ? '' : `coxpit/r${runId}`;
-  const wtParent = ppath.join(ppath.dirname(repo.path), '.coxpit-worktrees');
-  const wtPath = root ? repo.path : ppath.join(wtParent, `r${runId}`);
+  const session = names.session(runId);
+  const branch = root ? '' : names.branch(runId);
+  const wtParent = names.worktreeParent(repo.path);
+  const wtPath = root ? repo.path : names.worktreePath(repo.path, runId);
 
   // export LANG: tmux 서버 첫 기동이 C 로케일이면 세션 셸의 CJK 입력·표시가 깨진다.
   // 동명 세션 잔재(DB 리셋 등으로 run id 재사용) 선제 정리 — '=' 정확 일치만.
@@ -1519,7 +1503,7 @@ export async function openSessionAt(machineSlug: string, path: string, title: st
   const runId = run.id;
   broadcast({ type: 'run', runId, taskId: task.id, status: 'pending', agent: 'session', branch: '', filesChanged: 0 });
 
-  const session = `coxpit-r${runId}`;
+  const session = names.session(runId);
   // 태깅 env 는 시크릿 뒤에(위 openWorkbench 와 같은 이유 — 심이 PATH 앞을 잡아야 한다).
   const sEnv = (await secretEnvArgs()) + tag.env;   // 시크릿 볼트 + claude 태깅 → env 주입
   const prep = await runShellOn(
@@ -2029,7 +2013,7 @@ export async function startLandResolve(runId: number): Promise<{ ok: boolean; de
   await recordEvent(runId, 'integrate', `resolving conflicts to land on ${targetBranch} — the agent is editing markers`);
   const provider = getProvider(ctx.agent);
   const isRemote = ctx.machine.kind !== 'local' && ctx.machine.address !== '';
-  const pidPrefix = isRemote ? `printf '%s' "$$" > .coxpit-agent.pid && ` : '';
+  const pidPrefix = isRemote ? `printf '%s' "$$" > ${names.stateDir}-agent.pid && ` : '';
   const resume = provider.resumeCmd(run.sessionId, prompt, run.model || undefined);
   const cmd = `cd ${shq(run.worktreePath)} && ${pidPrefix}{ ${resume}; }`;
   void runAgentChild(runId, ctx.machine, run.worktreePath, cmd, provider).then(() => finalizeLand(runId)).catch(() => { pendingLand.delete(runId); });
@@ -2345,7 +2329,7 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
   if (ctx.machine.kind !== 'local' && ctx.machine.address !== '') {
     await runShellOn(ctx.machine, remoteKillScript(run.worktreePath), 15000);
   }
-  await runShellOn(ctx.machine, `tmux kill-session -t ${shq(`=coxpit-r${runId}`)} 2>/dev/null || true`, 8000);
+  await runShellOn(ctx.machine, `tmux kill-session -t ${shq('=' + names.session(runId))} 2>/dev/null || true`, 8000);
   // 루트 세션(branch='' 또는 worktreePath=repo 실체)은 격리 worktree 가 아니다 —
   // git worktree remove 를 메인 체크아웃에 걸면 안 되므로 tmux 만 정리하고 포인터를 비운다.
   if (!run.branch || run.worktreePath === ctx.repoPath) {
@@ -2469,7 +2453,7 @@ async function measureWorktreeDisk(): Promise<WorktreeDisk> {
   const dirs: string[] = [...new Set<string>(
     (await db.select().from(repos))
       .filter((r) => localIds.has(r.machineId))
-      .map((r) => ppath.join(ppath.dirname(r.path), '.coxpit-worktrees')),
+      .map((r) => names.worktreeParent(r.path)),
   )];
   if (!dirs.length) return { count: 0, sizeKb: 0 };
   // 폴더마다 "<KB> <개수>" 한 줄. 없는 폴더는 건너뛴다.
@@ -2567,7 +2551,7 @@ export async function pruneWorktrees(runIds?: number[]): Promise<{
 //   ③ 죽일 때도 '=' 정확 일치 — coxpit-r5 가 coxpit-r50 을 물면 안 된다(전에 물었다)
 
 /** tmux 이름에서 run id 를 읽는 유일한 형태. 숫자가 아니면 우리 것으로 치지 않는다. */
-const ORPHAN_SESSION_RE = /^coxpit-r(\d+)$/;
+const ORPHAN_SESSION_RE = names.sessionPattern();
 /** "빈 셸" 로 볼 pane_current_command 들 — 이 밖이면 뭔가 돌고 있는 것으로 본다. */
 const IDLE_SHELLS = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'csh', 'tcsh', 'login', '-sh', '-bash', '-zsh']);
 const LOCAL_MACHINE: MachineTarget = { slug: 'local', kind: 'local', address: '', sshUser: '' };

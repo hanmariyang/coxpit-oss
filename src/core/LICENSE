@@ -1,0 +1,19 @@
+Copyright (C) 2026 hanmariyang. All rights reserved.
+
+This kernel is available under TWO licenses. You may use it under either one,
+at your option:
+
+(a) GNU Affero General Public License v3.0, together with the additional terms
+    in Part 1 of the repository's LICENSE.md (trademark and attribution).
+    This is the license the surrounding project is published under.
+
+(b) A separate proprietary license granted by the copyright holder, for use in
+    software that is not published under the AGPL. Contact the copyright holder.
+
+Dual licensing is possible only because the copyright in this directory is held
+by one party. See README.md, "Contributions", before accepting outside changes
+to these files: a contribution received under (a) alone cannot be re-licensed
+under (b), and the kernel stops being dual-licensable from that moment.
+
+Nothing here grants any right to the name "Coxpit", its logos, its mascot or its
+visual identity. Those are not licensed under either option.
