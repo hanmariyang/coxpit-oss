@@ -14,5 +14,5 @@ export const TMUX_HISTORY_LIMIT = 100000;
  * 페인 자신의 폴더는 그대로 호출부의 `-c <path>` 가 정한다 — 바뀌는 건 서버의 출생지뿐이다.
  */
 export function tmuxNewSession(rest: string): string {
-  return `( cd "$HOME" 2>/dev/null || cd / ; tmux start-server \; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \; new-session ${rest} )`;
+  return `( cd "$HOME" 2>/dev/null || cd / ; tmux start-server \\; set-option -g history-limit ${TMUX_HISTORY_LIMIT} \\; new-session ${rest} )`;
 }
