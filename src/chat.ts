@@ -400,7 +400,7 @@ function classify(screen: string): { state: ChatState; ask?: Ask; current: strin
     return { state: 'ask', ask: { id, tool: 'Terminal', input: null, summary, ts: Date.now() }, current: q[0] };
   }
   if (/esc to interrupt/i.test(tail)) {
-    const cur = [...lines.slice(-12)].reverse().find((l) => /^[\s]*[⏺●✻✶✳✢·*]\s/.test(l)) ?? '';
+    const cur = [...lines.slice(-12)].reverse().find((l) => /^[\s]*[⏺✻✶✳✢·*]\s/.test(l) && l.trim().length > 6) ?? '';
     return { state: 'run', current: cur.replace(/^[\s⏺●✻✶✳✢·*]+/, '').slice(0, 160) };
   }
   return { state: 'idle', current: '' };
@@ -413,9 +413,14 @@ async function tmuxSid(m: ChatMeta): Promise<string> {
     await getSessionChat(m.runId!, 1);   // 화면으로 실제 대본을 찾아 run 에 적어 둔다
     const r2 = await db.select().from(agentRuns).where(eq(agentRuns.id, m.runId!)).limit(1);
     sid = r2[0]?.claudeSessionId ?? '';
-    if (!sid || !findTranscript(sid)) sid = latestInFolder(rr[0]?.worktreePath || m.cwd) ?? '';
+    if (!sid || !findTranscript(sid)) {
+      // 폴더의 최신 대본은 그 폴더를 쓰는 세션이 하나뿐일 때만 믿는다(홈 폴더 세션들이 서로의 대화를 집었다)
+      const dir = rr[0]?.worktreePath || m.cwd;
+      const sharers = metas.filter((x) => x.runId && x.cwd === dir).length;
+      sid = sharers <= 1 ? (latestInFolder(dir) ?? '') : '';
+    }
   }
-  if (sid && sid !== m.sid) { m.sid = sid; save(); }
+  if (sid !== m.sid) { m.sid = sid; m.last = ''; const st = tmuxState.get(m.id); if (st) st.mtime = 0; save(); }
   return sid;
 }
 
