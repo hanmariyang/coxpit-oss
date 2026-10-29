@@ -142,7 +142,7 @@ export function updateChat(id: string, patch: { title?: string; mode?: string; m
 }
 
 /** 대화 기록 — claude 의 jsonl 이 정본. 세션이 아직 없으면 빈 목록. */
-export function readTurns(m: ChatMeta, max = 300): Turn[] {
+export function readTurns(m: ChatMeta, max = 300, hint?: string[]): Turn[] {
   if (!m.sid) return [];
   const f = findTranscript(m.sid); if (!f) return [];
   let raw = '';
@@ -157,7 +157,14 @@ export function readTurns(m: ChatMeta, max = 300): Turn[] {
   const rows: Row[] = [];
   for (const line of raw.split('\n')) { if (!line.trim()) continue; try { rows.push(JSON.parse(line)); } catch { /* 잘린 첫 줄 */ } }
   const byId = new Map(rows.filter((r) => r.uuid).map((r) => [r.uuid!, r]));
-  const last = [...rows].reverse().find((r) => (r.type === 'user' || r.type === 'assistant') && r.uuid && !r.isSidechain);
+  const flat = (r: Row): string => { const c = r.message?.content; return (typeof c === 'string' ? c : Array.isArray(c) ? c.map((b) => (b as { text?: string })?.text ?? '').join(' ') : '').replace(/\s+/g, ' '); };
+  // 맥 화면에 떠 있는 답 글귀가 있으면 그 줄이 지금 갈래의 끝이다(같은 파일에 다른 갈래가 더 나중에 쓰였어도)
+  let last: Row | undefined;
+  for (const h of hint ?? []) {
+    last = [...rows].reverse().find((r) => r.type === 'assistant' && r.uuid && flat(r).includes(h));
+    if (last) break;   // 화면의 마지막 답이 끝. 그 뒤에 남이 덧붙인 줄은 이 claude 가 모른다
+  }
+  last ??= [...rows].reverse().find((r) => (r.type === 'user' || r.type === 'assistant') && r.uuid && !r.isSidechain);
   let chain: Row[] = rows;
   if (last) {
     const keep: Row[] = []; let cur: Row | undefined = last; const seen = new Set<string>();
@@ -214,7 +221,7 @@ function findTranscript(sid: string): string | null {
 export function chatDetail(id: string) {
   const m = getChat(id); if (!m) return null;
   const l = lives.get(id);
-  return { chat: summary(m), turns: readTurns(m), partial: l?.partial ?? '', tools: l?.tools ?? [] };
+  return { chat: summary(m), turns: readTurns(m, 300, m.runId ? tmuxHint.get(id) : undefined), partial: l?.partial ?? '', tools: l?.tools ?? [] };
 }
 
 function write(id: string, obj: unknown): boolean {
@@ -355,6 +362,12 @@ export function shutdownChats(): void { for (const id of lives.keys()) closeChat
 // 폰에서 보낸 말을 coxpit 세션(tmux) 안의 claude 에 그대로 쳐 넣고, 그 claude 가 쓰는 대본을 읽어 앱에 보낸다.
 // claude 는 하나뿐이라 맥 화면과 폰이 같은 대화를 실시간으로 본다. 상태(작업 중 · 물어봄)는 화면을 읽어 판단한다.
 
+/** 화면에 보이는 claude 답 줄(⏺ …) 몇 개 — 대본에서 지금 갈래를 고르는 손잡이 */
+function screenHints(screen: string): string[] {
+  return screen.split('\n').filter((l) => /^\s*⏺\s+\S/.test(l)).map((l) => l.replace(/^\s*⏺\s+/, '').replace(/\s+/g, ' ').trim())
+    .filter((l) => l.length >= 12 && !/^(Bash|Read|Edit|Write|Update|Search|Grep|Glob)\(/.test(l)).slice(-3).reverse().map((l) => l.slice(0, 40));
+}
+const tmuxHint = new Map<string, string[]>();
 const tmuxState = new Map<string, { screen: string; mtime: number; ask?: Ask; polling?: boolean }>();
 const SHELLS = new Set(['zsh', 'bash', 'sh', 'fish', '-zsh', '-bash', 'login']);
 
@@ -412,6 +425,7 @@ async function pollTmux(id: string): Promise<void> {
   const p = await paneInfo(m.runId);
   if (!p) { setState(id, 'error'); return; }
   const c = classify(p.screen);
+  const hints = screenHints(p.screen); if (hints.length) tmuxHint.set(id, hints);
   const l = live(id);
   l.current = c.current;
   const prevAsk = st.ask?.id;
@@ -425,9 +439,11 @@ async function pollTmux(id: string): Promise<void> {
   const sid = await tmuxSid(m);
   const f = sid ? findTranscript(sid) : null;
   const mt = f ? fs.statSync(f).mtimeMs : 0;
-  if (mt && mt !== st.mtime) {
+  const hintKey = (tmuxHint.get(id) ?? []).join('|');
+  if (mt && (mt !== st.mtime || hintKey !== (st as { hk?: string }).hk)) {
+    (st as { hk?: string }).hk = hintKey;
     st.mtime = mt;
-    const turns = readTurns(m);
+    const turns = readTurns(m, 300, tmuxHint.get(id));
     const lastA = [...turns].reverse().find((t) => t.role === 'assistant' && t.text.trim());
     if (lastA) { m.last = lastA.text.replace(/\s+/g, ' ').slice(0, 200); }
     m.updated = Math.max(m.updated, mt); save();
