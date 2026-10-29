@@ -577,10 +577,11 @@ function agentIndex(f: string) {
   }
   return c;
 }
-const agentCur = new Map<string, { mt: number; current: string; started: number }>();
-function agentProgress(f: string, mt: number): { current: string; started: number } {
+const agentCur = new Map<string, { mt: number; current: string; started: number; finished: boolean }>();
+/** 에이전트 대본 꼬리: 지금 쓰는 도구 · 시작 때 · 끝냈는지(마지막 답이 글로 끝났거나 SubagentHandback) */
+function agentProgress(f: string, mt: number): { current: string; started: number; finished: boolean } {
   const hit = agentCur.get(f); if (hit && hit.mt === mt) return hit;
-  let current = '', started = hit?.started ?? 0;
+  let current = '', started = hit?.started ?? 0, finished = false;
   try {
     const size = fs.statSync(f).size, fd = fs.openSync(f, 'r');
     try {
@@ -590,12 +591,15 @@ function agentProgress(f: string, mt: number): { current: string; started: numbe
       for (const line of lines) {
         let j: Record<string, any>; try { j = JSON.parse(line); } catch { continue; }
         const content = j.type === 'assistant' && Array.isArray(j.message?.content) ? j.message.content : null;
-        const tu = content?.slice().reverse().find((x: any) => x?.type === 'tool_use');
-        if (tu) { current = summarize(tu.name, tu.input); current = current === tu.name ? tu.name : `${tu.name} · ${current}`; break; }
+        if (!content) continue;
+        const tu = content.slice().reverse().find((x: any) => x?.type === 'tool_use');
+        if (!tu) { if (j.message?.stop_reason === 'end_turn') { finished = true; break; } continue; }
+        if (tu.name === 'SubagentHandback') { finished = true; break; }
+        current = summarize(tu.name, tu.input); current = current === tu.name ? tu.name : `${tu.name} · ${current}`; break;
       }
     } finally { fs.closeSync(fd); }
   } catch { /* 읽다 실패 → 빈 줄 */ }
-  const v = { mt, current: current.slice(0, 160), started }; agentCur.set(f, v); return v;
+  const v = { mt, current: current.slice(0, 160), started, finished }; agentCur.set(f, v); return v;
 }
 function subAgents(transcript: string): SubAgent[] {
   const dir = path.join(transcript.replace(/\.jsonl$/, ''), 'subagents');
@@ -612,9 +616,10 @@ function subAgents(transcript: string): SubAgent[] {
     // 뒤에서 도는 것은 띄우자마자 「launched」 tool_result 가 오므로 알림만 끝으로 친다
     const fg = meta.requestShape && meta.requestShape !== 'background';
     const end = Math.max(ends.get(id) ?? 0, fg && meta.toolUseId ? (ends.get('tool:' + meta.toolUseId) ?? 0) : 0);
-    const running = end < mt - 1000;
-    if (!running && now - mt > AGENT_KEEP_MS) continue;
+    // 끝 알림이 대본 창(꼬리 4MB) 밖으로 밀려나도 에이전트 자기 대본으로 끝을 안다
     const pr = agentProgress(jf, mt);
+    const running = end < mt - 1000 && !pr.finished;
+    if (!running && now - mt > AGENT_KEEP_MS) continue;
     out.push({ id, desc: String(meta.description ?? meta.agentType ?? '에이전트').slice(0, 120), started: pr.started || mt, updated: mt, current: running ? pr.current : '', running });
   }
   // 뒤에서 도는 셸: 끝 알림(같은 tool-use-id)이 아직 없으면 도는 중
