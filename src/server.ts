@@ -1913,8 +1913,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 넘겨 받을 수 있는 coxpit 세션 — claude 세션 id 가 붙은 열린 run
   app.get('/api/chats-candidates', async () => {
     const rows = await db.select().from(agentRuns);
+    const ts = await db.select().from(tasks);
+    const taskTitle = new Map(ts.map((t) => [t.id, t.title]));
     return { runs: rows.filter((r) => r.claudeSessionId && r.worktreePath && r.status !== 'closed')
-      .map((r) => ({ runId: r.id, title: r.title, cwd: r.worktreePath, sid: r.claudeSessionId, live: !!r.tmuxWindow })) };
+      .map((r) => ({ runId: r.id, title: r.title || taskTitle.get(r.taskId) || '', cwd: r.worktreePath, sid: r.claudeSessionId, live: !!r.tmuxWindow })) };
   });
   app.get('/ws/chat/:id', { websocket: true }, (socket, req) => {
     const id = (req.params as { id: string }).id;
