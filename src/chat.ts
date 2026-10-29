@@ -151,11 +151,22 @@ export function readTurns(m: ChatMeta, max = 300): Turn[] {
     const len = Math.min(st.size, 4_000_000); const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, st.size - len); fs.closeSync(fd); raw = buf.toString('utf8');
   } catch { return []; }
+  // 대본은 가지를 칠 수 있다(같은 대화를 두 곳에서 이어 쓰면). 마지막 줄에서 parentUuid 를 거슬러
+  // 지금 이어지는 갈래만 남긴다 — 맥 화면의 claude 가 보는 것과 같게.
+  type Row = { type?: string; uuid?: string; parentUuid?: string | null; timestamp?: string; isMeta?: boolean; isSidechain?: boolean; message?: { content?: unknown } };
+  const rows: Row[] = [];
+  for (const line of raw.split('\n')) { if (!line.trim()) continue; try { rows.push(JSON.parse(line)); } catch { /* 잘린 첫 줄 */ } }
+  const byId = new Map(rows.filter((r) => r.uuid).map((r) => [r.uuid!, r]));
+  const last = [...rows].reverse().find((r) => (r.type === 'user' || r.type === 'assistant') && r.uuid && !r.isSidechain);
+  let chain: Row[] = rows;
+  if (last) {
+    const keep: Row[] = []; let cur: Row | undefined = last; const seen = new Set<string>();
+    while (cur && cur.uuid && !seen.has(cur.uuid)) { seen.add(cur.uuid); keep.push(cur); cur = cur.parentUuid ? byId.get(cur.parentUuid) : undefined; }
+    // 읽은 꼬리(4MB) 밖으로 이어지면 갈래 앞부분은 잘린다 — 그래도 지금 갈래가 맞다
+    if (keep.length > 1) chain = keep.reverse();
+  }
   const turns: Turn[] = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    let j: { type?: string; timestamp?: string; isMeta?: boolean; message?: { content?: unknown } };
-    try { j = JSON.parse(line); } catch { continue; }
+  for (const j of chain) {
     const ts = j.timestamp ? Date.parse(j.timestamp) : undefined;
     const c = j.message?.content;
     if (j.type === 'user' && !j.isMeta) {
@@ -462,6 +473,9 @@ export async function openTmuxChat(cwd: string, title?: string, create?: boolean
     fs.mkdirSync(dir, { recursive: true });
     try { execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir, timeout: 10000 }); } catch { /* git 없음 */ }
   }
+  const open = (await db.select().from(agentRuns)).filter((x) => x.worktreePath === dir && x.tmuxWindow && x.status !== 'closed');
+  const ex = open.sort((a, b) => b.id - a.id)[0];
+  if (ex && (await getRunTermInfo(ex.id))) return adoptRun(ex.id, title || path.basename(dir));
   const r = await openSessionAt('local', dir, title || path.basename(dir));
   if (!r.ok || !r.runId) throw new Error(r.detail || 'could not open a session');
   const m = await adoptRun(r.runId, title || path.basename(dir));
