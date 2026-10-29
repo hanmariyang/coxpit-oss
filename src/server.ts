@@ -1881,7 +1881,8 @@ export async function buildServer(): Promise<FastifyInstance> {
       const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, Number(b.runId))).limit(1);
       const r = rr[0];
       if (!r) return reply.code(404).send({ error: 'run not found' });
-      cwd = cwd || r.worktreePath; resume = resume || r.claudeSessionId || undefined; title = title || r.title || undefined;
+      cwd = cwd || r.worktreePath; resume = resume || r.claudeSessionId || undefined;
+      if (!title) { const tk = await db.select().from(tasks).where(eq(tasks.id, r.taskId)).limit(1); title = r.title || tk[0]?.title || undefined; }
     }
     if (!cwd) return reply.code(400).send({ error: 'cwd required' });
     try { return reply.code(201).send({ chat: createChat({ cwd, title, model: b.model, mode: b.mode, resume, create: b.create === true }) }); }

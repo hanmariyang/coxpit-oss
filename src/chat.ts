@@ -107,8 +107,10 @@ export function createChat(input: { cwd: string; title?: string; model?: string;
     try { execFileSync('git', ['init', '-q', '-b', 'main'], { cwd, timeout: 10000 }); } catch { /* git 없음: 빈 폴더로 시작 */ }
   }
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`folder not found: ${cwd}`);
-  const sid = (input.resume ?? '').trim();
+  let sid = (input.resume ?? '').trim();
   if (sid && !/^[0-9a-f-]{36}$/i.test(sid)) throw new Error('bad session id');
+  // coxpit 이 붙여 둔 번호가 실제로 안 쓰였으면(셸이 PATH 를 덮어 shim 을 건너뜀) 그 폴더의 가장 최근 대화로
+  if (sid && !findTranscript(sid)) sid = latestInFolder(cwd) ?? '';
   const m: ChatMeta = {
     id: randomUUID().slice(0, 8), title: (input.title ?? '').trim() || path.basename(cwd),
     cwd, sid, model: (input.model ?? '').trim(), mode: MODES.includes(input.mode as PermMode) ? input.mode as PermMode : 'auto',
@@ -164,6 +166,19 @@ export function readTurns(m: ChatMeta, max = 300): Turn[] {
     }
   }
   return turns.slice(-max);
+}
+
+/** claude 가 폴더별 대화를 두는 자리: 경로의 영숫자 아닌 글자를 '-' 로 */
+function projectDir(cwd: string): string {
+  return path.join(os.homedir(), '.claude', 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
+}
+function latestInFolder(cwd: string): string | null {
+  try {
+    const d = projectDir(cwd);
+    const files = fs.readdirSync(d).filter((f) => f.endsWith('.jsonl'))
+      .map((f) => ({ f, t: fs.statSync(path.join(d, f)).mtimeMs })).sort((a, b) => b.t - a.t);
+    return files[0] ? files[0].f.replace(/\.jsonl$/, '') : null;
+  } catch { return null; }
 }
 
 function findTranscript(sid: string): string | null {
@@ -255,6 +270,10 @@ function onMessage(id: string, msg: Record<string, any>): void {
       break;
     case 'result': {
       const text = l.partial.trim();
+      if (String(msg.subtype ?? '').startsWith('error') && !text && !l.tools.length) {
+        const why = Array.isArray(msg.errors) && msg.errors.length ? msg.errors.join(' ') : '';
+        emit(id, { t: 'error', message: why || (m.sid ? 'Could not continue this conversation. The session may be open in a terminal, or it no longer exists.' : 'claude stopped before answering.') });
+      }
       l.partial = ''; l.tools = []; l.current = ''; l.asks.clear();
       touch(id, typeof msg.result === 'string' && msg.result.trim() ? msg.result : text);
       emit(id, { t: 'result', subtype: msg.subtype, ms: msg.duration_ms, cost: msg.total_cost_usd });
