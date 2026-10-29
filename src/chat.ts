@@ -34,6 +34,7 @@ export interface ChatMeta {
 }
 export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number }
 export interface ToolUse { name: string; summary: string }
+export interface SubAgent { id: string; desc: string; started: number; updated: number; current: string; running: boolean }
 interface Ask { id: string; tool: string; input: unknown; summary: string; ts: number }
 
 interface Live {
@@ -47,6 +48,7 @@ interface Live {
   idleTimer?: NodeJS.Timeout;
   subs: Set<(e: unknown) => void>;
   reqSeq: number;
+  agents?: SubAgent[];       // 이 대화의 claude 가 띄운 서브에이전트(돌고 있는 것 · 막 끝난 것)
 }
 
 const IDLE_MS = 30 * 60 * 1000;
@@ -76,7 +78,7 @@ function summarize(name: string, input: unknown): string {
 
 export function summary(m: ChatMeta) {
   const l = lives.get(m.id);
-  return { ...m, state: l?.state ?? 'idle', current: l?.current ?? '', asks: l ? [...l.asks.values()] : [] };
+  return { ...m, state: l?.state ?? 'idle', current: l?.current ?? '', asks: l ? [...l.asks.values()] : [], agents: l?.agents ?? [] };
 }
 export function listChats() {
   return metas.slice().sort((a, b) => b.updated - a.updated).map(summary);
@@ -502,6 +504,71 @@ async function tmuxSid(m: ChatMeta): Promise<string> {
   return sid;
 }
 
+// ── 서브에이전트 ──
+// 메인 claude 가 에이전트를 뒤에 돌려 놓고 턴을 끝내면 화면은 쉬는데 일은 돈다(오너 「끝남으로 나온다」 10/30).
+// claude 가 남기는 것만 읽는다: <대본 폴더>/<세션>/subagents/agent-<id>.{meta.json,jsonl}
+// 끝남 = 메인 대본에 그 id 의 task-notification · task_status(끝) · (앞에서 돈 것은) tool_result 가 에이전트 마지막 기록 뒤에 있다.
+const AGENT_STALE_MS = 3 * 60 * 60 * 1000;   // 이보다 오래 조용하면 죽은 것으로 본다(claude 가 꺼진 채 남은 것)
+const AGENT_KEEP_MS = 15 * 60 * 1000;        // 끝난 것도 이만큼은 목록에 남긴다
+const endIdx = new Map<string, { n: number; rows: unknown[]; ends: Map<string, number> }>();
+function agentEnds(f: string): Map<string, number> {
+  const rows = transcriptRows(f) as Array<Record<string, any>>;
+  let c = endIdx.get(f);
+  if (!c || c.rows !== rows || c.n > rows.length) { c = { n: 0, rows, ends: new Map() }; endIdx.set(f, c); }
+  const put = (k: string, t: number) => { if (t > (c!.ends.get(k) ?? 0)) c!.ends.set(k, t); };
+  for (; c.n < rows.length; c.n++) {
+    const r = rows[c.n]!; const ts = Date.parse(r.timestamp ?? '') || 0;
+    const txt = typeof r.content === 'string' ? r.content : typeof r.message?.content === 'string' ? r.message.content : '';
+    if (txt.includes('<task-notification>')) for (const m of txt.matchAll(/<task-id>([\w-]+)<\/task-id>/g)) put(m[1]!, ts);
+    const a = r.attachment;
+    if (a?.type === 'task_status' && a.taskId && a.status && a.status !== 'running') put(String(a.taskId), ts);
+    if (Array.isArray(r.message?.content)) for (const b of r.message.content) if (b?.type === 'tool_result' && b.tool_use_id) put('tool:' + b.tool_use_id, ts);
+  }
+  return c.ends;
+}
+const agentCur = new Map<string, { mt: number; current: string; started: number }>();
+function agentProgress(f: string, mt: number): { current: string; started: number } {
+  const hit = agentCur.get(f); if (hit && hit.mt === mt) return hit;
+  let current = '', started = hit?.started ?? 0;
+  try {
+    const size = fs.statSync(f).size, fd = fs.openSync(f, 'r');
+    try {
+      if (!started) { const b = Buffer.alloc(Math.min(4096, size)); fs.readSync(fd, b, 0, b.length, 0); started = Date.parse(JSON.parse(b.toString('utf8').split('\n')[0]!).timestamp) || 0; }
+      const n = Math.min(65536, size), b = Buffer.alloc(n); fs.readSync(fd, b, 0, n, size - n);
+      const lines = b.toString('utf8').split('\n').reverse();
+      for (const line of lines) {
+        let j: Record<string, any>; try { j = JSON.parse(line); } catch { continue; }
+        const content = j.type === 'assistant' && Array.isArray(j.message?.content) ? j.message.content : null;
+        const tu = content?.slice().reverse().find((x: any) => x?.type === 'tool_use');
+        if (tu) { current = summarize(tu.name, tu.input); current = current === tu.name ? tu.name : `${tu.name} · ${current}`; break; }
+      }
+    } finally { fs.closeSync(fd); }
+  } catch { /* 읽다 실패 → 빈 줄 */ }
+  const v = { mt, current: current.slice(0, 160), started }; agentCur.set(f, v); return v;
+}
+function subAgents(transcript: string): SubAgent[] {
+  const dir = path.join(transcript.replace(/\.jsonl$/, ''), 'subagents');
+  let names: string[]; try { names = fs.readdirSync(dir).filter((x) => x.endsWith('.jsonl')); } catch { return []; }
+  const now = Date.now(); let ends: Map<string, number> | null = null;
+  const out: SubAgent[] = [];
+  for (const n of names) {
+    const jf = path.join(dir, n);
+    let mt = 0; try { mt = fs.statSync(jf).mtimeMs; } catch { continue; }
+    if (now - mt > AGENT_STALE_MS) continue;
+    const id = n.replace(/^agent-/, '').replace(/\.jsonl$/, '');
+    let meta: Record<string, any> = {}; try { meta = JSON.parse(fs.readFileSync(path.join(dir, `agent-${id}.meta.json`), 'utf8')); } catch { /* 없음 */ }
+    ends ??= agentEnds(transcript);
+    // 뒤에서 도는 것은 띄우자마자 「launched」 tool_result 가 오므로 알림만 끝으로 친다
+    const fg = meta.requestShape && meta.requestShape !== 'background';
+    const end = Math.max(ends.get(id) ?? 0, fg && meta.toolUseId ? (ends.get('tool:' + meta.toolUseId) ?? 0) : 0);
+    const running = end < mt - 1000;
+    if (!running && now - mt > AGENT_KEEP_MS) continue;
+    const pr = agentProgress(jf, mt);
+    out.push({ id, desc: String(meta.description ?? meta.agentType ?? '에이전트').slice(0, 120), started: pr.started || mt, updated: mt, current: running ? pr.current : '', running });
+  }
+  return out.sort((a, b) => Number(b.running) - Number(a.running) || b.updated - a.updated).slice(0, 12);
+}
+
 async function pollTmux(id: string): Promise<void> {
   const m = getChat(id); if (!m?.runId) return;
   const st = tmuxState.get(id) ?? { screen: '', mtime: 0 }; tmuxState.set(id, st);
@@ -518,10 +585,19 @@ async function pollTmux(id: string): Promise<void> {
   }
   st.fails = 0;
   const c = classify(p.screen);
-  if (c.state === 'idle' && liveClaudeFor(p.info.session)?.status === 'busy') c.state = 'run';
+  const lc = liveClaudeFor(p.info.session);
+  if (c.state === 'idle' && lc?.status === 'busy') c.state = 'run';
+  // 메인이 쉬어도 서브에이전트가 돌면 작업 중이다(claude 가 꺼져 있으면 남은 기록은 안 센다)
+  const sid = await tmuxSid(m);
+  const f = sid ? findTranscript(sid) : null;
+  const agents = f && lc ? subAgents(f) : [];
+  const nRun = agents.filter((a) => a.running).length;
+  if (c.state === 'idle' && nRun) { c.state = 'run'; c.current = `에이전트 ${nRun}개 작업 중`; }
   const hints = screenHints(p.screen); if (hints.length) tmuxHint.set(id, hints);
   const l = live(id);
   l.current = c.current;
+  const agKey = JSON.stringify(agents);
+  if (agKey !== JSON.stringify(l.agents ?? [])) { l.agents = agents; emit(id, { t: 'agents', agents }); announce(id); }
   const prevAsk = st.ask?.id;
   st.ask = c.ask;
   l.asks = new Map(c.ask ? [[c.ask.id, c.ask]] : []);
@@ -532,8 +608,6 @@ async function pollTmux(id: string): Promise<void> {
   // 작업 중에는 화면에 차오르는 답을 그대로(대본은 문단이 끝나야 적힌다)
   const lv = c.state === 'run' ? liveText(p.screen) : '';
   if (lv !== (st.live ?? '')) { st.live = lv; emit(id, { t: 'live', text: lv }); }
-  const sid = await tmuxSid(m);
-  const f = sid ? findTranscript(sid) : null;
   const mt = f ? fs.statSync(f).mtimeMs : 0;
   const hintKey = (tmuxHint.get(id) ?? []).join('|');
   if (mt && (mt !== st.mtime || hintKey !== (st as { hk?: string }).hk)) {
