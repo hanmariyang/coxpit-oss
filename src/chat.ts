@@ -22,7 +22,7 @@ import { eq } from 'drizzle-orm';
 import { runShellOn, shq } from './exec';
 import { getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
 
-export type ChatState = 'idle' | 'run' | 'ask' | 'error';
+export type ChatState = 'idle' | 'run' | 'ask' | 'error' | 'gone';
 export type PermMode = 'default' | 'acceptEdits' | 'auto' | 'plan';
 const MODES: PermMode[] = ['default', 'acceptEdits', 'auto', 'plan'];
 
@@ -142,20 +142,48 @@ export function updateChat(id: string, patch: { title?: string; mode?: string; m
 }
 
 /** 대화 기록 — claude 의 jsonl 이 정본. 세션이 아직 없으면 빈 목록. */
+type Row = { type?: string; uuid?: string; parentUuid?: string | null; timestamp?: string; isMeta?: boolean; isSidechain?: boolean; message?: { content?: unknown } };
+
+/** 대본 줄 캐시: 파일이 자란 만큼만 읽어 붙인다(긴 대화를 매번 4MB 씩 다시 읽어 데몬 전체가 느려졌다) */
+const rowCache = new Map<string, { size: number; rows: unknown[]; rest: string }>();
+function transcriptRows(f: string): unknown[] {
+  let size = 0;
+  try { size = fs.statSync(f).size; } catch { return []; }
+  let c = rowCache.get(f);
+  if (!c || size < c.size) {
+    // 처음(또는 줄어듦): 꼬리 4MB 만
+    const start = Math.max(0, size - 4_000_000);
+    c = { size: start, rows: [], rest: '' };
+    rowCache.set(f, c);
+    if (start > 0) c.rest = '\u0000';   // 첫 줄은 잘렸을 수 있다 → 버린다
+  }
+  if (size > c.size) {
+    const fd = fs.openSync(f, 'r');
+    try {
+      const buf = Buffer.alloc(size - c.size);
+      fs.readSync(fd, buf, 0, buf.length, c.size);
+      const text = (c.rest === '\u0000' ? '' : c.rest) + buf.toString('utf8');
+      const parts = text.split('\n');
+      const dropFirst = c.rest === '\u0000';
+      c.rest = parts.pop() ?? '';
+      for (const [i, line] of parts.entries()) {
+        if (dropFirst && i === 0) continue;
+        if (!line.trim()) continue;
+        try { c.rows.push(JSON.parse(line)); } catch { /* 깨진 줄 */ }
+      }
+      if (c.rows.length > 20000) c.rows = c.rows.slice(-15000);
+      c.size = size;
+    } finally { fs.closeSync(fd); }
+  }
+  return c.rows;
+}
+
 export function readTurns(m: ChatMeta, max = 300, hint?: string[]): Turn[] {
   if (!m.sid) return [];
   const f = findTranscript(m.sid); if (!f) return [];
-  let raw = '';
-  try {
-    const st = fs.statSync(f); const fd = fs.openSync(f, 'r');
-    const len = Math.min(st.size, 4_000_000); const buf = Buffer.alloc(len);
-    fs.readSync(fd, buf, 0, len, st.size - len); fs.closeSync(fd); raw = buf.toString('utf8');
-  } catch { return []; }
+  const rows = transcriptRows(f) as Row[];
   // 대본은 가지를 칠 수 있다(같은 대화를 두 곳에서 이어 쓰면). 마지막 줄에서 parentUuid 를 거슬러
   // 지금 이어지는 갈래만 남긴다 — 맥 화면의 claude 가 보는 것과 같게.
-  type Row = { type?: string; uuid?: string; parentUuid?: string | null; timestamp?: string; isMeta?: boolean; isSidechain?: boolean; message?: { content?: unknown } };
-  const rows: Row[] = [];
-  for (const line of raw.split('\n')) { if (!line.trim()) continue; try { rows.push(JSON.parse(line)); } catch { /* 잘린 첫 줄 */ } }
   const byId = new Map(rows.filter((r) => r.uuid).map((r) => [r.uuid!, r]));
   const flat = (r: Row): string => { const c = r.message?.content; return (typeof c === 'string' ? c : Array.isArray(c) ? c.map((b) => (b as { text?: string })?.text ?? '').join(' ') : '').replace(/\s+/g, ' '); };
   // 맥 화면에 떠 있는 답 글귀가 있으면 그 줄이 지금 갈래의 끝이다(같은 파일에 다른 갈래가 더 나중에 쓰였어도)
@@ -207,7 +235,15 @@ function latestInFolder(cwd: string): string | null {
   } catch { return null; }
 }
 
+const pathCache = new Map<string, string>();
 function findTranscript(sid: string): string | null {
+  const hit = pathCache.get(sid);
+  if (hit && fs.existsSync(hit)) return hit;
+  const f = findTranscriptSlow(sid);
+  if (f) pathCache.set(sid, f);
+  return f;
+}
+function findTranscriptSlow(sid: string): string | null {
   const root = path.join(os.homedir(), '.claude', 'projects');
   try {
     for (const d of fs.readdirSync(root)) {
@@ -220,8 +256,10 @@ function findTranscript(sid: string): string | null {
 
 export function chatDetail(id: string) {
   const m = getChat(id); if (!m) return null;
+  const tst = tmuxState.get(id);
   const l = lives.get(id);
-  return { chat: summary(m), turns: readTurns(m, 300, m.runId ? tmuxHint.get(id) : undefined), partial: l?.partial ?? '', tools: l?.tools ?? [] };
+  const turns = readTurns(m, 300, m.runId ? tmuxHint.get(id) : undefined);
+  return { chat: summary(m), turns, partial: (m.runId ? tst?.live : l?.partial) ?? '', tools: l?.tools ?? [] };
 }
 
 function write(id: string, obj: unknown): boolean {
@@ -368,7 +406,8 @@ function screenHints(screen: string): string[] {
     .filter((l) => l.length >= 12 && !/^(Bash|Read|Edit|Write|Update|Search|Grep|Glob)\(/.test(l)).slice(-3).reverse().map((l) => l.slice(0, 40));
 }
 const tmuxHint = new Map<string, string[]>();
-const tmuxState = new Map<string, { screen: string; mtime: number; ask?: Ask; polling?: boolean }>();
+const tmuxState = new Map<string, { screen: string; mtime: number; ask?: Ask; polling?: boolean; fails?: number; cur?: string; live?: string; sent?: Turn[] }>();
+const recentCids = new Map<string, string[]>();   // 같은 말이 두 번 쳐지지 않게(앱이 다시 보낼 때)
 const SHELLS = new Set(['zsh', 'bash', 'sh', 'fish', '-zsh', '-bash', 'login']);
 
 async function paneInfo(runId: number) {
@@ -400,27 +439,39 @@ function classify(screen: string): { state: ChatState; ask?: Ask; current: strin
     return { state: 'ask', ask: { id, tool: 'Terminal', input: null, summary, ts: Date.now() }, current: q[0] };
   }
   if (/esc to interrupt/i.test(tail)) {
-    const cur = [...lines.slice(-12)].reverse().find((l) => /^[\s]*[⏺✻✶✳✢·*]\s/.test(l) && l.trim().length > 6) ?? '';
-    return { state: 'run', current: cur.replace(/^[\s⏺●✻✶✳✢·*]+/, '').slice(0, 160) };
+    // 지금 실행 중인 도구(⏺ Bash(…)) 가 있으면 그것, 없으면 스피너 글귀(「Beaming…」)
+    const recent = lines.slice(-30);
+    const tool = [...recent].reverse().find((l) => /^\s*⏺\s+[A-Z][A-Za-z]+\(/.test(l));
+    const spin = [...recent].reverse().find((l) => /^\s*[✻✶✳✢·*]\s/.test(l) && /…/.test(l));
+    const cur = tool ? tool.replace(/^\s*⏺\s+/, '') : (spin ?? '').replace(/^\s*[✻✶✳✢·*]\s+/, '').replace(/\s*\(.*$/, '');
+    return { state: 'run', current: cur.slice(0, 160) };
   }
   return { state: 'idle', current: '' };
 }
 
 /** claude 가 프로세스마다 남기는 ~/.claude/sessions/<pid>.json — tmux 세션 이름과 지금 대화 번호 · 상태가 들어 있다 */
-function liveClaudeFor(session: string): { sid: string; status: string } | null {
+let sessCache: { at: number; list: Array<{ pid?: string | number; sessionId?: string; tmux?: string; status?: string; updatedAt?: string | number }> } = { at: 0, list: [] };
+function claudeSessions() {
+  if (Date.now() - sessCache.at < 1500) return sessCache.list;
   const dir = path.join(os.homedir(), '.claude', 'sessions');
-  let best: { sid: string; status: string; at: number } | null = null;
+  const list: typeof sessCache.list = [];
   try {
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.json')) continue;
-      let j: { pid?: string | number; sessionId?: string; tmux?: string; status?: string; updatedAt?: string | number };
-      try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
-      if (!j.sessionId || !String(j.tmux ?? '').startsWith(session + ':')) continue;
-      try { process.kill(Number(j.pid), 0); } catch { continue; }   // 끝난 프로세스의 남은 파일
-      const at = Number(j.updatedAt) || 0;
-      if (!best || at > best.at) best = { sid: j.sessionId, status: String(j.status ?? ''), at };
+      try { list.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))); } catch { /* 쓰는 중 */ }
     }
   } catch { /* 폴더 없음 */ }
+  sessCache = { at: Date.now(), list };
+  return list;
+}
+function liveClaudeFor(session: string): { sid: string; status: string } | null {
+  let best: { sid: string; status: string; at: number } | null = null;
+  for (const j of claudeSessions()) {
+    if (!j.sessionId || !String(j.tmux ?? '').startsWith(session + ':')) continue;
+    try { process.kill(Number(j.pid), 0); } catch { continue; }   // 끝난 프로세스의 남은 파일
+    const at = Number(j.updatedAt) || 0;
+    if (!best || at > best.at) best = { sid: j.sessionId, status: String(j.status ?? ''), at };
+  }
   return best;
 }
 
@@ -452,7 +503,17 @@ async function pollTmux(id: string): Promise<void> {
   const m = getChat(id); if (!m?.runId) return;
   const st = tmuxState.get(id) ?? { screen: '', mtime: 0 }; tmuxState.set(id, st);
   const p = await paneInfo(m.runId);
-  if (!p) { setState(id, 'error'); return; }
+  if (!p) {
+    // 한 번 못 읽었다고 오류로 보이지 않는다. 세 번 이어지면 터미널이 없는 것
+    st.fails = (st.fails ?? 0) + 1;
+    if (st.fails >= 3) {
+      const info = await getRunTermInfo(m.runId);
+      const has = info ? (await runShellOn(info.machine, `tmux has-session -t ${shq('=' + info.session)} 2>/dev/null && echo yes`, 6000)).stdout.includes('yes') : false;
+      setState(id, has ? 'error' : 'gone');
+    }
+    return;
+  }
+  st.fails = 0;
   const c = classify(p.screen);
   if (c.state === 'idle' && liveClaudeFor(p.info.session)?.status === 'busy') c.state = 'run';
   const hints = screenHints(p.screen); if (hints.length) tmuxHint.set(id, hints);
@@ -464,8 +525,10 @@ async function pollTmux(id: string): Promise<void> {
   if (c.ask && c.ask.id !== prevAsk) emit(id, { t: 'ask', ask: c.ask });
   if (!c.ask && prevAsk) emit(id, { t: 'answered', id: prevAsk, allow: true });
   setState(id, c.state);
-  if (c.state === 'run') emit(id, { t: 'state', state: 'run', current: l.current });
-  // 대본이 바뀌었으면 기록을 통째로 다시 보낸다(앱은 갈아 끼운다)
+  if (c.state === 'run' && st.cur !== l.current) { st.cur = l.current; emit(id, { t: 'state', state: 'run', current: l.current }); }
+  // 작업 중에는 화면에 차오르는 답을 그대로(대본은 문단이 끝나야 적힌다)
+  const lv = c.state === 'run' ? liveText(p.screen) : '';
+  if (lv !== (st.live ?? '')) { st.live = lv; emit(id, { t: 'live', text: lv }); }
   const sid = await tmuxSid(m);
   const f = sid ? findTranscript(sid) : null;
   const mt = f ? fs.statSync(f).mtimeMs : 0;
@@ -477,8 +540,29 @@ async function pollTmux(id: string): Promise<void> {
     const lastA = [...turns].reverse().find((t) => t.role === 'assistant' && t.text.trim());
     if (lastA) { m.last = lastA.text.replace(/\s+/g, ' ').slice(0, 200); }
     m.updated = Math.max(m.updated, mt); save();
-    emit(id, { t: 'turns', turns }); announce(id);
+    // 바뀐 데부터만 보낸다(중계 길에서 가볍게). 앞이 달라졌으면 from 0
+    const prev = st.sent ?? [];
+    let from = 0;
+    while (from < prev.length && from < turns.length && prev[from]!.role === turns[from]!.role && prev[from]!.text === turns[from]!.text
+      && (prev[from]!.tools?.length ?? 0) === (turns[from]!.tools?.length ?? 0)) from++;
+    if (from === prev.length && from === turns.length) { announce(id); return; }
+    st.sent = turns;
+    emit(id, { t: 'patch', from, turns: turns.slice(from), total: turns.length });
+    announce(id);
   }
+}
+
+/** 화면에서 마지막 입력(❯ …) 아래, 아래쪽 상자 위의 글 — 작업 중에 차오르는 답 */
+function liveText(screen: string): string {
+  const lines = screen.split('\n');
+  let start = -1;
+  for (let i = lines.length - 1; i >= 0; i--) if (/^\s*❯\s+\S/.test(lines[i]!) ) { start = i + 1; break; }
+  if (start < 0) return '';
+  let end = lines.length;
+  for (let i = lines.length - 1; i >= start; i--) if (/^─{10,}/.test(lines[i]!.trim())) end = i;
+  return lines.slice(start, end).map((x) => x.replace(/\s+$/, ''))
+    .filter((x) => !/esc to interrupt|\/effort|shift\+tab|^\s*[✻✶✳✢·*◐◑◒◓⏵]\s/.test(x)).join('\n')
+    .replace(/\n{3,}/g, '\n\n').trim().slice(-4000);
 }
 
 function ensurePolling(id: string): void {
@@ -568,8 +652,13 @@ async function tmuxKeys(m: ChatMeta, keys: string): Promise<boolean> {
   return r.ok;
 }
 
-export async function sendAny(id: string, text: string): Promise<void> {
+export async function sendAny(id: string, text: string, cid?: string): Promise<void> {
   const m = getChat(id); if (!m) throw new Error('not found');
+  if (cid) {
+    const seen = recentCids.get(id) ?? [];
+    if (seen.includes(cid)) return;   // 앱이 응답을 못 받고 다시 보낸 것 — 이미 쳤다
+    recentCids.set(id, [...seen, cid].slice(-50));
+  }
   if (!m.runId) return sendChat(id, text);
   const t = text.trim(); if (!t) throw new Error('empty');
   emit(id, { t: 'user', text: t, ts: Date.now() });

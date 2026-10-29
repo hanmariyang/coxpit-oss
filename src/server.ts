@@ -1872,7 +1872,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
-  app.get('/api/chats', async () => { await syncSessions(); return { chats: listChats() }; });
+  app.get('/api/chats', async () => { void syncSessions(); return { chats: listChats() }; });   // 맞추기는 뒤에서(목록은 바로)
   app.post('/api/chats', async (req, reply) => {
     const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string };
     try {
@@ -1896,9 +1896,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     catch { return reply.code(404).send({ error: 'not found' }); }
   });
   app.post('/api/chats/:id/send', async (req, reply) => {
-    const id = (req.params as { id: string }).id; const text = String(((req.body ?? {}) as { text?: string }).text ?? '');
+    const id = (req.params as { id: string }).id; const bb = (req.body ?? {}) as { text?: string; cid?: string }; const text = String(bb.text ?? '');
     if (!getChat(id)) return reply.code(404).send({ error: 'not found' });
-    try { await sendAny(id, text); return reply.code(202).send({ ok: true }); }
+    try { await sendAny(id, text, bb.cid ? String(bb.cid).slice(0, 64) : undefined); return reply.code(202).send({ ok: true }); }
     catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
   app.post('/api/chats/:id/answer', async (req, reply) => {
