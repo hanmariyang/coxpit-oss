@@ -8,7 +8,7 @@
 // CLI 제어 메시지(SDK 가 쓰는 것과 같은 stdio 규약, 새 의존성 없음):
 //   시작 control_request{subtype:'initialize'} · 권한 control_request{subtype:'can_use_tool'} → control_response
 //   중단 control_request{subtype:'interrupt'} · 권한 모드 control_request{subtype:'set_permission_mode'}
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -98,14 +98,20 @@ export function subscribe(id: string, f: (e: unknown) => void): () => void {
   return () => l.subs.delete(f);
 }
 
-export function createChat(input: { cwd: string; title?: string; model?: string; mode?: string; resume?: string }): ChatMeta {
+export function createChat(input: { cwd: string; title?: string; model?: string; mode?: string; resume?: string; create?: boolean }): ChatMeta {
   const cwd = path.resolve(input.cwd.replace(/^~(?=$|\/)/, os.homedir()));
+  // 새 프로젝트: 없는 폴더면 만들고 git 저장소로(홈 아래만). 있는 폴더는 건드리지 않는다
+  if (input.create && !fs.existsSync(cwd)) {
+    if (!cwd.startsWith(os.homedir() + path.sep)) throw new Error('new folders go under your home folder');
+    fs.mkdirSync(cwd, { recursive: true });
+    try { execFileSync('git', ['init', '-q', '-b', 'main'], { cwd, timeout: 10000 }); } catch { /* git 없음: 빈 폴더로 시작 */ }
+  }
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`folder not found: ${cwd}`);
   const sid = (input.resume ?? '').trim();
   if (sid && !/^[0-9a-f-]{36}$/i.test(sid)) throw new Error('bad session id');
   const m: ChatMeta = {
     id: randomUUID().slice(0, 8), title: (input.title ?? '').trim() || path.basename(cwd),
-    cwd, sid, model: (input.model ?? '').trim(), mode: MODES.includes(input.mode as PermMode) ? input.mode as PermMode : 'default',
+    cwd, sid, model: (input.model ?? '').trim(), mode: MODES.includes(input.mode as PermMode) ? input.mode as PermMode : 'auto',
     created: Date.now(), updated: Date.now(), last: '',
   };
   metas.push(m); save(); announce(m.id);

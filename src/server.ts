@@ -1874,7 +1874,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
   app.get('/api/chats', async () => ({ chats: listChats() }));
   app.post('/api/chats', async (req, reply) => {
-    const b = (req.body ?? {}) as { cwd?: string; title?: string; model?: string; mode?: string; resume?: string; runId?: number };
+    const b = (req.body ?? {}) as { cwd?: string; title?: string; model?: string; mode?: string; resume?: string; runId?: number; create?: boolean };
     let { cwd, resume, title } = b;
     // 기존 coxpit 세션(run)을 대화로 넘겨 받기 — 그 run 의 폴더와 claude 세션 id 로
     if (b.runId != null) {
@@ -1884,7 +1884,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       cwd = cwd || r.worktreePath; resume = resume || r.claudeSessionId || undefined; title = title || r.title || undefined;
     }
     if (!cwd) return reply.code(400).send({ error: 'cwd required' });
-    try { return reply.code(201).send({ chat: createChat({ cwd, title, model: b.model, mode: b.mode, resume }) }); }
+    try { return reply.code(201).send({ chat: createChat({ cwd, title, model: b.model, mode: b.mode, resume, create: b.create === true }) }); }
     catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
   app.get('/api/chats/:id', async (req, reply) => {
