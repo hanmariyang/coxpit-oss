@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { readFile, readdir, realpath, stat, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve as presolve, dirname as pdirname, join as pjoin, sep as psep } from 'node:path';
@@ -1900,6 +1900,19 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!getChat(id)) return reply.code(404).send({ error: 'not found' });
     try { await sendAny(id, text, bb.cid ? String(bb.cid).slice(0, 64) : undefined); return reply.code(202).send({ ok: true }); }
     catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+  // 앱에서 보낸 파일: 데이터 폴더 uploads/<날짜>/ 에 두고 경로를 돌려준다(앱이 그 경로를 말에 붙여 보낸다).
+  // 저장소 폴더에 두지 않는다 — git 에 섞이지 않게.
+  app.post('/api/chats/:id/upload', { bodyLimit: 36 * 1024 * 1024 }, async (req, reply) => {
+    if (!getChat((req.params as { id: string }).id)) return reply.code(404).send({ error: 'not found' });
+    const b = (req.body ?? {}) as { name?: string; dataB64?: string };
+    if (!b.name || typeof b.dataB64 !== 'string') return reply.code(400).send({ error: 'name, dataB64 required' });
+    const d = new Date(); const day = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const dir = pjoin(pdirname(presolve(process.env.COXPIT_DB || pjoin(homedir(), '.coxpit', 'coxpit.db'))), 'uploads', day);
+    try {
+      await mkdir(dir, { recursive: true });
+      return await fsUploadFile(dir, b.name, Buffer.from(b.dataB64, 'base64'));
+    } catch (e: any) { return reply.code(400).send({ error: String(e?.message || e) }); }
   });
   app.post('/api/chats/:id/answer', async (req, reply) => {
     const b = (req.body ?? {}) as { ask?: string; allow?: boolean; note?: string };

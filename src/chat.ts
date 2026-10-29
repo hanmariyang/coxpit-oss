@@ -206,8 +206,10 @@ export function readTurns(m: ChatMeta, max = 300, hint?: string[]): Turn[] {
     const c = j.message?.content;
     // 맥락이 차서 claude 가 스스로 쓴 요약은 사람의 말이 아니다 — 보이지 않는다
     if (j.type === 'user' && !j.isMeta && !j.isCompactSummary) {
-      const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text').map((b) => b.text ?? '').join('\n') : '';
-      if (text.trim() && !text.startsWith('<')) turns.push({ role: 'user', text, ts });
+      const raw = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text').map((b) => b.text ?? '').join('\n') : '';
+      // 여러 줄 붙여넣기는 claude 가 <pasted_content id="…"> 로 감싸 적는다 — 껍데기를 벗겨 보낸 말 그대로
+      const text = raw.replace(/<pasted_content id="[^"]*">\n?([\s\S]*?)\n?<\/pasted_content id="[^"]*">/g, '$1').trim();
+      if (text && !text.startsWith('<')) turns.push({ role: 'user', text, ts });
     } else if (j.type === 'assistant' && Array.isArray(c)) {
       const text = c.filter((b) => b?.type === 'text').map((b) => b.text ?? '').join('\n');
       const tools = c.filter((b) => b?.type === 'tool_use').map((b) => ({ name: b.name, summary: summarize(b.name, b.input) }));
