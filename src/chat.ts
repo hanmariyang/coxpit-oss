@@ -21,6 +21,7 @@ import { agentRuns } from './db/schema';
 import { eq } from 'drizzle-orm';
 import { runShellOn, shq } from './exec';
 import { getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
+import { pushNotify } from './push';
 
 export type ChatState = 'idle' | 'run' | 'ask' | 'error' | 'gone';
 export type PermMode = 'default' | 'acceptEdits' | 'auto' | 'plan';
@@ -31,6 +32,10 @@ export interface ChatMeta {
   created: number; updated: number; last: string;
   /** tmux 모드: coxpit 세션(run) 안의 바로 그 claude 에 붙는다. 맥 화면과 폰이 같은 대화를 본다 */
   runId?: number;
+  /** 목록 맨 위에 고정 */
+  pinned?: boolean;
+  /** 할 일 체크: 할 일 글(정규화) → 체크한 때(ms). 폰 · 맥 앱이 같이 본다 */
+  todos?: Record<string, number>;
 }
 export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number }
 export interface ToolUse { name: string; summary: string }
@@ -94,7 +99,9 @@ function announce(id: string): void {
 }
 function setState(id: string, s: ChatState): void {
   const l = live(id); if (l.state === s) return;
+  const prev = l.state;
   l.state = s; emit(id, { t: 'state', state: s, current: l.current }); announce(id);
+  onStateChange(id, prev, s);
 }
 function touch(id: string, last?: string): void {
   const m = getChat(id); if (!m) return;
@@ -130,9 +137,10 @@ export function createChat(input: { cwd: string; title?: string; model?: string;
   return m;
 }
 
-export function updateChat(id: string, patch: { title?: string; mode?: string; model?: string }): ChatMeta {
+export function updateChat(id: string, patch: { title?: string; mode?: string; model?: string; pinned?: unknown }): ChatMeta {
   const m = getChat(id); if (!m) throw new Error('not found');
-  if (patch.title != null) m.title = patch.title.trim() || m.title;
+  if (patch.title != null) m.title = String(patch.title).trim().slice(0, 80) || m.title;
+  if (patch.pinned != null) { if (patch.pinned === true || patch.pinned === 'true') m.pinned = true; else delete m.pinned; }
   if (patch.model != null) m.model = patch.model.trim();
   if (patch.mode != null && MODES.includes(patch.mode as PermMode)) {
     m.mode = patch.mode as PermMode;
@@ -140,6 +148,19 @@ export function updateChat(id: string, patch: { title?: string; mode?: string; m
     if (l?.proc) control(id, { subtype: 'set_permission_mode', mode: m.mode });
   }
   save(); announce(id);
+  return m;
+}
+
+/** 할 일 체크 하나. 글이 같으면 같은 할 일로 본다(답이 다시 그려져도 체크가 남게) */
+export function todoKey(text: string): string { return text.replace(/\s+/g, ' ').trim().slice(0, 200); }
+export function setTodo(id: string, text: string, done: boolean): ChatMeta {
+  const m = getChat(id); if (!m) throw new Error('not found');
+  const k = todoKey(text); if (!k) throw new Error('text required');
+  const t = { ...(m.todos ?? {}) };
+  if (done) t[k] = Date.now(); else delete t[k];
+  const keys = Object.keys(t);
+  if (keys.length > 300) for (const x of keys.sort((a, b) => t[a]! - t[b]!).slice(0, keys.length - 300)) delete t[x];
+  m.todos = t; save(); emit(id, { t: 'todos', todos: t }); announce(id);
   return m;
 }
 
@@ -502,6 +523,27 @@ async function tmuxSid(m: ChatMeta): Promise<string> {
   }
   if (sid !== m.sid) { m.sid = sid; m.last = ''; const st = tmuxState.get(m.id); if (st) st.mtime = 0; save(); }
   return sid;
+}
+
+// ── 알림: 끝남 · 물어봄 → 폰 푸시(push.ts). 앱이 켜져 있으면 앱이 직접 띄우고 이건 앱이 화면에 안 보인다 ──
+const finishTimers = new Map<string, NodeJS.Timeout>();
+function onStateChange(id: string, prev: ChatState, s: ChatState): void {
+  const m = getChat(id); if (!m) return;
+  if (s === 'ask' && prev !== 'ask') {
+    const a = [...(lives.get(id)?.asks.values() ?? [])][0];
+    void pushNotify({ chatId: id, kind: 'ask', title: `${m.title} · 물어봄`, body: a?.summary || '허락을 기다려요' });
+  }
+  if (prev === 'run' && s === 'idle') {
+    // 잠깐 쉬었다 다시 도는 것(도구 사이 · 에이전트 사이)은 알리지 않는다
+    clearTimeout(finishTimers.get(id));
+    finishTimers.set(id, setTimeout(() => {
+      finishTimers.delete(id);
+      if (lives.get(id)?.state !== 'idle') return;
+      const mm = getChat(id); if (!mm) return;
+      void pushNotify({ chatId: id, kind: 'done', title: `${mm.title} · 끝남`, body: mm.last.replace(/\*\*|`/g, '').slice(0, 180) || '답이 왔어요' });
+    }, 8000));
+  }
+  if (s === 'run') clearTimeout(finishTimers.get(id));
 }
 
 // ── 서브에이전트 ──

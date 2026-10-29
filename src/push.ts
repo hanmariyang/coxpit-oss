@@ -1,0 +1,109 @@
+// 폰 푸시(APNs) — 세션이 끝나거나 허락을 물으면 앱이 꺼져 있어도 폰에 알린다.
+//
+// 중간 서버 없이 데몬이 애플로 바로 보낸다. 필요한 것은 둘:
+//   1. APNs 키: 데이터 폴더(<COXPIT_DB 폴더>/apns/AuthKey_<키 ID>.p8). 개발자 웹(Certificates, IDs & Profiles → Keys)에서만 만든다.
+//      팀 ID 는 apns/config.json {"teamId": "..."} 또는 COXPIT_APNS_TEAM.
+//   2. 기기 토큰: 앱이 POST /api/push/register 로 보낸다(정식 번들 · 푸시 자격이 있을 때만 생긴다).
+// 키가 없으면 아무것도 안 한다(앱이 켜져 있을 때는 앱이 직접 알림을 띄운다).
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import http2 from 'node:http2';
+import os from 'node:os';
+import path from 'node:path';
+
+const dataDir = (): string => path.dirname(path.resolve(process.env.COXPIT_DB || path.join(os.homedir(), '.coxpit', 'coxpit.db')));
+const apnsDir = (): string => path.join(dataDir(), 'apns');
+const tokensPath = (): string => path.join(dataDir(), 'push-tokens.json');
+
+export interface Device { token: string; env: 'sandbox' | 'production'; topic: string; name?: string; at: number }
+
+function loadDevices(): Device[] {
+  try { return JSON.parse(fs.readFileSync(tokensPath(), 'utf8')) as Device[]; } catch { return []; }
+}
+function saveDevices(d: Device[]): void {
+  fs.writeFileSync(tokensPath(), JSON.stringify(d, null, 2), { mode: 0o600 });
+}
+
+export function registerDevice(input: { token?: string; env?: string; topic?: string; name?: string }): Device {
+  const token = String(input.token ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+  if (token.length < 32 || token.length > 200) throw new Error('token required');
+  const topic = String(input.topic ?? '').trim();
+  if (!/^[\w.-]+$/.test(topic)) throw new Error('topic required');
+  const d: Device = { token, env: input.env === 'production' ? 'production' : 'sandbox', topic, name: input.name ? String(input.name).slice(0, 60) : undefined, at: Date.now() };
+  const all = loadDevices().filter((x) => x.token !== token);
+  all.push(d); saveDevices(all.slice(-20));
+  return d;
+}
+
+interface Key { keyId: string; teamId: string; pem: string }
+function loadKey(): Key | null {
+  try {
+    const dir = apnsDir();
+    const f = fs.readdirSync(dir).find((x) => /^AuthKey_[A-Z0-9]+\.p8$/.test(x));
+    if (!f) return null;
+    let teamId = process.env.COXPIT_APNS_TEAM || '';
+    try { teamId = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')).teamId || teamId; } catch { /* 없음 */ }
+    if (!teamId) return null;
+    return { keyId: f.slice(8, -3), teamId, pem: fs.readFileSync(path.join(dir, f), 'utf8') };
+  } catch { return null; }
+}
+
+export function pushStatus() {
+  const k = loadKey();
+  return { configured: !!k, keyId: k?.keyId ?? null, devices: loadDevices().map((d) => ({ name: d.name ?? '', env: d.env, topic: d.topic, at: d.at })) };
+}
+
+// 애플은 같은 토큰을 20분 넘게 쓰라고 하고 1시간 넘으면 거절한다 → 40분마다 새로
+let jwtCache: { at: number; keyId: string; jwt: string } | null = null;
+function bearer(k: Key): string {
+  if (jwtCache && jwtCache.keyId === k.keyId && Date.now() - jwtCache.at < 40 * 60 * 1000) return jwtCache.jwt;
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const head = `${b64({ alg: 'ES256', kid: k.keyId })}.${b64({ iss: k.teamId, iat: Math.floor(Date.now() / 1000) })}`;
+  const sig = crypto.sign('sha256', Buffer.from(head), { key: k.pem, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+  jwtCache = { at: Date.now(), keyId: k.keyId, jwt: `${head}.${sig}` };
+  return jwtCache.jwt;
+}
+
+function send(k: Key, d: Device, payload: object, collapse?: string): Promise<{ status: number; reason?: string }> {
+  const host = d.env === 'production' ? 'https://api.push.apple.com' : 'https://api.sandbox.push.apple.com';
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v: { status: number; reason?: string }) => { if (!done) { done = true; resolve(v); try { c.close(); } catch { /* 닫힘 */ } } };
+    const c = http2.connect(host);
+    c.on('error', (e) => finish({ status: 0, reason: String(e.message) }));
+    const body = JSON.stringify(payload);
+    const headers: http2.OutgoingHttpHeaders = {
+      ':method': 'POST', ':path': `/3/device/${d.token}`,
+      authorization: `bearer ${bearer(k)}`, 'apns-topic': d.topic, 'apns-push-type': 'alert', 'apns-priority': '10',
+      'content-type': 'application/json',
+    };
+    if (collapse) headers['apns-collapse-id'] = collapse.slice(0, 64);
+    const r = c.request(headers);
+    let status = 0, text = '';
+    r.on('response', (h) => { status = Number(h[':status'] ?? 0); });
+    r.on('data', (x) => { text += x; });
+    r.on('end', () => { let reason: string | undefined; try { reason = JSON.parse(text).reason; } catch { /* 빈 몸 */ } finish({ status, reason }); });
+    r.on('error', (e) => finish({ status: 0, reason: String(e.message) }));
+    r.setTimeout(10000, () => { r.close(); finish({ status: 0, reason: 'timeout' }); });
+    r.end(body);
+  });
+}
+
+export async function pushNotify(n: { chatId: string; kind: 'done' | 'ask' | 'test'; title: string; body: string }): Promise<Array<{ name: string; status: number; reason?: string }>> {
+  const k = loadKey(); if (!k) return [];
+  const devices = loadDevices(); if (!devices.length) return [];
+  const payload = {
+    aps: { alert: { title: n.title.slice(0, 120), body: n.body.slice(0, 240) }, sound: 'default', 'thread-id': n.chatId },
+    chatId: n.chatId, kind: n.kind, host: os.hostname(),
+  };
+  const out: Array<{ name: string; status: number; reason?: string }> = [];
+  const dead = new Set<string>();
+  for (const d of devices) {
+    const r = await send(k, d, payload, `${n.chatId}-${n.kind}`);
+    out.push({ name: d.name ?? '', ...r });
+    // 앱을 지웠거나 토큰이 바뀐 기기는 뺀다
+    if (r.status === 410 || r.reason === 'BadDeviceToken' || r.reason === 'Unregistered') dead.add(d.token);
+  }
+  if (dead.size) saveDevices(loadDevices().filter((d) => !dead.has(d.token)));
+  return out;
+}

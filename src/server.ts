@@ -22,6 +22,9 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
+import { setTodo } from './chat';
+import { pushStatus, registerDevice, pushNotify } from './push';
+import { chatFile, recentFiles, keepingItem } from './chatfiles';
 import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun } from './orchestrator';
 import { openTerm } from './term';
@@ -1914,6 +1917,37 @@ export async function buildServer(): Promise<FastifyInstance> {
       return await fsUploadFile(dir, b.name, Buffer.from(b.dataB64, 'base64'));
     } catch (e: any) { return reply.code(400).send({ error: String(e?.message || e) }); }
   });
+  // 할 일 체크(폰 · 맥 앱이 같이 본다)
+  app.post('/api/chats/:id/todo', async (req, reply) => {
+    const b = (req.body ?? {}) as { text?: string; done?: boolean };
+    try { return { todos: setTodo((req.params as { id: string }).id, String(b.text ?? ''), b.done === true).todos ?? {} }; }
+    catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+  // 답에 나온 파일을 앱에서 연다(홈 안 · 숨김 폴더 밖만). 상대 경로는 그 대화 폴더 기준
+  app.get('/api/chats/:id/file', async (req, reply) => {
+    const m = getChat((req.params as { id: string }).id); if (!m) return reply.code(404).send({ error: 'not found' });
+    try {
+      const f = await chatFile(m.cwd, String((req.query as { path?: string }).path ?? ''));
+      return reply.type(f.mime).header('x-file-name', encodeURIComponent(f.name)).header('x-file-path', encodeURIComponent(f.path)).send(f.buf);
+    } catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
+  });
+  // 그 대화 폴더에서 최근 바뀐 파일(세션 폴더 보기)
+  app.get('/api/chats/:id/recent', async (req, reply) => {
+    const m = getChat((req.params as { id: string }).id); if (!m) return reply.code(404).send({ error: 'not found' });
+    return { cwd: m.cwd, files: await recentFiles(m.cwd, 30) };
+  });
+  // keeping 기획 · 시안을 앱 안에서(토큰은 데몬만 든다). 설정이 없으면 404 → 앱은 브라우저로 연다
+  app.get('/api/keeping/:id', async (req, reply) => {
+    try { return await keepingItem((req.params as { id: string }).id); }
+    catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
+  });
+  // 폰 푸시: 앱이 기기 토큰을 맡긴다 · 상태 · 시험 한 번
+  app.post('/api/push/register', async (req, reply) => {
+    try { registerDevice((req.body ?? {}) as Record<string, string>); return { ok: true, ...pushStatus() }; }
+    catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+  app.get('/api/push/status', async () => pushStatus());
+  app.post('/api/push/test', async () => ({ sent: await pushNotify({ chatId: 'test', kind: 'test', title: 'Coxpit 알림 시험', body: '이 알림이 보이면 푸시가 붙었어요.' }) }));
   app.post('/api/chats/:id/answer', async (req, reply) => {
     const b = (req.body ?? {}) as { ask?: string; allow?: boolean; note?: string };
     const ok = await answerAny((req.params as { id: string }).id, String(b.ask ?? ''), b.allow === true, b.note);
