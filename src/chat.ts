@@ -552,21 +552,30 @@ function onStateChange(id: string, prev: ChatState, s: ChatState): void {
 // 끝남 = 메인 대본에 그 id 의 task-notification · task_status(끝) · (앞에서 돈 것은) tool_result 가 에이전트 마지막 기록 뒤에 있다.
 const AGENT_STALE_MS = 3 * 60 * 60 * 1000;   // 이보다 오래 조용하면 죽은 것으로 본다(claude 가 꺼진 채 남은 것)
 const AGENT_KEEP_MS = 15 * 60 * 1000;        // 끝난 것도 이만큼은 목록에 남긴다
-const endIdx = new Map<string, { n: number; rows: unknown[]; ends: Map<string, number> }>();
-function agentEnds(f: string): Map<string, number> {
+// 뒤에서 돌린 셸(Bash run_in_background)도 같은 알림으로 끝난다 → 같이 센다
+interface BgShell { id: string; cmd: string; ts: number }
+const endIdx = new Map<string, { n: number; rows: unknown[]; ends: Map<string, number>; shells: Map<string, BgShell> }>();
+function agentEnds(f: string): Map<string, number> { return agentIndex(f).ends; }
+function agentIndex(f: string) {
   const rows = transcriptRows(f) as Array<Record<string, any>>;
   let c = endIdx.get(f);
-  if (!c || c.rows !== rows || c.n > rows.length) { c = { n: 0, rows, ends: new Map() }; endIdx.set(f, c); }
+  if (!c || c.rows !== rows || c.n > rows.length) { c = { n: 0, rows, ends: new Map(), shells: new Map() }; endIdx.set(f, c); }
   const put = (k: string, t: number) => { if (t > (c!.ends.get(k) ?? 0)) c!.ends.set(k, t); };
   for (; c.n < rows.length; c.n++) {
     const r = rows[c.n]!; const ts = Date.parse(r.timestamp ?? '') || 0;
     const txt = typeof r.content === 'string' ? r.content : typeof r.message?.content === 'string' ? r.message.content : '';
-    if (txt.includes('<task-notification>')) for (const m of txt.matchAll(/<task-id>([\w-]+)<\/task-id>/g)) put(m[1]!, ts);
+    if (txt.includes('<task-notification>')) {
+      for (const m of txt.matchAll(/<task-id>([\w-]+)<\/task-id>/g)) put(m[1]!, ts);
+      for (const m of txt.matchAll(/<tool-use-id>([\w-]+)<\/tool-use-id>/g)) put('n:' + m[1]!, ts);
+    }
+    if (r.type === 'assistant' && Array.isArray(r.message?.content)) for (const b of r.message.content) {
+      if (b?.type === 'tool_use' && b.name === 'Bash' && b.input?.run_in_background === true) c.shells.set(b.id, { id: b.id, cmd: String(b.input.description || b.input.command || '').replace(/\s+/g, ' ').slice(0, 120), ts });
+    }
     const a = r.attachment;
     if (a?.type === 'task_status' && a.taskId && a.status && a.status !== 'running') put(String(a.taskId), ts);
     if (Array.isArray(r.message?.content)) for (const b of r.message.content) if (b?.type === 'tool_result' && b.tool_use_id) put('tool:' + b.tool_use_id, ts);
   }
-  return c.ends;
+  return c;
 }
 const agentCur = new Map<string, { mt: number; current: string; started: number }>();
 function agentProgress(f: string, mt: number): { current: string; started: number } {
@@ -590,7 +599,7 @@ function agentProgress(f: string, mt: number): { current: string; started: numbe
 }
 function subAgents(transcript: string): SubAgent[] {
   const dir = path.join(transcript.replace(/\.jsonl$/, ''), 'subagents');
-  let names: string[]; try { names = fs.readdirSync(dir).filter((x) => x.endsWith('.jsonl')); } catch { return []; }
+  let names: string[] = []; try { names = fs.readdirSync(dir).filter((x) => x.endsWith('.jsonl')); } catch { /* 에이전트 없음 · 셸만 볼 수 있다 */ }
   const now = Date.now(); let ends: Map<string, number> | null = null;
   const out: SubAgent[] = [];
   for (const n of names) {
@@ -607,6 +616,15 @@ function subAgents(transcript: string): SubAgent[] {
     if (!running && now - mt > AGENT_KEEP_MS) continue;
     const pr = agentProgress(jf, mt);
     out.push({ id, desc: String(meta.description ?? meta.agentType ?? '에이전트').slice(0, 120), started: pr.started || mt, updated: mt, current: running ? pr.current : '', running });
+  }
+  // 뒤에서 도는 셸: 끝 알림(같은 tool-use-id)이 아직 없으면 도는 중
+  const ix = agentIndex(transcript);
+  for (const sh of ix.shells.values()) {
+    if (now - sh.ts > AGENT_STALE_MS) continue;
+    const end = ix.ends.get('n:' + sh.id) ?? 0;
+    const running = end < sh.ts;
+    if (!running && now - end > AGENT_KEEP_MS) continue;
+    out.push({ id: sh.id, desc: '셸 · ' + (sh.cmd || '명령'), started: sh.ts, updated: running ? sh.ts : end, current: '', running });
   }
   return out.sort((a, b) => Number(b.running) - Number(a.running) || b.updated - a.updated).slice(0, 12);
 }
@@ -634,7 +652,7 @@ async function pollTmux(id: string): Promise<void> {
   const f = sid ? findTranscript(sid) : null;
   const agents = f && lc ? subAgents(f) : [];
   const nRun = agents.filter((a) => a.running).length;
-  if (c.state === 'idle' && nRun) { c.state = 'run'; c.current = `에이전트 ${nRun}개 작업 중`; }
+  if (c.state === 'idle' && nRun) { c.state = 'run'; c.current = `뒤에서 ${nRun}개 작업 중`; }
   const hints = screenHints(p.screen); if (hints.length) tmuxHint.set(id, hints);
   const l = live(id);
   l.current = c.current;
