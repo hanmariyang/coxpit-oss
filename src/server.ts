@@ -22,7 +22,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { listChats, getChat, createChat, updateChat, chatDetail, sendChat, answerAsk, interruptChat, closeChat, removeChat, subscribe } from './chat';
+import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, interruptAny, adoptRun, openTmuxChat, startTmuxWatch } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates, spottedPorts } from './agentstate';
@@ -1874,19 +1874,18 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
   app.get('/api/chats', async () => ({ chats: listChats() }));
   app.post('/api/chats', async (req, reply) => {
-    const b = (req.body ?? {}) as { cwd?: string; title?: string; model?: string; mode?: string; resume?: string; runId?: number; create?: boolean };
-    let { cwd, resume, title } = b;
-    // 기존 coxpit 세션(run)을 대화로 넘겨 받기 — 그 run 의 폴더와 claude 세션 id 로
-    if (b.runId != null) {
-      const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, Number(b.runId))).limit(1);
-      const r = rr[0];
-      if (!r) return reply.code(404).send({ error: 'run not found' });
-      cwd = cwd || r.worktreePath; resume = resume || r.claudeSessionId || undefined;
-      if (!title) { const tk = await db.select().from(tasks).where(eq(tasks.id, r.taskId)).limit(1); title = r.title || tk[0]?.title || undefined; }
-    }
-    if (!cwd) return reply.code(400).send({ error: 'cwd required' });
-    try { return reply.code(201).send({ chat: createChat({ cwd, title, model: b.model, mode: b.mode, resume, create: b.create === true }) }); }
-    catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+    const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean };
+    try {
+      // 맥에서 쓰던 coxpit 세션에 붙기 · 아니면 그 폴더에 새 coxpit 세션을 열고 붙기(둘 다 tmux 안의 claude 하나)
+      if (b.runId != null) {
+        const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, Number(b.runId))).limit(1);
+        const r = rr[0]; if (!r) return reply.code(404).send({ error: 'run not found' });
+        const tk = await db.select().from(tasks).where(eq(tasks.id, r.taskId)).limit(1);
+        return reply.code(201).send({ chat: await adoptRun(r.id, b.title || r.title || tk[0]?.title || undefined) });
+      }
+      if (!b.cwd) return reply.code(400).send({ error: 'cwd required' });
+      return reply.code(201).send({ chat: await openTmuxChat(b.cwd, b.title, b.create === true) });
+    } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
   app.get('/api/chats/:id', async (req, reply) => {
     const d = chatDetail((req.params as { id: string }).id);
@@ -1899,15 +1898,15 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.post('/api/chats/:id/send', async (req, reply) => {
     const id = (req.params as { id: string }).id; const text = String(((req.body ?? {}) as { text?: string }).text ?? '');
     if (!getChat(id)) return reply.code(404).send({ error: 'not found' });
-    try { sendChat(id, text); return reply.code(202).send({ ok: true }); }
+    try { await sendAny(id, text); return reply.code(202).send({ ok: true }); }
     catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
   app.post('/api/chats/:id/answer', async (req, reply) => {
     const b = (req.body ?? {}) as { ask?: string; allow?: boolean; note?: string };
-    const ok = answerAsk((req.params as { id: string }).id, String(b.ask ?? ''), b.allow === true, b.note);
+    const ok = await answerAny((req.params as { id: string }).id, String(b.ask ?? ''), b.allow === true, b.note);
     return ok ? { ok } : reply.code(409).send({ error: 'no such question' });
   });
-  app.post('/api/chats/:id/interrupt', async (req) => ({ ok: interruptChat((req.params as { id: string }).id) }));
+  app.post('/api/chats/:id/interrupt', async (req) => ({ ok: await interruptAny((req.params as { id: string }).id) }));
   app.post('/api/chats/:id/close', async (req) => { closeChat((req.params as { id: string }).id); return { ok: true }; });
   app.delete('/api/chats/:id', async (req, reply) =>
     removeChat((req.params as { id: string }).id) ? { ok: true } : reply.code(404).send({ error: 'not found' }));
@@ -1916,10 +1915,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     const rows = await db.select().from(agentRuns);
     const ts = await db.select().from(tasks);
     const taskTitle = new Map(ts.map((t) => [t.id, t.title]));
-    return { runs: rows.filter((r) => r.claudeSessionId && r.worktreePath && r.status !== 'closed')
+    const adopted = new Set(listChats().map((c) => c.runId).filter((x) => x != null));
+    return { runs: rows.filter((r) => r.tmuxWindow && r.worktreePath && r.status !== 'closed' && !adopted.has(r.id))
       .map((r) => ({ runId: r.id, title: r.title || taskTitle.get(r.taskId) || '', cwd: r.worktreePath, sid: r.claudeSessionId, live: !!r.tmuxWindow })) };
   });
   app.get('/ws/chat/:id', { websocket: true }, (socket, req) => {
+    startTmuxWatch();
     const id = (req.params as { id: string }).id;
     const d = chatDetail(id);
     if (!d) { socket.send(JSON.stringify({ t: 'error', message: 'not found' })); socket.close(); return; }

@@ -104,5 +104,7 @@ console.log(`[coxpit] listening on http://${config.host === '0.0.0.0' ? '127.0.0
 }
 
 // 대화 세션의 claude 프로세스는 데몬과 함께 내린다(남으면 세션을 쥔 채 떠돈다)
-import { shutdownChats } from './chat';
+import { shutdownChats, startTmuxWatch } from './chat';
 process.on('exit', shutdownChats);
+// tmux 대화들의 상태(작업 중 · 물어봄)를 목록에 띄우려고 부팅 뒤 지켜보기 시작
+setTimeout(startTmuxWatch, 3000);
