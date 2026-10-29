@@ -22,6 +22,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
+import { listChats, getChat, createChat, updateChat, chatDetail, sendChat, answerAsk, interruptChat, closeChat, removeChat, subscribe } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates, spottedPorts } from './agentstate';
@@ -1868,6 +1869,61 @@ export async function buildServer(): Promise<FastifyInstance> {
     addSink(socket);
     socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: config.version }));
     socket.on('close', () => removeSink(socket));
+  });
+
+  // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
+  app.get('/api/chats', async () => ({ chats: listChats() }));
+  app.post('/api/chats', async (req, reply) => {
+    const b = (req.body ?? {}) as { cwd?: string; title?: string; model?: string; mode?: string; resume?: string; runId?: number };
+    let { cwd, resume, title } = b;
+    // 기존 coxpit 세션(run)을 대화로 넘겨 받기 — 그 run 의 폴더와 claude 세션 id 로
+    if (b.runId != null) {
+      const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, Number(b.runId))).limit(1);
+      const r = rr[0];
+      if (!r) return reply.code(404).send({ error: 'run not found' });
+      cwd = cwd || r.worktreePath; resume = resume || r.claudeSessionId || undefined; title = title || r.title || undefined;
+    }
+    if (!cwd) return reply.code(400).send({ error: 'cwd required' });
+    try { return reply.code(201).send({ chat: createChat({ cwd, title, model: b.model, mode: b.mode, resume }) }); }
+    catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+  app.get('/api/chats/:id', async (req, reply) => {
+    const d = chatDetail((req.params as { id: string }).id);
+    return d ?? reply.code(404).send({ error: 'not found' });
+  });
+  app.patch('/api/chats/:id', async (req, reply) => {
+    try { return { chat: updateChat((req.params as { id: string }).id, (req.body ?? {}) as Record<string, string>) }; }
+    catch { return reply.code(404).send({ error: 'not found' }); }
+  });
+  app.post('/api/chats/:id/send', async (req, reply) => {
+    const id = (req.params as { id: string }).id; const text = String(((req.body ?? {}) as { text?: string }).text ?? '');
+    if (!getChat(id)) return reply.code(404).send({ error: 'not found' });
+    try { sendChat(id, text); return reply.code(202).send({ ok: true }); }
+    catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+  app.post('/api/chats/:id/answer', async (req, reply) => {
+    const b = (req.body ?? {}) as { ask?: string; allow?: boolean; note?: string };
+    const ok = answerAsk((req.params as { id: string }).id, String(b.ask ?? ''), b.allow === true, b.note);
+    return ok ? { ok } : reply.code(409).send({ error: 'no such question' });
+  });
+  app.post('/api/chats/:id/interrupt', async (req) => ({ ok: interruptChat((req.params as { id: string }).id) }));
+  app.post('/api/chats/:id/close', async (req) => { closeChat((req.params as { id: string }).id); return { ok: true }; });
+  app.delete('/api/chats/:id', async (req, reply) =>
+    removeChat((req.params as { id: string }).id) ? { ok: true } : reply.code(404).send({ error: 'not found' }));
+  // 넘겨 받을 수 있는 coxpit 세션 — claude 세션 id 가 붙은 열린 run
+  app.get('/api/chats-candidates', async () => {
+    const rows = await db.select().from(agentRuns);
+    return { runs: rows.filter((r) => r.claudeSessionId && r.worktreePath && r.status !== 'closed')
+      .map((r) => ({ runId: r.id, title: r.title, cwd: r.worktreePath, sid: r.claudeSessionId, live: !!r.tmuxWindow })) };
+  });
+  app.get('/ws/chat/:id', { websocket: true }, (socket, req) => {
+    const id = (req.params as { id: string }).id;
+    const d = chatDetail(id);
+    if (!d) { socket.send(JSON.stringify({ t: 'error', message: 'not found' })); socket.close(); return; }
+    socket.send(JSON.stringify({ t: 'hello', ...d }));
+    const off = subscribe(id, (e) => { try { socket.send(JSON.stringify(e)); } catch { /* 끊김 */ } });
+    const ping = setInterval(() => { try { socket.ping(); } catch { /* 끊김 */ } }, 25000);
+    socket.on('close', () => { off(); clearInterval(ping); });
   });
 
   // xterm 배포본 서빙(브라우저 터미널용, CDN 없음)

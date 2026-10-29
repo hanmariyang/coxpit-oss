@@ -102,3 +102,7 @@ console.log(`[coxpit] listening on http://${config.host === '0.0.0.0' ? '127.0.0
     console.log('[coxpit] access-key auth ON (stored key) — the branded unlock page asks for your key.');
   }
 }
+
+// 대화 세션의 claude 프로세스는 데몬과 함께 내린다(남으면 세션을 쥔 채 떠돈다)
+import { shutdownChats } from './chat';
+process.on('exit', shutdownChats);
