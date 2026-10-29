@@ -466,7 +466,10 @@ function ensurePolling(id: string): void {
 }
 
 /** 데몬이 뜰 때 tmux 대화들의 상태 보기를 시작한다(목록의 작업 중 · 물어봄) */
-export function startTmuxWatch(): void { for (const m of metas) if (m.runId) ensurePolling(m.id); }
+export function startTmuxWatch(): void {
+  void syncSessions().then(() => { for (const m of metas) if (m.runId) ensurePolling(m.id); });
+  setInterval(() => void syncSessions(), 20000);
+}
 
 export async function adoptRun(runId: number, title?: string): Promise<ChatMeta> {
   const ex = metas.find((m) => m.runId === runId);
@@ -558,4 +561,29 @@ export async function answerAny(id: string, askId: string, allow: boolean, note?
 export async function interruptAny(id: string): Promise<boolean> {
   const m = getChat(id); if (!m) return false;
   return m.runId ? tmuxKeys(m, 'Escape') : interruptChat(id);
+}
+
+
+/**
+ * 맥 coxpit 의 열린 세션을 모두 대화 목록에 올린다(넘겨 받기 단계 없이 폰에서 다 보이게).
+ * 닫히거나 지워진 세션의 대화는 목록에서 내린다. tmux 를 건드리지 않는다.
+ */
+let syncing: Promise<void> | null = null;
+export function syncSessions(): Promise<void> {
+  syncing ??= (async () => {
+    try {
+      const { tasks } = await import('./db/schema');
+      const rows = await db.select().from(agentRuns);
+      const ts = await db.select().from(tasks);
+      const title = new Map(ts.map((t) => [t.id, t.title]));
+      const openTasks = new Set(ts.filter((t) => t.status === 'open').map((t) => t.id));
+      const open = rows.filter((r) => r.tmuxWindow && openTasks.has(r.taskId));
+      const openIds = new Set(open.map((r) => r.id));
+      for (const r of open) if (!metas.some((m) => m.runId === r.id)) {
+        try { await adoptRun(r.id, r.title || title.get(r.taskId) || undefined); } catch { /* 터미널 없음 */ }
+      }
+      for (const m of [...metas]) if (m.runId && !openIds.has(m.runId)) removeChat(m.id);
+    } finally { syncing = null; }
+  })();
+  return syncing;
 }

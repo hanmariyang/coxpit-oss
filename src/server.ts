@@ -22,7 +22,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, interruptAny, adoptRun, openTmuxChat, startTmuxWatch } from './chat';
+import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun } from './orchestrator';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates, spottedPorts } from './agentstate';
@@ -1872,7 +1872,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
-  app.get('/api/chats', async () => ({ chats: listChats() }));
+  app.get('/api/chats', async () => { await syncSessions(); return { chats: listChats() }; });
   app.post('/api/chats', async (req, reply) => {
     const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string };
     try {
