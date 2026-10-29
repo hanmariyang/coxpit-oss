@@ -142,7 +142,7 @@ export function updateChat(id: string, patch: { title?: string; mode?: string; m
 }
 
 /** 대화 기록 — claude 의 jsonl 이 정본. 세션이 아직 없으면 빈 목록. */
-type Row = { type?: string; uuid?: string; parentUuid?: string | null; timestamp?: string; isMeta?: boolean; isSidechain?: boolean; message?: { content?: unknown } };
+type Row = { type?: string; uuid?: string; parentUuid?: string | null; timestamp?: string; isMeta?: boolean; isCompactSummary?: boolean; isSidechain?: boolean; message?: { content?: unknown } };
 
 /** 대본 줄 캐시: 파일이 자란 만큼만 읽어 붙인다(긴 대화를 매번 4MB 씩 다시 읽어 데몬 전체가 느려졌다) */
 const rowCache = new Map<string, { size: number; rows: unknown[]; rest: string }>();
@@ -204,7 +204,8 @@ export function readTurns(m: ChatMeta, max = 300, hint?: string[]): Turn[] {
   for (const j of chain) {
     const ts = j.timestamp ? Date.parse(j.timestamp) : undefined;
     const c = j.message?.content;
-    if (j.type === 'user' && !j.isMeta) {
+    // 맥락이 차서 claude 가 스스로 쓴 요약은 사람의 말이 아니다 — 보이지 않는다
+    if (j.type === 'user' && !j.isMeta && !j.isCompactSummary) {
       const text = typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text').map((b) => b.text ?? '').join('\n') : '';
       if (text.trim() && !text.startsWith('<')) turns.push({ role: 'user', text, ts });
     } else if (j.type === 'assistant' && Array.isArray(c)) {
