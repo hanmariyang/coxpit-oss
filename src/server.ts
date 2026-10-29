@@ -1874,7 +1874,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
   app.get('/api/chats', async () => ({ chats: listChats() }));
   app.post('/api/chats', async (req, reply) => {
-    const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean };
+    const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string };
     try {
       // 맥에서 쓰던 coxpit 세션에 붙기 · 아니면 그 폴더에 새 coxpit 세션을 열고 붙기(둘 다 tmux 안의 claude 하나)
       if (b.runId != null) {
@@ -1884,7 +1884,7 @@ export async function buildServer(): Promise<FastifyInstance> {
         return reply.code(201).send({ chat: await adoptRun(r.id, b.title || r.title || tk[0]?.title || undefined) });
       }
       if (!b.cwd) return reply.code(400).send({ error: 'cwd required' });
-      return reply.code(201).send({ chat: await openTmuxChat(b.cwd, b.title, b.create === true) });
+      return reply.code(201).send({ chat: await openTmuxChat(b.cwd, b.title, b.create === true, b.resume) });
     } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
   app.get('/api/chats/:id', async (req, reply) => {
