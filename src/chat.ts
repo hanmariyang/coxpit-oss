@@ -406,7 +406,31 @@ function classify(screen: string): { state: ChatState; ask?: Ask; current: strin
   return { state: 'idle', current: '' };
 }
 
+/** claude 가 프로세스마다 남기는 ~/.claude/sessions/<pid>.json — tmux 세션 이름과 지금 대화 번호 · 상태가 들어 있다 */
+function liveClaudeFor(session: string): { sid: string; status: string } | null {
+  const dir = path.join(os.homedir(), '.claude', 'sessions');
+  let best: { sid: string; status: string; at: number } | null = null;
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.endsWith('.json')) continue;
+      let j: { pid?: string | number; sessionId?: string; tmux?: string; status?: string; updatedAt?: string | number };
+      try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
+      if (!j.sessionId || !String(j.tmux ?? '').startsWith(session + ':')) continue;
+      try { process.kill(Number(j.pid), 0); } catch { continue; }   // 끝난 프로세스의 남은 파일
+      const at = Number(j.updatedAt) || 0;
+      if (!best || at > best.at) best = { sid: j.sessionId, status: String(j.status ?? ''), at };
+    }
+  } catch { /* 폴더 없음 */ }
+  return best;
+}
+
 async function tmuxSid(m: ChatMeta): Promise<string> {
+  const info = await getRunTermInfo(m.runId!);
+  const lc = info ? liveClaudeFor(info.session) : null;
+  if (lc && findTranscript(lc.sid)) {
+    if (lc.sid !== m.sid) { m.sid = lc.sid; m.last = ''; const st = tmuxState.get(m.id); if (st) st.mtime = 0; save(); }
+    return lc.sid;
+  }
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, m.runId!)).limit(1);
   let sid = rr[0]?.claudeSessionId ?? '';
   if (!sid || !findTranscript(sid)) {
@@ -430,6 +454,7 @@ async function pollTmux(id: string): Promise<void> {
   const p = await paneInfo(m.runId);
   if (!p) { setState(id, 'error'); return; }
   const c = classify(p.screen);
+  if (c.state === 'idle' && liveClaudeFor(p.info.session)?.status === 'busy') c.state = 'run';
   const hints = screenHints(p.screen); if (hints.length) tmuxHint.set(id, hints);
   const l = live(id);
   l.current = c.current;
