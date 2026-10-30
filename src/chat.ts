@@ -32,8 +32,10 @@ export interface ChatMeta {
   created: number; updated: number; last: string;
   /** tmux 모드: coxpit 세션(run) 안의 바로 그 claude 에 붙는다. 맥 화면과 폰이 같은 대화를 본다 */
   runId?: number;
-  /** 목록 맨 위에 고정 */
+  /** 목록 맨 위에 고정(앱의 즐겨찾기) */
   pinned?: boolean;
+  /** 목록에서 숨김(지우지 않는다. 앱 「숨긴 세션」에 모인다) */
+  hidden?: boolean;
   /** 할 일 체크: 할 일 글(정규화) → 체크한 때(ms). 폰 · 맥 앱이 같이 본다 */
   todos?: Record<string, number>;
 }
@@ -137,10 +139,11 @@ export function createChat(input: { cwd: string; title?: string; model?: string;
   return m;
 }
 
-export function updateChat(id: string, patch: { title?: string; mode?: string; model?: string; pinned?: unknown }): ChatMeta {
+export function updateChat(id: string, patch: { title?: string; mode?: string; model?: string; pinned?: unknown; hidden?: unknown }): ChatMeta {
   const m = getChat(id); if (!m) throw new Error('not found');
   if (patch.title != null) m.title = String(patch.title).trim().slice(0, 80) || m.title;
   if (patch.pinned != null) { if (patch.pinned === true || patch.pinned === 'true') m.pinned = true; else delete m.pinned; }
+  if (patch.hidden != null) { if (patch.hidden === true || patch.hidden === 'true') m.hidden = true; else delete m.hidden; }
   if (patch.model != null) m.model = patch.model.trim();
   if (patch.mode != null && MODES.includes(patch.mode as PermMode)) {
     m.mode = patch.mode as PermMode;
