@@ -37,7 +37,7 @@ export interface ChatMeta {
   /** 목록에서 숨김(지우지 않는다. 앱 「숨긴 세션」에 모인다) */
   hidden?: boolean;
   /** 예약 보내기: 정한 때(ms)에 데몬이 보낸다(앱이 꺼져 있어도) */
-  scheduled?: Array<{ id: string; text: string; at: number }>;
+  scheduled?: Array<{ id: string; text: string; at: number; blocked?: boolean }>;
   /** 할 일 체크: 할 일 글(정규화) → 체크한 때(ms). 폰 · 맥 앱이 같이 본다 */
   todos?: Record<string, number>;
 }
@@ -863,7 +863,15 @@ async function runSchedules(): Promise<void> {
           await sendAny(m.id, x.text);
           void pushNotify({ chatId: m.id, kind: 'done', title: `${m.title} · 예약 보냄`, body: x.text.slice(0, 180) });
         } catch (e) {
-          void pushNotify({ chatId: m.id, kind: 'ask', title: `${m.title} · 예약 못 보냄`, body: `${(e as Error).message} · ${x.text.slice(0, 120)}` });
+          // 질문을 기다리는 중이면 지우지 않고 다시 본다(처음 한 번 알림). 30분 넘게 막히면 접는다
+          const waited = now - x.at;
+          if (e instanceof BlockedError && waited < 30 * 60_000) {
+            m.scheduled = [...(m.scheduled ?? []), { ...x, blocked: true }].sort((a, b) => a.at - b.at);
+            save(); announce(m.id);
+            if (!x.blocked) void pushNotify({ chatId: m.id, kind: 'ask', title: `${m.title} · 예약 대기`, body: `${(e as Error).message} · 풀리면 보낼게요` });
+          } else {
+            void pushNotify({ chatId: m.id, kind: 'ask', title: `${m.title} · 예약 못 보냄`, body: `${(e as Error).message} · ${x.text.slice(0, 120)}` });
+          }
         }
       }
     }
@@ -914,25 +922,40 @@ export async function openTmuxChat(cwd: string, title?: string, create?: boolean
   return m;
 }
 
+/** claude 가 무언가를 묻고 기다리는 중(폴더 믿기 · 허락 · 고르기). 이때 글을 넣고 엔터를 치면 엉뚱한 답이 된다
+ *  — 폴더 믿기는 기본 선택이 「No, exit」라 claude 가 꺼진다(10/30 예약 시험) */
+export class BlockedError extends Error {}
+function blockingPrompt(screen: string): string | null {
+  const tail = screen.split('\n').filter((x) => x.trim()).slice(-14).join('\n');
+  if (/trust this folder|Do you trust the files|one you trust/i.test(tail)) return '폴더 믿기';
+  if (/Do you want to (proceed|make this edit|create|run)|❯\s*1\.\s*Yes|Enter to confirm|Esc to cancel/i.test(tail)) return '확인';
+  return null;
+}
+
 async function tmuxSend(m: ChatMeta, text: string): Promise<void> {
   const p = await paneInfo(m.runId!);
   if (!p) throw new Error('the terminal session is gone');
+  if (!SHELLS.has(p.cmd)) {
+    const b = blockingPrompt(p.screen);
+    if (b) throw new BlockedError(`claude 가 ${b} 질문에 답을 기다려요. 맥에서(또는 앱의 허락 단추로) 먼저 답해 주세요`);
+  }
   const t = shq(p.info.session);
   // claude 가 안 떠 있으면(셸 프롬프트) 먼저 띄운다. coxpit 심이 이 세션의 대화로 잇는다
   if (SHELLS.has(p.cmd)) {
     let flags = m.mode && m.mode !== 'default' ? ` --permission-mode ${m.mode}` : '';
     if (m.sid && findTranscript(m.sid)) flags += ` --resume ${m.sid}`;
     await runShellOn(p.info.machine, `tmux send-keys -t ${t} ${shq('claude' + flags)} Enter`, 8000);
-    let up = false;
+    let up = false, trust = false;
     for (let i = 0; i < 180; i++) {   // 폴더 믿기 질문에 답할 시간까지 90초
       await new Promise((r) => setTimeout(r, 500));
       const q = await paneInfo(m.runId!);
       if (!q) break;
       const last = q.screen.split('\n').filter((x) => x.trim()).slice(-6).join('\n');
       if (SHELLS.has(q.cmd) && i > 6 && /command not found: claude|\$ $|% $/.test(last)) break;   // 안 떴거나 꺼졌다
-      if (/trust this folder|Do you trust the files/i.test(last + q.screen.slice(-1500))) { if (i % 4 === 0) void pollTmux(m.id); continue; }
+      if (/trust this folder|Do you trust the files/i.test(last + q.screen.slice(-1500))) { trust = true; if (i % 4 === 0) void pollTmux(m.id); continue; }
       if (!SHELLS.has(q.cmd) && /for shortcuts|mode on|shift\+tab/i.test(last)) { up = true; break; }
     }
+    if (!up && trust) throw new BlockedError('claude 가 폴더 믿기 질문에 답을 기다려요. 맥에서(또는 앱의 허락 단추로) 먼저 답해 주세요');
     if (!up) { setState(m.id, 'error'); throw new Error('claude did not start in the terminal session. Open it on the Mac to check.'); }
   }
   // 여러 줄도 한 번에: 괄호 붙여넣기(bracketed paste)로 넣고 Enter
@@ -959,6 +982,13 @@ export async function sendAny(id: string, text: string, cid?: string): Promise<v
   }
   if (!m.runId) return sendChat(id, text);
   const t = text.trim(); if (!t) throw new Error('empty');
+  // 질문을 기다리는 중이면 화면에 내 말을 올리기 전에 막는다
+  const pre = await paneInfo(m.runId);
+  const b = pre && !SHELLS.has(pre.cmd) ? blockingPrompt(pre.screen) : null;
+  if (b) {
+    if (cid) recentCids.set(id, (recentCids.get(id) ?? []).filter((c) => c !== cid));   // 「다시 보내기」가 막히지 않게
+    throw new BlockedError(`claude 가 ${b} 질문에 답을 기다려요. 맥에서(또는 앱의 허락 단추로) 먼저 답해 주세요`);
+  }
   emit(id, { t: 'user', text: t, ts: Date.now() });
   touch(id, t); setState(id, 'run'); ensurePolling(id);
   await tmuxSend(m, t);
