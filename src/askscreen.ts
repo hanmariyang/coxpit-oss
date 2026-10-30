@@ -9,6 +9,7 @@
  *
  * 키 순서는 claude 2.1.314 에서 직접 눌러 맞췄다(10/30).
  *  - 하나 고르기: 숫자 하나 → 고르고 다음 질문으로(질문이 하나뿐이면 바로 제출).
+ *    미리보기가 붙은 질문은 숫자가 커서만 옮긴다 → 숫자 · 엔터.
  *  - 여럿 고르기: 숫자 = 체크 켜고 끄기(커서는 안 움직인다). 커서는 1번에서 시작,
  *    ↓ n번 = 「Type something」, ↓ n+1번 = 「Next / Submit」, 거기서 엔터.
  *  - 직접 입력: 하나 고르기는 숫자 n+1 로 그 줄에 간 뒤 글 · 엔터. 여럿 고르기는 ↓ n번 뒤 글(치면 체크된다).
@@ -202,7 +203,8 @@ export function choiceSteps(q: { multiSelect: boolean; options: Array<{ checked?
   const text = (a.text ?? '').replace(/[\r\n]+/g, ' ').trim();
   if (!q.multiSelect) {
     if (text && q.hasOther !== false) return [{ key: String(n + 1) }, { lit: text }, { key: 'Enter' }];
-    if (picks.length) return [{ key: String(picks[0]! + 1) }];
+    // 미리보기가 붙은 질문은 숫자가 커서만 옮긴다(미리보기를 바꾼다). 엔터로 고른다(jellog, 10/30)
+    if (picks.length) return q.hasOther === false ? [{ key: String(picks[0]! + 1) }, { key: 'Enter' }] : [{ key: String(picks[0]! + 1) }];
     return [];
   }
   q.options.forEach((o, i) => { if (!!o.checked !== picks.includes(i)) s.push({ key: String(i + 1) }); });
