@@ -42,6 +42,10 @@ export interface ChoiceScreen {
   typed?: string;
   /** 커서 줄(1부터): 선택지 1..n, 직접 입력 n+1, Next/Submit n+2. 숫자 키는 커서를 안 옮긴다 */
   cursor: number;
+  /** 직접 입력 줄이 있나. 미리보기가 붙은 질문(오른쪽 상자)에는 없고 「n 으로 메모」가 대신 있다 */
+  hasOther: boolean;
+  /** 미리보기 상자: 지금 커서가 있는 선택지의 것 */
+  preview?: string;
 }
 
 /**
@@ -52,7 +56,7 @@ export function parseChoice(screen: string): ChoiceScreen | null {
   const lines = screen.split('\n').map((l) => l.replace(/\s+$/, ''));
   // 아래에서 「Chat about this」 위의 구분선을 찾고, 그 위가 질문 몸통
   let chat = -1;
-  for (let i = lines.length - 1; i >= 0; i--) if (/^\s*\d+\.\s+Chat about this/.test(lines[i]!)) { chat = i; break; }
+  for (let i = lines.length - 1; i >= 0; i--) if (/^\s*(?:\d+\.\s+)?Chat about this/.test(lines[i]!)) { chat = i; break; }
   if (chat < 0) return null;
   let end = chat - 1;
   while (end >= 0 && !RULE.test(lines[end]!)) end--;
@@ -70,7 +74,26 @@ export function parseChoice(screen: string): ChoiceScreen | null {
   } else {
     const m = /^\s*([☐☒✔])\s+(.+)$/.exec(hl); if (m) tabs.push({ label: m[2]!.trim(), done: m[1] === '☒' });
   }
-  const body = lines.slice(head + 1, end).filter((l) => l.trim());
+  // 미리보기 상자(오른쪽)를 떼어 낸다: 선택지 줄 뒤에 붙은 ┌│└ 부터, 상자만 있는 줄은 통째로
+  const raw = lines.slice(head + 1, end);
+  const hasPreview = raw.some((l) => /\S\s{2,}┌─/.test(l)) || /Notes: press n/i.test(raw.join('\n'));
+  let preview: string[] = [];
+  const body: string[] = [];
+  for (const l of raw) {
+    if (!l.trim() || /^\s*Notes: press n/i.test(l)) continue;
+    const q = /^│\s?(.*)$/.exec(l);                       // 질문 글: 줄 앞 │
+    if (q && !hasPreview) { body.push(q[1]!); continue; }
+    if (q && /^│ /.test(l) && !/[┌└│]\s*$/.test(l)) { body.push(q[1]!); continue; }
+    if (hasPreview && /^\s*[┌│└]/.test(l)) { preview.push(l.trim().replace(/^[│┌└]\s?|\s?[│┐┘]$/g, '').replace(/[─]{3,}/g, '').trimEnd()); continue; }   // 상자만 있는 줄
+    const m = /^(.*?\S)?(\s{2,})([┌│└].*)$/.exec(l);
+    if (hasPreview && m && /[┌│└]/.test(m[3]!.charAt(0))) {
+      preview.push(m[3]!.replace(/^[│┌└]\s?|\s?[│┐┘]$/g, '').replace(/[─]{3,}/g, '').trimEnd());
+      if (m[1]?.trim()) body.push(m[1]!);
+      continue;
+    }
+    body.push(l);
+  }
+  preview = preview.filter((x) => x.replace(/[\s┌┐└┘│─]/g, ''));
   const qLines: string[] = [];
   let i = 0;
   while (i < body.length && !OPT.test(body[i]!)) qLines.push(body[i++]!.trim());
@@ -84,15 +107,18 @@ export function parseChoice(screen: string): ChoiceScreen | null {
       const box = /^\[( |✔)\]\s+(.*)$/.exec(m[2]!);
       if (box) multi = true;
       opts.push({ label: (box ? box[2]! : m[2]!).trim(), checked: box ? box[1] === '✔' : undefined });
+    } else if (opts.length && hasPreview && /^\s{3,}\S/.test(body[i]!)) {
+      const o = opts[opts.length - 1]!; o.label += ' ' + body[i]!.trim();   // 미리보기 질문은 긴 이름이 다음 줄로 꺾인다
     } else if (opts.length && /^\s{4,}\S/.test(body[i]!) && !/^\s*(Next|Submit)\s*$/.test(body[i]!)) {
       const o = opts[opts.length - 1]!; o.description = ((o.description ? o.description + ' ' : '') + body[i]!.trim());
     }
   }
   if (opts.length < 2) return null;
-  // 마지막 번호 줄은 「Type something」(직접 입력) 줄이다
-  const other = opts.pop()!;
-  const typed = /^Type something\.?$/.test(other.label) ? undefined : other.label;
-  return { tabs, question: qLines.join(' '), multiSelect: multi, options: opts, typed, cursor };
+  // 마지막 번호 줄은 「Type something」(직접 입력) 줄이다. 미리보기 질문에는 없다
+  let typed: string | undefined;
+  if (!hasPreview) { const other = opts.pop()!; typed = /^Type something\.?$/.test(other.label) ? undefined : other.label; }
+  return { tabs, question: qLines.join(' '), multiSelect: multi, options: opts, typed, cursor, hasOther: !hasPreview,
+    preview: preview.length ? preview.join('\n').replace(/^\n+|\n+$/g, '') : undefined };
 }
 
 /** 탭 줄 원문(색 코드 포함, capture-pane -e)에서 지금 질문 번호. 배경색이 칠해진 칸이 지금 것 */
@@ -169,13 +195,13 @@ export type Step = { key: string } | { lit: string };
  * 지금 질문 하나에 대한 답 → 키 순서. picks 는 0부터.
  * 여럿 고르기는 화면의 체크 상태(checked)에서 출발해 바뀌어야 할 것만 누른다.
  */
-export function choiceSteps(q: { multiSelect: boolean; options: Array<{ checked?: boolean }>; cursor?: number }, a: ChoiceAnswer): Step[] {
+export function choiceSteps(q: { multiSelect: boolean; options: Array<{ checked?: boolean }>; cursor?: number; hasOther?: boolean }, a: ChoiceAnswer): Step[] {
   const s: Step[] = [];
   const n = q.options.length;
   const picks = [...new Set((a.picks ?? []).filter((p) => Number.isInteger(p) && p >= 0 && p < n))];
   const text = (a.text ?? '').replace(/[\r\n]+/g, ' ').trim();
   if (!q.multiSelect) {
-    if (text) return [{ key: String(n + 1) }, { lit: text }, { key: 'Enter' }];
+    if (text && q.hasOther !== false) return [{ key: String(n + 1) }, { lit: text }, { key: 'Enter' }];
     if (picks.length) return [{ key: String(picks[0]! + 1) }];
     return [];
   }

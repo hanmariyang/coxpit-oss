@@ -51,7 +51,7 @@ interface Ask {
   kind?: 'approve' | 'trust' | 'choice' | 'menu' | 'keys';
   /** choice: 지금 화면의 질문 하나. tabs = 질문이 여럿일 때 머리들, tab = 지금 몇 번째(0부터) */
   question?: string; multiSelect?: boolean; choices?: Array<QOption & { checked?: boolean }>; typed?: string;
-  tabs?: Array<{ label: string; done: boolean }>; tab?: number; cursor?: number;
+  tabs?: Array<{ label: string; done: boolean }>; tab?: number; cursor?: number; hasOther?: boolean; preview?: string;
   title?: string; body?: string; options?: MenuOption[];
   screen?: string;
 }
@@ -577,7 +577,7 @@ function classify(screen: string): { state: ChatState; ask?: Ask; current: strin
   if (sa?.kind === 'choice') {
     const id = 'q-' + hashOf(sa.question + '|' + sa.options.map((o) => o.label).join('|'));
     return { state: 'ask', ask: { id, kind: 'choice', tool: 'Question', input: null, summary: sa.question, ts: Date.now(),
-      question: sa.question, multiSelect: sa.multiSelect, choices: sa.options, typed: sa.typed, tabs: sa.tabs, tab: 0, cursor: sa.cursor }, current: sa.question };
+      question: sa.question, multiSelect: sa.multiSelect, choices: sa.options, typed: sa.typed, tabs: sa.tabs, tab: 0, cursor: sa.cursor, hasOther: sa.hasOther, preview: sa.preview }, current: sa.question };
   }
   if (sa?.kind === 'menu') {
     const id = 'menu-' + hashOf(sa.title + '|' + sa.options.map((o) => o.label).join('|') + '|' + sa.body);
@@ -1058,9 +1058,9 @@ async function currentAsk(id: string): Promise<Ask | undefined> {
  * 객관식 · 번호 메뉴에 앱이 고른 답을 넣는다. 객관식은 지금 화면의 질문 하나씩이다(앱도 한 질문씩 보인다).
  */
 export async function answerTmux(id: string, askId: string, b: { pick?: number; text?: string; answers?: ChoiceAnswer[]; move?: 'next' | 'prev' | 'close' }): Promise<{ ok: boolean; via?: 'keys' | 'text'; error?: string }> {
-  const m = getChat(id); if (!m?.runId) return { ok: false, error: 'not a terminal chat' };
+  const m = getChat(id); if (!m?.runId) return { ok: false, error: '터미널 대화가 아니에요' };
   const a = await currentAsk(id);
-  if (!a || a.id !== askId) return { ok: false, error: 'the question is gone or changed' };
+  if (!a || a.id !== askId) return { ok: false, error: '질문이 바뀌었거나 사라졌어요. 다시 열어 주세요' };
   const done = () => {
     const st = tmuxState.get(id); if (st) st.ask = undefined;
     lives.get(id)?.asks.clear();   // 다음 질문이 읽히기 전까지 옛 카드를 내주지 않는다
@@ -1068,7 +1068,7 @@ export async function answerTmux(id: string, askId: string, b: { pick?: number; 
   };
   if (a.kind === 'menu') {
     const n = Number(b.pick);
-    if (!a.options?.some((o) => o.n === n)) return { ok: false, error: 'no such option' };
+    if (!a.options?.some((o) => o.n === n)) return { ok: false, error: '없는 선택지예요' };
     const steps: Step[] = [{ key: String(n) }];
     const text = (b.text ?? '').replace(/[\r\n]+/g, ' ').trim();
     if (text) steps.push({ lit: text }, { key: 'Enter' });
@@ -1081,9 +1081,9 @@ export async function answerTmux(id: string, askId: string, b: { pick?: number; 
     if (b.move === 'next') steps = [{ key: 'Right' }];
     else if (b.move === 'prev') steps = [{ key: 'Left' }];
     else if (b.move === 'close') steps = [{ key: 'Escape' }];
-    else steps = choiceSteps({ multiSelect: !!a.multiSelect, options: a.choices, cursor: a.cursor }, (b.answers ?? [])[0] ?? {});
-    if (!steps.length) return { ok: false, error: 'pick something' };
-    if (!(await tmuxSteps(m, steps))) return { ok: false, error: 'send failed' };
+    else steps = choiceSteps({ multiSelect: !!a.multiSelect, options: a.choices, cursor: a.cursor, hasOther: a.hasOther }, (b.answers ?? [])[0] ?? {});
+    if (!steps.length) return { ok: false, error: '고른 것이 없어요' };
+    if (!(await tmuxSteps(m, steps))) return { ok: false, error: '키를 못 보냈어요' };
     // 넘어갔는지 화면으로 본다. 마지막 질문이면 답 확인 화면이 뜬다 → 제출(앱에서 이미 다 골랐다)
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 300));
@@ -1094,7 +1094,7 @@ export async function answerTmux(id: string, askId: string, b: { pick?: number; 
     }
     return { ok: false, error: '키가 안 먹었어요. 터미널 키로 답해 주세요' };
   }
-  return { ok: false, error: 'this question takes allow/deny or keys' };
+  return { ok: false, error: '이 질문은 허락 · 거절이나 터미널 키로 답해요' };
 }
 
 /** 비상구: 앱 키패드가 누른 키(정해 둔 것만)와 글 */
