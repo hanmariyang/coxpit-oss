@@ -20,7 +20,7 @@ import { db } from './db';
 import { agentRuns } from './db/schema';
 import { eq } from 'drizzle-orm';
 import { runShellOn, shq } from './exec';
-import { getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
+import { cleanupRun, getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
 import { pushNotify } from './push';
 
 export type ChatState = 'idle' | 'run' | 'ask' | 'error' | 'gone';
@@ -67,6 +67,11 @@ const lives = new Map<string, Live>();
 function load(): ChatMeta[] {
   try { const j = JSON.parse(fs.readFileSync(storePath(), 'utf8')); return Array.isArray(j) ? j : []; } catch { return []; }
 }
+// 앱에서 지운 coxpit 세션(run). 맞추기(syncSessions)가 다시 데려오지 않게 기억한다
+const dismissPath = (): string => path.join(path.dirname(storePath()), 'chats-dismissed.json');
+const dismissed = new Set<number>((() => { try { return JSON.parse(fs.readFileSync(dismissPath(), 'utf8')) as number[]; } catch { return []; } })());
+function saveDismissed(): void { try { fs.writeFileSync(dismissPath(), JSON.stringify([...dismissed].slice(-2000))); } catch { /* 다음에 */ } }
+
 function save(): void {
   try { fs.writeFileSync(storePath(), JSON.stringify(metas, null, 1)); } catch (e) { console.warn('[coxpit] chats.json write failed', e); }
 }
@@ -482,6 +487,21 @@ export function closeChat(id: string): void {
   setState(id, 'idle');
 }
 
+/** 앱의 「세션 지우기」: 목록에서 빼고 다시 안 데려온다. 폴더에서 연 세션(가지 없음)은 그 터미널도 닫는다
+ *  (claude 대화 기록은 맥에 남아 「최근 클로드 대화 이어 열기」로 다시 열 수 있다). 격리 작업 폴더(가지 있음)의 run 은
+ *  목록에서만 뺀다 — 그 폴더를 지우는 건 맥 coxpit 화면의 몫이다 */
+export async function deleteChat(id: string): Promise<boolean> {
+  const m = getChat(id); if (!m) return false;
+  if (m.runId) {
+    dismissed.add(m.runId); saveDismissed();
+    try {
+      const r = (await db.select().from(agentRuns).where(eq(agentRuns.id, m.runId)).limit(1))[0];
+      if (r && !r.branch) await cleanupRun(m.runId);
+    } catch { /* 터미널 정리는 덤 */ }
+  }
+  return removeChat(id);
+}
+
 export function removeChat(id: string): boolean {
   closeChat(id); lives.delete(id);
   const n = metas.length; metas = metas.filter((m) => m.id !== id); save();
@@ -798,6 +818,7 @@ export function startTmuxWatch(): void {
 }
 
 export async function adoptRun(runId: number, title?: string): Promise<ChatMeta> {
+  if (dismissed.delete(runId)) saveDismissed();   // 다시 넘겨 받으면 지운 표시를 푼다(맞추기는 지운 것을 안 넘긴다)
   const ex = metas.find((m) => m.runId === runId);
   if (ex) return ex;
   const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
@@ -909,7 +930,7 @@ export function syncSessions(): Promise<void> {
       const ts = await db.select().from(tasks);
       const title = new Map(ts.map((t) => [t.id, t.title]));
       const openTasks = new Set(ts.filter((t) => t.status === 'open').map((t) => t.id));
-      const open = rows.filter((r) => r.tmuxWindow && openTasks.has(r.taskId));
+      const open = rows.filter((r) => r.tmuxWindow && openTasks.has(r.taskId) && !dismissed.has(r.id));
       const openIds = new Set(open.map((r) => r.id));
       for (const r of open) if (!metas.some((m) => m.runId === r.id)) {
         try { await adoptRun(r.id, r.title || title.get(r.taskId) || undefined); } catch { /* 터미널 없음 */ }

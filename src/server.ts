@@ -22,7 +22,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { setTodo, searchChats, recentClaude } from './chat';
+import { setTodo, searchChats, recentClaude, deleteChat } from './chat';
 import { usage } from './usage';
 import { pushStatus, registerDevice, pushNotify } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
@@ -1960,7 +1960,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.post('/api/chats/:id/interrupt', async (req) => ({ ok: await interruptAny((req.params as { id: string }).id) }));
   app.post('/api/chats/:id/close', async (req) => { closeChat((req.params as { id: string }).id); return { ok: true }; });
   app.delete('/api/chats/:id', async (req, reply) =>
-    removeChat((req.params as { id: string }).id) ? { ok: true } : reply.code(404).send({ error: 'not found' }));
+    (await deleteChat((req.params as { id: string }).id)) ? { ok: true } : reply.code(404).send({ error: 'not found' }));
   // 넘겨 받을 수 있는 coxpit 세션 — claude 세션 id 가 붙은 열린 run
   app.get('/api/chats-candidates', async () => {
     const rows = await db.select().from(agentRuns);
