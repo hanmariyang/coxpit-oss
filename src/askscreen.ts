@@ -22,7 +22,7 @@ export interface MenuOption { n: number; label: string }
 
 export type ScreenAsk =
   | ({ kind: 'choice' } & ChoiceScreen)
-  | { kind: 'menu'; title: string; body: string; options: MenuOption[] }
+  | { kind: 'menu'; title: string; body: string; options: MenuOption[]; select?: boolean; cursor?: number }
   | { kind: 'keys'; screen: string };
 
 const OPT = /^\s*(?:❯\s*)?(\d{1,2})\.\s+(.+?)\s*$/;
@@ -175,6 +175,33 @@ function clean(l: string): string {
   return l.replace(/^[\s│╭╰╮╯]+|[\s│╭╰╮╯]+$/g, '');
 }
 
+/**
+ * 번호 없는 고르기(「Enter to confirm」): 새 MCP 서버 쓰기 · 폴더 믿기 같은 것.
+ *   New MCP server found in this project: demo
+ *   …
+ *     Use this MCP server
+ *   ❯ Continue without using this MCP server
+ *   Enter to confirm · Esc to cancel
+ * 선택지는 커서(❯) 줄의 글이 시작하는 칸과 같은 칸에서 시작하는 줄들이다. 답은 ↑↓ 로 옮기고 엔터.
+ */
+export function parseSelect(lines: string[]): { title: string; body: string; options: MenuOption[]; cursor: number } | null {
+  let foot = -1;
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 6); i--) if (/Enter to confirm/i.test(lines[i]!)) { foot = i; break; }
+  if (foot < 0) return null;
+  const cur = lines.slice(0, foot).map((l, i) => ({ l, i })).reverse().find((x) => /^\s*❯\s+\S/.test(x.l));
+  if (!cur) return null;
+  const col = cur.l.indexOf('❯') + (/^\s*❯(\s+)/.exec(cur.l)![1]!.length) + 1;
+  const isOpt = (l: string) => /^\s*❯\s/.test(l) || (l.length > col && /^\s+$/.test(l.slice(0, col)) && l[col] !== ' ');
+  let a = foot - 1; while (a >= 0 && !isOpt(lines[a]!)) a--;
+  const opts: string[] = []; let i = a;
+  for (; i >= 0 && isOpt(lines[i]!); i--) opts.unshift(lines[i]!.replace(/^\s*❯?\s*/, '').trim());
+  if (opts.length < 2) return null;
+  const ci = opts.findIndex((_, k) => /^\s*❯/.test(lines[i + 1 + k]!));
+  const head: string[] = [];
+  for (let t = i; t >= 0 && head.length < 8; t--) { const l = lines[t]!; if (!l.trim() || RULE.test(l) || /^\s*❯\s/.test(l)) break; head.unshift(clean(l)); }
+  return { title: head[0] ?? '', body: head.slice(1).join(' '), options: opts.map((label, k) => ({ n: k + 1, label })), cursor: ci + 1 };
+}
+
 /** classify 가 trust · 「Do you want to」 를 본 뒤에 부른다. 막힌 화면이 아니면 null */
 export function screenAsk(screen: string, blocked: boolean): ScreenAsk | null {
   const lines = screen.split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim());
@@ -184,6 +211,8 @@ export function screenAsk(screen: string, blocked: boolean): ScreenAsk | null {
   if (isChoiceScreen(tailS)) { const c = parseChoice(lines.slice(-60).join('\n')); if (c) return { kind: 'choice', ...c }; }
   const menu = parseMenu(tail.filter((l) => !/^\s*(Enter to|ctrl\+g|Esc to|shift\+tab to approve)/i.test(l)));
   if (menu) return { kind: 'menu', ...menu };
+  const sel = parseSelect(tail);
+  if (sel) return { kind: 'menu', ...sel, select: true };
   if (blocked) return { kind: 'keys', screen: lines.slice(-20).join('\n') };
   return null;
 }

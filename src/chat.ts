@@ -52,7 +52,7 @@ interface Ask {
   /** choice: 지금 화면의 질문 하나. tabs = 질문이 여럿일 때 머리들, tab = 지금 몇 번째(0부터) */
   question?: string; multiSelect?: boolean; choices?: Array<QOption & { checked?: boolean }>; typed?: string;
   tabs?: Array<{ label: string; done: boolean }>; tab?: number; cursor?: number; hasOther?: boolean; preview?: string;
-  title?: string; body?: string; options?: MenuOption[];
+  title?: string; body?: string; options?: MenuOption[]; select?: boolean;
   screen?: string;
 }
 
@@ -608,7 +608,7 @@ function classify(screen: string): { state: ChatState; ask?: Ask; current: strin
   }
   if (sa?.kind === 'menu') {
     const id = 'menu-' + hashOf(sa.title + '|' + sa.options.map((o) => o.label).join('|') + '|' + sa.body);
-    return { state: 'ask', ask: { id, kind: 'menu', tool: 'Menu', input: null, summary: sa.title || sa.options.map((o) => o.label).join(' · '), ts: Date.now(), title: sa.title, body: sa.body, options: sa.options }, current: sa.title };
+    return { state: 'ask', ask: { id, kind: 'menu', tool: 'Menu', input: null, summary: sa.title || sa.options.map((o) => o.label).join(' · '), ts: Date.now(), title: sa.title, body: sa.body, options: sa.options, select: sa.select, cursor: sa.cursor }, current: sa.title };
   }
   if (sa?.kind === 'keys') {
     return { state: 'ask', ask: { id: 'keys-' + hashOf(sa.screen), kind: 'keys', tool: 'Keys', input: null, summary: '터미널에서 입력을 기다려요', ts: Date.now(), screen: sa.screen }, current: 'waiting for input' };
@@ -1007,16 +1007,17 @@ async function tmuxSend(m: ChatMeta, text: string): Promise<void> {
     if (m.sid && findTranscript(m.sid)) flags += ` --resume ${m.sid}`;
     await runShellOn(p.info.machine, `tmux send-keys -t ${t} ${shq('claude' + flags)} Enter`, 8000);
     let up = false, trust = false;
-    for (let i = 0; i < 180; i++) {   // 폴더 믿기 질문에 답할 시간까지 90초
+    for (let i = 0; i < 600; i++) {   // 폴더 믿기 · 새 MCP 서버 같은 질문에 앱 카드로 답할 시간까지 5분
       await new Promise((r) => setTimeout(r, 500));
       const q = await paneInfo(m.runId!);
       if (!q) break;
       const last = q.screen.split('\n').filter((x) => x.trim()).slice(-6).join('\n');
       if (SHELLS.has(q.cmd) && i > 6 && /command not found: claude|\$ $|% $/.test(last)) break;   // 안 떴거나 꺼졌다
       if (/trust this folder|Do you trust the files/i.test(last + q.screen.slice(-1500))) { trust = true; if (i % 4 === 0) void pollTmux(m.id); continue; }
+      if (!SHELLS.has(q.cmd) && blockingPrompt(q.screen)) { trust = true; if (i % 4 === 0) void pollTmux(m.id); continue; }   // MCP 등: 카드로 답하기를 기다린다
       if (!SHELLS.has(q.cmd) && /for shortcuts|mode on|shift\+tab/i.test(last)) { up = true; break; }
     }
-    if (!up && trust) throw new BlockedError('claude 가 폴더 믿기 질문에 답을 기다려요. 맥에서(또는 앱의 허락 단추로) 먼저 답해 주세요');
+    if (!up && trust) throw new BlockedError('claude 가 시작 질문(폴더 믿기 · MCP 등)에 답을 기다려요. 앱 카드로 먼저 답해 주세요');
     if (!up) { setState(m.id, 'error'); throw new Error('claude did not start in the terminal session. Open it on the Mac to check.'); }
   }
   // 여러 줄도 한 번에: 괄호 붙여넣기(bracketed paste)로 넣고 Enter
@@ -1096,9 +1097,12 @@ export async function answerTmux(id: string, askId: string, b: { pick?: number; 
   if (a.kind === 'menu') {
     const n = Number(b.pick);
     if (!a.options?.some((o) => o.n === n)) return { ok: false, error: '없는 선택지예요' };
-    const steps: Step[] = [{ key: String(n) }];
+    // 번호 없는 고르기는 커서를 옮겨 엔터, 번호 메뉴는 숫자
+    const steps: Step[] = a.select
+      ? [...Array(Math.abs(n - (a.cursor ?? 1))).fill({ key: n > (a.cursor ?? 1) ? 'Down' : 'Up' }), { key: 'Enter' }]
+      : [{ key: String(n) }];
     const text = (b.text ?? '').replace(/[\r\n]+/g, ' ').trim();
-    if (text) steps.push({ lit: text }, { key: 'Enter' });
+    if (text && !a.select) steps.push({ lit: text }, { key: 'Enter' });
     const ok = await tmuxSteps(m, steps);
     if (ok) done();
     return { ok, via: 'keys' };
