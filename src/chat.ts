@@ -820,7 +820,8 @@ export async function openTmuxChat(cwd: string, title?: string, create?: boolean
   }
   const open = (await db.select().from(agentRuns)).filter((x) => x.worktreePath === dir && x.tmuxWindow && x.status !== 'closed');
   const ex = open.sort((a, b) => b.id - a.id)[0];
-  if (ex && (await getRunTermInfo(ex.id))) return adoptRun(ex.id, title || path.basename(dir));
+  // 이전 대화를 잇는 거면 그 폴더에 열린 세션이 있어도 새로 연다(있는 세션은 다른 대화다)
+  if (ex && !resumeSid && (await getRunTermInfo(ex.id))) return adoptRun(ex.id, title || path.basename(dir));
   const r = await openSessionAt('local', dir, title || path.basename(dir));
   if (!r.ok || !r.runId) throw new Error(r.detail || 'could not open a session');
   const m = await adoptRun(r.runId, title || path.basename(dir));
