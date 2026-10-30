@@ -41,6 +41,8 @@ export interface ChatMeta {
   scheduled?: Array<{ id: string; text: string; at: number; blocked?: boolean }>;
   /** 할 일 체크: 할 일 글(정규화) → 체크한 때(ms). 폰 · 맥 앱이 같이 본다 */
   todos?: Record<string, number>;
+  /** 알림 없음: 시험용으로 연 대화(데몬 푸시 · 앱 알림 둘 다 건넌다) */
+  quiet?: boolean;
 }
 export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number; /** 마지막 도구 뒤에 쓴 글(= 끝 보고). 알림 · 목록 한 줄에 쓴다 */ final?: string }
 export interface ToolUse { name: string; summary: string }
@@ -156,11 +158,12 @@ export function createChat(input: { cwd: string; title?: string; model?: string;
   return m;
 }
 
-export function updateChat(id: string, patch: { title?: string; mode?: string; model?: string; pinned?: unknown; hidden?: unknown }): ChatMeta {
+export function updateChat(id: string, patch: { title?: string; mode?: string; model?: string; pinned?: unknown; hidden?: unknown; quiet?: unknown }): ChatMeta {
   const m = getChat(id); if (!m) throw new Error('not found');
   if (patch.title != null) m.title = String(patch.title).trim().slice(0, 80) || m.title;
   if (patch.pinned != null) { if (patch.pinned === true || patch.pinned === 'true') m.pinned = true; else delete m.pinned; }
   if (patch.hidden != null) { if (patch.hidden === true || patch.hidden === 'true') m.hidden = true; else delete m.hidden; }
+  if (patch.quiet != null) { if (patch.quiet === true || patch.quiet === 'true') m.quiet = true; else delete m.quiet; }
   if (patch.model != null) m.model = patch.model.trim();
   if (patch.mode != null && MODES.includes(patch.mode as PermMode)) {
     m.mode = patch.mode as PermMode;
@@ -677,7 +680,7 @@ async function tmuxSid(m: ChatMeta): Promise<string> {
 // ── 알림: 끝남 · 물어봄 → 폰 푸시(push.ts). 앱이 켜져 있으면 앱이 직접 띄우고 이건 앱이 화면에 안 보인다 ──
 const finishTimers = new Map<string, NodeJS.Timeout>();
 function onStateChange(id: string, prev: ChatState, s: ChatState): void {
-  const m = getChat(id); if (!m) return;
+  const m = getChat(id); if (!m || m.quiet) return;
   if (s === 'ask' && prev !== 'ask') {
     const a = [...(lives.get(id)?.asks.values() ?? [])][0];
     void pushNotify({ chatId: id, kind: 'ask', title: `${m.title} · 물어봄`, body: a?.summary || '허락을 기다려요' });

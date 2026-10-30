@@ -25,7 +25,7 @@ import { runShellOn, shq } from './exec';
 import { setTodo, searchChats, recentClaude, deleteChat, addSchedule, removeSchedule } from './chat';
 import { usage } from './usage';
 import { versionInfo, selfUpdate } from './selfupdate';
-import { pushStatus, registerDevice, pushNotify } from './push';
+import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
 import type { ChoiceAnswer } from './askscreen';
 import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
@@ -1875,13 +1875,21 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/ws', { websocket: true }, (socket) => {
     addSink(socket);
     socket.send(JSON.stringify({ type: 'hello', name: 'coxpit-fleet', version: config.version }));
-    socket.on('close', () => removeSink(socket));
+    socket.send(JSON.stringify({ type: 'presence', active: activeDevice() }));
+    socket.on('message', (raw: Buffer) => {
+      let m: { type?: string; active?: boolean; name?: string };
+      try { m = JSON.parse(String(raw)); } catch { return; }
+      if (m.type !== 'presence') return;
+      setPresence(socket, m);
+      broadcast({ type: 'presence', active: activeDevice() });
+    });
+    socket.on('close', () => { removeSink(socket); setPresence(socket, null); broadcast({ type: 'presence', active: activeDevice() }); });
   });
 
   // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
   app.get('/api/chats', async () => { void syncSessions(); return { chats: listChats() }; });   // 맞추기는 뒤에서(목록은 바로)
   app.post('/api/chats', async (req, reply) => {
-    const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string };
+    const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string; quiet?: boolean };
     try {
       // 맥에서 쓰던 coxpit 세션에 붙기 · 아니면 그 폴더에 새 coxpit 세션을 열고 붙기(둘 다 tmux 안의 claude 하나)
       if (b.runId != null) {
@@ -1891,7 +1899,8 @@ export async function buildServer(): Promise<FastifyInstance> {
         return reply.code(201).send({ chat: await adoptRun(r.id, b.title || r.title || tk[0]?.title || undefined) });
       }
       if (!b.cwd) return reply.code(400).send({ error: 'cwd required' });
-      return reply.code(201).send({ chat: await openTmuxChat(b.cwd, b.title, b.create === true, b.resume) });
+      const c = await openTmuxChat(b.cwd, b.title, b.create === true, b.resume);
+      return reply.code(201).send({ chat: b.quiet === true ? updateChat(c.id, { quiet: true }) : c });
     } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
   app.get('/api/chats/:id', async (req, reply) => {

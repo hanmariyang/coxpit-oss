@@ -15,7 +15,7 @@ const dataDir = (): string => path.dirname(path.resolve(process.env.COXPIT_DB ||
 const apnsDir = (): string => path.join(dataDir(), 'apns');
 const tokensPath = (): string => path.join(dataDir(), 'push-tokens.json');
 
-export interface Device { token: string; env: 'sandbox' | 'production'; topic: string; name?: string; at: number }
+export interface Device { token: string; env: 'sandbox' | 'production'; topic: string; name?: string; device?: string; at: number }
 
 function loadDevices(): Device[] {
   try { return JSON.parse(fs.readFileSync(tokensPath(), 'utf8')) as Device[]; } catch { return []; }
@@ -24,14 +24,16 @@ function saveDevices(d: Device[]): void {
   fs.writeFileSync(tokensPath(), JSON.stringify(d, null, 2), { mode: 0o600 });
 }
 
-export function registerDevice(input: { token?: string; env?: string; topic?: string; name?: string }): Device {
+export function registerDevice(input: { token?: string; env?: string; topic?: string; name?: string; device?: string }): Device {
   const token = String(input.token ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
   if (token.length < 32 || token.length > 200) throw new Error('token required');
   const topic = String(input.topic ?? '').trim();
   if (!/^[\w.-]+$/.test(topic)) throw new Error('topic required');
-  const d: Device = { token, env: input.env === 'production' ? 'production' : 'sandbox', topic, name: input.name ? String(input.name).slice(0, 60) : undefined, at: Date.now() };
+  const d: Device = { token, env: input.env === 'production' ? 'production' : 'sandbox', topic, name: input.name ? String(input.name).slice(0, 60) : undefined, device: input.device ? String(input.device).slice(0, 64) : undefined, at: Date.now() };
   // 같은 기기(이름 · 앱)가 다시 등록하면 옛 토큰은 뺀다 — 설치 페이지 판 → TestFlight 판으로 바꾸면 토큰이 둘이 돼 같은 알림이 두 번 갔다
-  const all = loadDevices().filter((x) => x.token !== token && !(d.name && x.name === d.name && x.topic === topic));
+  // 기기 id 가 오면 그것으로만 가린다(iOS 이름은 「iPad」 같은 모델 이름이라 두 대를 못 가른다). 옛 앱은 이름으로
+  const same = (x: Device) => x.topic === topic && (d.device ? x.device === d.device || (!x.device && x.name === d.name) : !!d.name && x.name === d.name);
+  const all = loadDevices().filter((x) => x.token !== token && !same(x));
   all.push(d); saveDevices(all.slice(-20));
   return d;
 }
@@ -90,8 +92,25 @@ function send(k: Key, d: Device, payload: object, collapse?: string): Promise<{ 
   });
 }
 
+// 지금 앱을 쓰고 있는 기기: 그 기기가 알림을 직접 띄우니 다른 기기로는 푸시하지 않는다(10/31 오너 「무분별한 알림으로 피로도」).
+// 앱이 /ws 로 {type:'presence', active} 를 보낸다: 앞으로 올 때 · 대화를 열 때 · 보낼 때 true, 뒤로 갈 때 false.
+// 맥 앱은 앞에 띄워 둔 채 자리를 비울 수 있어서, 마지막 손길 10분 뒤에는 쓰는 중으로 치지 않는다.
+const ACTIVE_MS = 10 * 60 * 1000;
+const presence = new Map<object, { name: string; at: number; active: boolean }>();
+export function setPresence(socket: object, p: { name?: string; active?: boolean } | null): void {
+  if (!p) { presence.delete(socket); return; }
+  presence.set(socket, { name: String(p.name ?? '').slice(0, 60) || '앱', at: Date.now(), active: p.active === true });
+}
+/** 쓰는 중인 기기 이름(없으면 null) */
+export function activeDevice(): string | null {
+  for (const p of presence.values()) if (p.active && Date.now() - p.at < ACTIVE_MS) return p.name;
+  return null;
+}
+
 export async function pushNotify(n: { chatId: string; kind: 'done' | 'ask' | 'test'; title: string; body: string }): Promise<Array<{ name: string; status: number; reason?: string }>> {
   const k = loadKey(); if (!k) return [];
+  const using = n.kind === 'test' ? null : activeDevice();
+  if (using) { logPush(n, [{ name: `건넘(${using} 쓰는 중)`, status: 0 }]); return []; }
   const devices = loadDevices(); if (!devices.length) return [];
   const payload = {
     aps: { alert: { title: n.title.slice(0, 120), body: n.body.slice(0, 240) }, sound: 'default', 'thread-id': n.chatId },
