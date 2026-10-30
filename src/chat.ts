@@ -796,9 +796,24 @@ function liveText(screen: string): string {
   if (start < 0) return '';
   let end = lines.length;
   for (let i = lines.length - 1; i >= start; i--) if (/^─{10,}/.test(lines[i]!.trim())) end = i;
-  return lines.slice(start, end).map((x) => x.replace(/\s+$/, ''))
-    .filter((x) => !/esc to interrupt|\/effort|shift\+tab|^\s*[✻✶✳✢·*◐◑◒◓⏵]\s/.test(x)).join('\n')
-    .replace(/\n{3,}/g, '\n\n').trim().slice(-4000);
+  // 화면은 ⏺ 로 시작하는 덩어리들이다. claude 가 쓴 글 덩어리만 남긴다 —
+  // 도구 덩어리(⏺ Bash(…) · 설명 줄 + ⎿ 출력), 상태 줄(✻ · ✔ Update installed · (ctrl+b …))은 대화 글이 아니다(오너 「맥 화면 정리」 10/30)
+  const blocks: string[][] = [];
+  let cur: string[] | null = null;
+  for (const raw of lines.slice(start, end)) {
+    const x = raw.replace(/\s+$/, '');
+    if (/^(⏺|●)\s/.test(x)) { cur = [x.replace(/^(⏺|●)\s+/, '')]; blocks.push(cur); continue; }
+    if (cur && (x === '' || /^\s{2}/.test(x))) { cur.push(x.replace(/^\s{2}/, '')); continue; }
+    cur = null;   // 덩어리 밖(상태 줄 · 안내 줄)
+  }
+  const prose = blocks.filter((b) => {
+    const head = b[0] ?? '';
+    if (/^[A-Z][\w-]*\(/.test(head)) return false;                     // Bash( · Read( · Update( …
+    if (b.some((l) => /^\s*⎿/.test(l))) return false;                   // 도구 출력이 붙은 덩어리
+    if (/·\s*\d+(\.\d+)?[sm]\b|\(ctrl\+/.test(head)) return false;      // 도는 중인 도구 설명 줄
+    return true;
+  }).map((b) => b.join('\n').trim()).filter(Boolean);
+  return prose.join('\n\n').replace(/\n{3,}/g, '\n\n').trim().slice(-4000);
 }
 
 function ensurePolling(id: string): void {
