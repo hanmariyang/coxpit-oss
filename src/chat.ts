@@ -39,7 +39,7 @@ export interface ChatMeta {
   /** 할 일 체크: 할 일 글(정규화) → 체크한 때(ms). 폰 · 맥 앱이 같이 본다 */
   todos?: Record<string, number>;
 }
-export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number }
+export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number; /** 마지막 도구 뒤에 쓴 글(= 끝 보고). 알림 · 목록 한 줄에 쓴다 */ final?: string }
 export interface ToolUse { name: string; summary: string }
 export interface SubAgent { id: string; desc: string; started: number; updated: number; current: string; running: boolean }
 interface Ask { id: string; tool: string; input: unknown; summary: string; ts: number }
@@ -247,10 +247,13 @@ export function readTurns(m: ChatMeta, max = 300, hint?: string[]): Turn[] {
       const prev = turns[turns.length - 1];
       // 한 답이 여러 줄(도구 → 글 → 도구)로 나뉘어 적히므로, 사람이 말하기 전까지는 하나로 묶는다
       if (prev && prev.role === 'assistant') {
-        if (text.trim()) prev.text = prev.text ? prev.text + '\n\n' + text : text;
-        if (tools.length) prev.tools = [...(prev.tools ?? []), ...tools];
+        if (text.trim()) {
+          prev.text = prev.text ? prev.text + '\n\n' + text : text;
+          prev.final = prev.final ? prev.final + '\n\n' + text : text;
+        }
+        if (tools.length) { prev.tools = [...(prev.tools ?? []), ...tools]; prev.final = ''; }   // 도구를 또 쓰면 앞 글은 중간 안내였다
         if (ts) prev.ts = ts;
-      } else if (text.trim() || tools.length) turns.push({ role: 'assistant', text, tools, ts });
+      } else if (text.trim() || tools.length) turns.push({ role: 'assistant', text, tools, ts, final: tools.length ? '' : text });
     }
   }
   return turns.slice(-max);
@@ -770,7 +773,8 @@ async function pollTmux(id: string): Promise<void> {
     st.mtime = mt;
     const turns = readTurns(m, 300, tmuxHint.get(id));
     const lastA = [...turns].reverse().find((t) => t.role === 'assistant' && t.text.trim());
-    if (lastA) { m.last = lastA.text.replace(/\s+/g, ' ').slice(0, 200); }
+    // 한 답 안의 중간 안내(「확인하는 중이에요」)가 아니라 끝 보고를 남긴다. 끝 보고가 아직 없으면(도구 중) 지금까지 글의 끝부분
+    if (lastA) { m.last = (lastA.final?.trim() ? lastA.final : lastA.text.split('\n\n').slice(-1)[0] ?? lastA.text).replace(/\s+/g, ' ').slice(0, 200); }
     m.updated = Math.max(m.updated, mt); save();
     // 바뀐 데부터만 보낸다(중계 길에서 가볍게). 앞이 달라졌으면 from 0
     const prev = st.sent ?? [];
