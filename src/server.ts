@@ -22,7 +22,8 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { setTodo } from './chat';
+import { setTodo, searchChats } from './chat';
+import { usage } from './usage';
 import { pushStatus, registerDevice, pushNotify } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
 import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
@@ -1947,6 +1948,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
   app.get('/api/push/status', async () => pushStatus());
+  app.get('/api/usage', async () => usage());
+  app.get('/api/search', async (req) => ({ results: searchChats(String((req.query as { q?: string }).q ?? '').slice(0, 200)) }));
   app.post('/api/push/test', async () => ({ sent: await pushNotify({ chatId: 'test', kind: 'test', title: 'Coxpit 알림 시험', body: '이 알림이 보이면 푸시가 붙었어요.' }) }));
   app.post('/api/chats/:id/answer', async (req, reply) => {
     const b = (req.body ?? {}) as { ask?: string; allow?: boolean; note?: string };

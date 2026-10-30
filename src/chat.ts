@@ -248,6 +248,28 @@ export function readTurns(m: ChatMeta, max = 300, hint?: string[]): Turn[] {
   return turns.slice(-max);
 }
 
+/** 대화 속 찾기: 대화마다 최근 300턴(대본 꼬리)에서 글귀를 찾는다. 대화당 앞 3개, 전체 60개까지 */
+export function searchChats(q: string): Array<{ id: string; title: string; hits: Array<{ ts?: number; role: string; snippet: string }> }> {
+  const needle = q.trim().toLowerCase(); if (needle.length < 2) return [];
+  const out: Array<{ id: string; title: string; hits: Array<{ ts?: number; role: string; snippet: string }> }> = [];
+  let total = 0;
+  const order = [...metas].sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
+  for (const m of order) {
+    if (total >= 60) break;
+    let turns: Turn[] = [];
+    try { turns = readTurns(m, 300, m.runId ? tmuxHint.get(m.id) : undefined); } catch { continue; }
+    const hits: Array<{ ts?: number; role: string; snippet: string }> = [];
+    for (let i = turns.length - 1; i >= 0 && hits.length < 3; i--) {
+      const t = turns[i]!; const flat = t.text.replace(/\s+/g, ' ');
+      const at = flat.toLowerCase().indexOf(needle); if (at < 0) continue;
+      const from = Math.max(0, at - 40);
+      hits.push({ ts: t.ts, role: t.role, snippet: (from > 0 ? '…' : '') + flat.slice(from, at + needle.length + 80) });
+    }
+    if (hits.length) { out.push({ id: m.id, title: m.title, hits }); total += hits.length; }
+  }
+  return out;
+}
+
 /** claude 가 폴더별 대화를 두는 자리: 경로의 영숫자 아닌 글자를 '-' 로 */
 function projectDir(cwd: string): string {
   return path.join(os.homedir(), '.claude', 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
