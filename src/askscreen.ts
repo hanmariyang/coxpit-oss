@@ -124,13 +124,16 @@ export function parseMenu(lines: string[]): { title: string; body: string; optio
     return null;                                         // 1번에 닿기 전에 다른 글
   }
   if (found.length < 2 || found[0]!.n !== 1 || !found.some((f) => f.cursor)) return null;
-  // 제목: 1번 위의 첫 글 줄. 본문: 그 위로 실선(─ · ▔)이 나올 때까지
+  // 제목: 1번 위의 글 줄들(폭이 좁으면 claude 가 여러 줄로 꺾는다). 본문: 그 위 구분선 너머, 실선(─ · ▔)이 나올 때까지
   let t = found[0]!.i - 1;
   while (t >= 0 && (RULE.test(lines[t]!) || !lines[t]!.trim())) t--;
-  const title = t >= 0 ? clean(lines[t]!) : '';
+  const titleLines: string[] = [];
+  for (; t >= 0 && lines[t]!.trim() && !RULE.test(lines[t]!) && !/^\s*❯\s/.test(lines[t]!) && titleLines.length < 4; t--) titleLines.unshift(clean(lines[t]!));
+  const title = titleLines.join(' ');
   const body: string[] = [];
-  let b0 = t - 1;
+  let b0 = t;
   while (b0 >= 0 && (RULE.test(lines[b0]!) || !lines[b0]!.trim())) b0--;   // 제목 바로 위 구분선(계획 상자 아래 테두리)은 넘는다
+  if (b0 === t) b0 = -1;                                                    // 구분선이 없으면 본문 없음(제목이 위 대화에 붙어 있다)
   for (let b = b0; b >= 0 && body.length < 40; b--) {
     const l = lines[b]!;
     if (/^\s*[─━▔]{8,}\s*$/.test(l)) break;
