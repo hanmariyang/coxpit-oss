@@ -30,7 +30,8 @@ export function registerDevice(input: { token?: string; env?: string; topic?: st
   const topic = String(input.topic ?? '').trim();
   if (!/^[\w.-]+$/.test(topic)) throw new Error('topic required');
   const d: Device = { token, env: input.env === 'production' ? 'production' : 'sandbox', topic, name: input.name ? String(input.name).slice(0, 60) : undefined, at: Date.now() };
-  const all = loadDevices().filter((x) => x.token !== token);
+  // 같은 기기(이름 · 앱)가 다시 등록하면 옛 토큰은 뺀다 — 설치 페이지 판 → TestFlight 판으로 바꾸면 토큰이 둘이 돼 같은 알림이 두 번 갔다
+  const all = loadDevices().filter((x) => x.token !== token && !(d.name && x.name === d.name && x.topic === topic));
   all.push(d); saveDevices(all.slice(-20));
   return d;
 }
