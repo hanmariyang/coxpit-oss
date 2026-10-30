@@ -24,6 +24,7 @@ import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
 import { setTodo, searchChats, recentClaude, deleteChat } from './chat';
 import { usage } from './usage';
+import { versionInfo, selfUpdate } from './selfupdate';
 import { pushStatus, registerDevice, pushNotify } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
 import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
@@ -1950,6 +1951,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   app.get('/api/push/status', async () => pushStatus());
   app.get('/api/usage', async () => usage());
+  // 앱에서 데몬 업데이트: 판 보기(?check=1 이면 원격도 지금 본다) · 당겨서 다시 켜기
+  app.get('/api/version', async (req) => versionInfo((req.query as { check?: string }).check === '1'));
+  app.post('/api/self-update', async () => selfUpdate());
   app.get('/api/claude-recent', async () => ({ items: recentClaude() }));
   app.get('/api/search', async (req) => ({ results: searchChats(String((req.query as { q?: string }).q ?? '').slice(0, 200)) }));
   app.post('/api/push/test', async () => ({ sent: await pushNotify({ chatId: 'test', kind: 'test', title: 'Coxpit 알림 시험', body: '이 알림이 보이면 푸시가 붙었어요.' }) }));
