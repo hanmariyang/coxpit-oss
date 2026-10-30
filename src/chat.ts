@@ -1063,6 +1063,7 @@ export async function answerTmux(id: string, askId: string, b: { pick?: number; 
   if (!a || a.id !== askId) return { ok: false, error: 'the question is gone or changed' };
   const done = () => {
     const st = tmuxState.get(id); if (st) st.ask = undefined;
+    lives.get(id)?.asks.clear();   // 다음 질문이 읽히기 전까지 옛 카드를 내주지 않는다
     emit(id, { t: 'answered', id: askId, allow: true }); setTimeout(() => void pollTmux(id), 600);
   };
   if (a.kind === 'menu') {
