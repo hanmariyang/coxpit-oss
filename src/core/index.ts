@@ -5,7 +5,7 @@
 
 export { type MachineTarget, isLocalMachine } from './types';
 export { shq, samePath } from './shell';
-export { TMUX_HISTORY_LIMIT, tmuxNewSession } from './tmux';
+export { TMUX_HISTORY_LIMIT, tmuxNewSession, tmuxInstanceEnv, tmuxKillOwned } from './tmux';
 export { makeNaming, type Naming } from './naming';
 export { spawnPty, openTerm, type TermOptions } from './term';
 export {

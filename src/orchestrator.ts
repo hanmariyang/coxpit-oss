@@ -1,4 +1,5 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import nodePath from 'node:path';
 import { posix as ppath } from 'node:path';
 import { createInterface } from 'node:readline';
 import { existsSync, statSync, openSync, readSync, closeSync, mkdirSync } from 'node:fs';
@@ -16,9 +17,14 @@ import { getProvider, type Provider } from './providers';
 import {
   isSettled, settleStatus, canSteer, canOpenPr, canMerge, checkBaseRepo,
   classifyMergeResult, MERGE_FAIL_MARK,
-  TMUX_HISTORY_LIMIT, tmuxNewSession, samePath,
+  TMUX_HISTORY_LIMIT, tmuxNewSession, samePath, tmuxInstanceEnv, tmuxKillOwned,
 } from './core';
 import { names } from './naming';
+
+// 이 데몬의 표시(데이터 폴더마다 다르다) — tmux 세션에 붙여 다른 데몬의 같은 이름 세션을 건드리지 않는다
+export const INSTANCE_TAG = createHash('sha1').update(nodePath.resolve(config.dbPath)).digest('hex').slice(0, 10);
+const instEnv = (): string => tmuxInstanceEnv(INSTANCE_TAG, config.port);
+const killOwned = (session: string): string => tmuxKillOwned(shq('=' + session), INSTANCE_TAG);
 
 // 커널로 옮긴 것들을 그대로 넘겨준다 — 기존 소비자의 import 경로를 깨지 않는다.
 export { TMUX_HISTORY_LIMIT, tmuxNewSession };
@@ -592,7 +598,7 @@ export async function launchRun(runId: number, real?: boolean): Promise<void> {
     // export LANG: 이 명령이 tmux 서버를 처음 띄우는 경우(특히 원격) C 로케일로 뜨면 CJK 가 깨진다.
     const runEnv = await secretEnvArgs();
     await runShellOn(ctx.machine,
-      `export LANG=${shq(config.lang)}; tmux kill-session -t ${shq('=' + session)} 2>/dev/null; ${tmuxNewSession(`-d${runEnv} -s ${shq(session)} -c ${shq(wtPath)}`)} 2>/dev/null || true`, 8000);
+      `export LANG=${shq(config.lang)}; ${killOwned(session)}; ${tmuxNewSession(`-d${runEnv}${instEnv()} -s ${shq(session)} -c ${shq(wtPath)}`)} 2>/dev/null || true`, 8000);
     await warnIfPaneElsewhere(ctx.machine, session, wtPath);
 
     await setRun(runId, { status: 'running' });
@@ -1449,11 +1455,11 @@ export async function openWorkbench(repoId: number, title: string, root = false)
   const prep = await runShellOn(
     machine,
     root
-      ? `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-        ` && ${tmuxNewSession(`-d${wbEnv} -s ${shq(session)} -c ${shq(repo.path)}`)}`
+      ? `export LANG=${shq(config.lang)}; ${killOwned(session)}` +
+        ` && ${tmuxNewSession(`-d${wbEnv}${instEnv()} -s ${shq(session)} -c ${shq(repo.path)}`)}`
       : `export LANG=${shq(config.lang)}; mkdir -p ${shq(wtParent)} && git -C ${shq(repo.path)} worktree add -b ${shq(branch)} ${shq(wtPath)} ${shq(repo.defaultBranch)}` +
-        ` && { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-        ` && ${tmuxNewSession(`-d${wbEnv} -s ${shq(session)} -c ${shq(wtPath)}`)}`,
+        ` && ${killOwned(session)}` +
+        ` && ${tmuxNewSession(`-d${wbEnv}${instEnv()} -s ${shq(session)} -c ${shq(wtPath)}`)}`,
     20000,
   );
   if (!prep.ok) {
@@ -1508,8 +1514,8 @@ export async function openSessionAt(machineSlug: string, path: string, title: st
   const sEnv = (await secretEnvArgs()) + tag.env;   // 시크릿 볼트 + claude 태깅 → env 주입
   const prep = await runShellOn(
     machine,
-    `export LANG=${shq(config.lang)}; { tmux kill-session -t ${shq('=' + session)} 2>/dev/null || true; }` +
-    ` && ${tmuxNewSession(`-d${sEnv} -s ${shq(session)} -c ${shq(dir)}`)}`,
+    `export LANG=${shq(config.lang)}; ${killOwned(session)}` +
+    ` && ${tmuxNewSession(`-d${sEnv}${instEnv()} -s ${shq(session)} -c ${shq(dir)}`)}`,
     15000,
   );
   if (!prep.ok) {
@@ -2329,7 +2335,7 @@ export async function cleanupRun(runId: number): Promise<{ ok: boolean; detail: 
   if (ctx.machine.kind !== 'local' && ctx.machine.address !== '') {
     await runShellOn(ctx.machine, remoteKillScript(run.worktreePath), 15000);
   }
-  await runShellOn(ctx.machine, `tmux kill-session -t ${shq('=' + names.session(runId))} 2>/dev/null || true`, 8000);
+  await runShellOn(ctx.machine, killOwned(names.session(runId)), 8000);
   // 루트 세션(branch='' 또는 worktreePath=repo 실체)은 격리 worktree 가 아니다 —
   // git worktree remove 를 메인 체크아웃에 걸면 안 되므로 tmux 만 정리하고 포인터를 비운다.
   if (!run.branch || run.worktreePath === ctx.repoPath) {
@@ -2611,7 +2617,7 @@ export async function killTmuxSessions(names: string[]): Promise<{
   for (const raw of names) {
     const name = String(raw).trim();
     if (!allowed.has(name)) { skipped.push({ name, reason: 'not an orphan session (live run, or already gone)' }); continue; }
-    await runShellOn(LOCAL_MACHINE, `tmux kill-session -t ${shq('=' + name)} 2>/dev/null || true`, 8000)
+    await runShellOn(LOCAL_MACHINE, killOwned(name), 8000)
       .catch(() => { /* best-effort — 이미 사라졌을 수 있다 */ });
     killed.push(name);
   }
