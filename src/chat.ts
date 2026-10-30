@@ -36,6 +36,8 @@ export interface ChatMeta {
   pinned?: boolean;
   /** 목록에서 숨김(지우지 않는다. 앱 「숨긴 세션」에 모인다) */
   hidden?: boolean;
+  /** 예약 보내기: 정한 때(ms)에 데몬이 보낸다(앱이 꺼져 있어도) */
+  scheduled?: Array<{ id: string; text: string; at: number }>;
   /** 할 일 체크: 할 일 글(정규화) → 체크한 때(ms). 폰 · 맥 앱이 같이 본다 */
   todos?: Record<string, number>;
 }
@@ -831,8 +833,51 @@ function ensurePolling(id: string): void {
 }
 
 /** 데몬이 뜰 때 tmux 대화들의 상태 보기를 시작한다(목록의 작업 중 · 물어봄) */
+/** 예약 보내기 */
+export function addSchedule(id: string, text: string, at: number): ChatMeta {
+  const m = getChat(id); if (!m) throw new Error('not found');
+  const t = String(text).trim(); if (!t) throw new Error('text required');
+  if (!Number.isFinite(at) || at < Date.now() - 60_000 || at > Date.now() + 7 * 86_400_000) throw new Error('bad time');
+  m.scheduled = [...(m.scheduled ?? []), { id: randomUUID().slice(0, 8), text: t.slice(0, 20000), at }].sort((a, b) => a.at - b.at).slice(0, 20);
+  save(); announce(id);
+  return m;
+}
+export function removeSchedule(id: string, sid: string): ChatMeta {
+  const m = getChat(id); if (!m) throw new Error('not found');
+  m.scheduled = (m.scheduled ?? []).filter((x) => x.id !== sid); if (!m.scheduled.length) delete m.scheduled;
+  save(); announce(id);
+  return m;
+}
+let scheduling = false;
+async function runSchedules(): Promise<void> {
+  if (scheduling) return; scheduling = true;
+  try {
+    const now = Date.now();
+    for (const m of metas) {
+      const due = (m.scheduled ?? []).filter((x) => x.at <= now);
+      if (!due.length) continue;
+      m.scheduled = (m.scheduled ?? []).filter((x) => x.at > now); if (!m.scheduled.length) delete m.scheduled;
+      save(); announce(m.id);
+      for (const x of due) {
+        try {
+          await sendAny(m.id, x.text);
+          void pushNotify({ chatId: m.id, kind: 'done', title: `${m.title} · 예약 보냄`, body: x.text.slice(0, 180) });
+        } catch (e) {
+          void pushNotify({ chatId: m.id, kind: 'ask', title: `${m.title} · 예약 못 보냄`, body: `${(e as Error).message} · ${x.text.slice(0, 120)}` });
+        }
+      }
+    }
+  } finally { scheduling = false; }
+}
+
+// 예약은 데몬이 뜨자마자부터 본다(대화 창을 안 열어도)
+setInterval(() => void runSchedules(), 15_000).unref();
+
+let watchStarted = false;
 export function startTmuxWatch(): void {
   void syncSessions().then(() => { for (const m of metas) if (m.runId) ensurePolling(m.id); });
+  // 대화를 열 때마다 불린다 — 타이머는 한 번만(전에는 열 때마다 하나씩 늘었다)
+  if (watchStarted) return; watchStarted = true;
   setInterval(() => void syncSessions(), 20000);
 }
 

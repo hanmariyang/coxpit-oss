@@ -22,7 +22,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { setTodo, searchChats, recentClaude, deleteChat } from './chat';
+import { setTodo, searchChats, recentClaude, deleteChat, addSchedule, removeSchedule } from './chat';
 import { usage } from './usage';
 import { versionInfo, selfUpdate } from './selfupdate';
 import { pushStatus, registerDevice, pushNotify } from './push';
@@ -1951,6 +1951,16 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   app.get('/api/push/status', async () => pushStatus());
   app.get('/api/usage', async () => usage());
+  // 예약 보내기(데몬이 그 때 보낸다)
+  app.post('/api/chats/:id/schedule', async (req, reply) => {
+    const b = (req.body ?? {}) as { text?: string; at?: number };
+    try { return { chat: addSchedule((req.params as { id: string }).id, String(b.text ?? ''), Number(b.at)) }; }
+    catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  });
+  app.delete('/api/chats/:id/schedule/:sid', async (req, reply) => {
+    const p = req.params as { id: string; sid: string };
+    try { return { chat: removeSchedule(p.id, p.sid) }; } catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
+  });
   // 앱에서 데몬 업데이트: 판 보기(?check=1 이면 원격도 지금 본다) · 당겨서 다시 켜기
   app.get('/api/version', async (req) => versionInfo((req.query as { check?: string }).check === '1'));
   app.post('/api/self-update', async () => selfUpdate());
