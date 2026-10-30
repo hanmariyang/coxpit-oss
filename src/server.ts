@@ -22,7 +22,7 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { setTodo, searchChats } from './chat';
+import { setTodo, searchChats, recentClaude } from './chat';
 import { usage } from './usage';
 import { pushStatus, registerDevice, pushNotify } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
@@ -1949,6 +1949,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   app.get('/api/push/status', async () => pushStatus());
   app.get('/api/usage', async () => usage());
+  app.get('/api/claude-recent', async () => ({ items: recentClaude() }));
   app.get('/api/search', async (req) => ({ results: searchChats(String((req.query as { q?: string }).q ?? '').slice(0, 200)) }));
   app.post('/api/push/test', async () => ({ sent: await pushNotify({ chatId: 'test', kind: 'test', title: 'Coxpit 알림 시험', body: '이 알림이 보이면 푸시가 붙었어요.' }) }));
   app.post('/api/chats/:id/answer', async (req, reply) => {

@@ -273,6 +273,51 @@ export function searchChats(q: string): Array<{ id: string; title: string; hits:
   return out;
 }
 
+/** 이 맥의 최근 claude 대화(앱 밖 터미널에서 쓴 것 포함). 앱에서 골라 coxpit 터미널로 잇는다(--resume) */
+export function recentClaude(limit = 30): Array<{ sid: string; cwd: string; title: string; updated: number; live: boolean }> {
+  const root = path.join(os.homedir(), '.claude', 'projects');
+  const known = new Set(metas.map((m) => m.sid));
+  const files: Array<{ f: string; sid: string; t: number }> = [];
+  try {
+    for (const d of fs.readdirSync(root)) {
+      let names: string[] = [];
+      try { names = fs.readdirSync(path.join(root, d)); } catch { continue; }
+      for (const n of names) {
+        if (!n.endsWith('.jsonl')) continue;
+        const f = path.join(root, d, n);
+        try { files.push({ f, sid: n.slice(0, -6), t: fs.statSync(f).mtimeMs }); } catch { /* 사라짐 */ }
+      }
+    }
+  } catch { return []; }
+  const out: Array<{ sid: string; cwd: string; title: string; updated: number; live: boolean }> = [];
+  for (const x of files.sort((a, b) => b.t - a.t)) {
+    if (out.length >= limit) break;
+    if (known.has(x.sid)) continue;
+    // 머리 64KB 에서 폴더와 첫 말을 읽는다
+    let cwd = '', title = '', headless = false;
+    try {
+      const fd = fs.openSync(x.f, 'r'); const buf = Buffer.alloc(65536);
+      const n = fs.readSync(fd, buf, 0, buf.length, 0); fs.closeSync(fd);
+      for (const line of buf.subarray(0, n).toString('utf8').split('\n')) {
+        let r: Row & { cwd?: string; summary?: string; entrypoint?: string };
+        try { r = JSON.parse(line); } catch { continue; }
+        if (r.entrypoint === 'sdk-cli' || r.entrypoint === 'sdk-ts' || r.entrypoint === 'sdk-py') { headless = true; break; }   // claude -p 같은 자동 작업
+        if (!cwd && r.cwd) cwd = r.cwd;
+        if (r.type === 'summary' && r.summary && !title) title = r.summary;
+        if (!title && r.type === 'user' && !r.isMeta) {
+          const c = r.message?.content;
+          const t = (typeof c === 'string' ? c : Array.isArray(c) ? c.filter((b) => b?.type === 'text').map((b) => b.text ?? '').join(' ') : '').trim();
+          if (t && !t.startsWith('<')) title = t.replace(/\s+/g, ' ').slice(0, 80);
+        }
+        if (cwd && title) break;
+      }
+    } catch { continue; }
+    if (!cwd || headless) continue;
+    out.push({ sid: x.sid, cwd, title: title || path.basename(cwd), updated: x.t, live: Date.now() - x.t < 120_000 });
+  }
+  return out;
+}
+
 /** claude 가 폴더별 대화를 두는 자리: 경로의 영숫자 아닌 글자를 '-' 로 */
 function projectDir(cwd: string): string {
   return path.join(os.homedir(), '.claude', 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
