@@ -185,17 +185,40 @@ export function setTodo(id: string, text: string, done: boolean): ChatMeta {
 }
 
 /** 대화 기록 — claude 의 jsonl 이 정본. 세션이 아직 없으면 빈 목록. */
-type Row = { type?: string; uuid?: string; parentUuid?: string | null; timestamp?: string; isMeta?: boolean; isCompactSummary?: boolean; isSidechain?: boolean; message?: { content?: unknown } };
+type Row = { type?: string; uuid?: string; parentUuid?: string | null; logicalParentUuid?: string | null; timestamp?: string; isMeta?: boolean; isCompactSummary?: boolean; isSidechain?: boolean; message?: { content?: unknown } };
 
-/** 대본 줄 캐시: 파일이 자란 만큼만 읽어 붙인다(긴 대화를 매번 4MB 씩 다시 읽어 데몬 전체가 느려졌다) */
+/**
+ * 대본 줄을 가볍게: 대화 · 상태에 쓰는 칸만 남긴다. 도구 결과 본문 · 그림 · 긴 입력은 버린다.
+ * 대본은 그림 · 도구 결과로 세션마다 7~20MB 가 된다. 예전엔 꼬리 4MB 만 읽어서 세션을 열면 최근 몇 턴만 보였다(10/30 오너).
+ */
+function slimRow(j: Record<string, any>): Record<string, any> {
+  const o: Record<string, any> = {};
+  for (const k of ['type', 'subtype', 'uuid', 'parentUuid', 'logicalParentUuid', 'timestamp', 'isMeta', 'isCompactSummary', 'isSidechain']) if (j[k] !== undefined) o[k] = j[k];
+  if (typeof j.content === 'string' && j.content.includes('<task-notification>')) o.content = j.content;
+  if (j.attachment && typeof j.attachment === 'object') o.attachment = { type: j.attachment.type, taskId: j.attachment.taskId, status: j.attachment.status };
+  const c = j.message?.content;
+  if (typeof c === 'string') o.message = { content: c.length > 20000 ? c.slice(0, 20000) : c };
+  else if (Array.isArray(c)) {
+    const cut = (v: unknown): unknown => typeof v === 'string' ? (v.length > 400 ? v.slice(0, 400) : v)
+      : v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, cut(x)])) : v;
+    o.message = { stop_reason: j.message.stop_reason, content: c.map((b: any) =>
+      b?.type === 'text' ? { type: 'text', text: b.text }
+      : b?.type === 'tool_use' ? { type: 'tool_use', id: b.id, name: b.name, input: cut(b.input) }
+      : b?.type === 'tool_result' ? { type: 'tool_result', tool_use_id: b.tool_use_id }
+      : { type: b?.type }) };
+  }
+  return o;
+}
+
+/** 대본 줄 캐시: 처음엔 파일 전체를 가볍게 읽고, 그 뒤로는 자란 만큼만 붙인다 */
 const rowCache = new Map<string, { size: number; rows: unknown[]; rest: string }>();
 function transcriptRows(f: string): unknown[] {
   let size = 0;
   try { size = fs.statSync(f).size; } catch { return []; }
   let c = rowCache.get(f);
   if (!c || size < c.size) {
-    // 처음(또는 줄어듦): 꼬리 4MB 만
-    const start = Math.max(0, size - 4_000_000);
+    // 처음(또는 줄어듦): 전체. 아주 큰 것(60MB 넘음)만 꼬리
+    const start = Math.max(0, size - 60_000_000);
     c = { size: start, rows: [], rest: '' };
     rowCache.set(f, c);
     if (start > 0) c.rest = '\u0000';   // 첫 줄은 잘렸을 수 있다 → 버린다
@@ -212,9 +235,9 @@ function transcriptRows(f: string): unknown[] {
       for (const [i, line] of parts.entries()) {
         if (dropFirst && i === 0) continue;
         if (!line.trim()) continue;
-        try { c.rows.push(JSON.parse(line)); } catch { /* 깨진 줄 */ }
+        try { c.rows.push(slimRow(JSON.parse(line))); } catch { /* 깨진 줄 */ }
       }
-      if (c.rows.length > 20000) c.rows = c.rows.slice(-15000);
+      if (c.rows.length > 60000) c.rows = c.rows.slice(-50000);
       c.size = size;
     } finally { fs.closeSync(fd); }
   }
@@ -239,8 +262,12 @@ export function readTurns(m: ChatMeta, max = 300, hint?: string[]): Turn[] {
   let chain: Row[] = rows;
   if (last) {
     const keep: Row[] = []; let cur: Row | undefined = last; const seen = new Set<string>();
-    while (cur && cur.uuid && !seen.has(cur.uuid)) { seen.add(cur.uuid); keep.push(cur); cur = cur.parentUuid ? byId.get(cur.parentUuid) : undefined; }
-    // 읽은 꼬리(4MB) 밖으로 이어지면 갈래 앞부분은 잘린다 — 그래도 지금 갈래가 맞다
+    // 맥락 압축 경계는 parentUuid 가 비고 logicalParentUuid 로 앞 대화를 가리킨다 → 그걸 따라 앞 대화까지 잇는다
+    while (cur && cur.uuid && !seen.has(cur.uuid)) {
+      seen.add(cur.uuid); keep.push(cur);
+      const up: string | null | undefined = cur.parentUuid ?? cur.logicalParentUuid;
+      cur = up ? byId.get(up) : undefined;
+    }
     if (keep.length > 1) chain = keep.reverse();
   }
   const turns: Turn[] = [];
