@@ -105,5 +105,17 @@ export async function pushNotify(n: { chatId: string; kind: 'done' | 'ask' | 'te
     if (r.status === 410 || r.reason === 'BadDeviceToken' || r.reason === 'Unregistered') dead.add(d.token);
   }
   if (dead.size) saveDevices(loadDevices().filter((d) => !dead.has(d.token)));
+  logPush(n, out);
   return out;
+}
+
+/** 보낸 알림 기록(최근 200건): 「알림이 이상하다」를 확인할 때 무엇을 언제 보냈는지 본다 */
+function logPush(n: { chatId: string; kind: string; title: string; body: string }, out: Array<{ name: string; status: number; reason?: string }>): void {
+  try {
+    const f = path.join(dataDir(), 'push-log.jsonl');
+    const line = JSON.stringify({ at: new Date().toISOString(), chatId: n.chatId, kind: n.kind, title: n.title, body: n.body, sent: out.map((o) => `${o.name}:${o.status}${o.reason ? ':' + o.reason : ''}`) });
+    let lines: string[] = [];
+    try { lines = fs.readFileSync(f, 'utf8').split('\n').filter(Boolean); } catch { /* 처음 */ }
+    fs.writeFileSync(f, [...lines.slice(-199), line].join('\n') + '\n', { mode: 0o600 });
+  } catch { /* 기록은 덤 */ }
 }
