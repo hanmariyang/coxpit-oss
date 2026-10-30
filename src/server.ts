@@ -27,7 +27,8 @@ import { usage } from './usage';
 import { versionInfo, selfUpdate } from './selfupdate';
 import { pushStatus, registerDevice, pushNotify } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
-import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
+import type { ChoiceAnswer } from './askscreen';
+import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun, INSTANCE_TAG } from './orchestrator';
 import { tmuxInstanceEnv } from './core';
 import { openTerm } from './term';
@@ -1968,9 +1969,22 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/api/search', async (req) => ({ results: searchChats(String((req.query as { q?: string }).q ?? '').slice(0, 200)) }));
   app.post('/api/push/test', async () => ({ sent: await pushNotify({ chatId: 'test', kind: 'test', title: 'Coxpit 알림 시험', body: '이 알림이 보이면 푸시가 붙었어요.' }) }));
   app.post('/api/chats/:id/answer', async (req, reply) => {
-    const b = (req.body ?? {}) as { ask?: string; allow?: boolean; note?: string };
+    const b = (req.body ?? {}) as { ask?: string; allow?: boolean; note?: string; pick?: number; text?: string; answers?: ChoiceAnswer[]; move?: 'next' | 'prev' | 'close' };
+    // 객관식 · 번호 메뉴: 고른 것으로 답한다
+    if (b.pick !== undefined || Array.isArray(b.answers) || b.move) {
+      const r = await answerTmux((req.params as { id: string }).id, String(b.ask ?? ''), b);
+      return r.ok ? r : reply.code(409).send({ error: r.error ?? 'failed' });
+    }
     const ok = await answerAny((req.params as { id: string }).id, String(b.ask ?? ''), b.allow === true, b.note);
     return ok ? { ok } : reply.code(409).send({ error: 'no such question' });
+  });
+  // 비상구: 화면이 모르는 질문일 때 앱 키패드가 키를 누른다
+  app.post('/api/chats/:id/keys', async (req, reply) => {
+    const b = (req.body ?? {}) as { keys?: unknown; text?: unknown };
+    const keys = Array.isArray(b.keys) ? b.keys.map(String).slice(0, 30) : [];
+    const text = typeof b.text === 'string' ? b.text.slice(0, 2000) : undefined;
+    if (!keys.length && !text) return reply.code(400).send({ error: 'no keys' });
+    return (await padKeys((req.params as { id: string }).id, keys, text)) ? { ok: true } : reply.code(400).send({ error: 'bad key or no terminal' });
   });
   app.post('/api/chats/:id/interrupt', async (req) => ({ ok: await interruptAny((req.params as { id: string }).id) }));
   app.post('/api/chats/:id/close', async (req) => { closeChat((req.params as { id: string }).id); return { ok: true }; });

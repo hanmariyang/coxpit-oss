@@ -9,7 +9,7 @@
 //   시작 control_request{subtype:'initialize'} · 권한 control_request{subtype:'can_use_tool'} → control_response
 //   중단 control_request{subtype:'interrupt'} · 권한 모드 control_request{subtype:'set_permission_mode'}
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,6 +22,7 @@ import { eq } from 'drizzle-orm';
 import { runShellOn, shq } from './exec';
 import { cleanupRun, getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
 import { pushNotify } from './push';
+import { screenAsk, choiceSteps, currentTab, PAD_KEYS, type QOption, type MenuOption, type ChoiceAnswer, type Step } from './askscreen';
 
 export type ChatState = 'idle' | 'run' | 'ask' | 'error' | 'gone';
 export type PermMode = 'default' | 'acceptEdits' | 'auto' | 'plan';
@@ -44,7 +45,16 @@ export interface ChatMeta {
 export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number; /** 마지막 도구 뒤에 쓴 글(= 끝 보고). 알림 · 목록 한 줄에 쓴다 */ final?: string }
 export interface ToolUse { name: string; summary: string }
 export interface SubAgent { id: string; desc: string; started: number; updated: number; current: string; running: boolean }
-interface Ask { id: string; tool: string; input: unknown; summary: string; ts: number }
+interface Ask {
+  id: string; tool: string; input: unknown; summary: string; ts: number;
+  /** approve(허락) · trust(폴더 믿기) · choice(객관식, questions) · menu(번호 메뉴, options) · keys(모르는 화면, screen). 없으면 approve */
+  kind?: 'approve' | 'trust' | 'choice' | 'menu' | 'keys';
+  /** choice: 지금 화면의 질문 하나. tabs = 질문이 여럿일 때 머리들, tab = 지금 몇 번째(0부터) */
+  question?: string; multiSelect?: boolean; choices?: Array<QOption & { checked?: boolean }>; typed?: string;
+  tabs?: Array<{ label: string; done: boolean }>; tab?: number; cursor?: number;
+  title?: string; body?: string; options?: MenuOption[];
+  screen?: string;
+}
 
 interface Live {
   proc: ChildProcess | null;
@@ -542,13 +552,16 @@ async function paneInfo(runId: number) {
   return { info, cmd: (cmd ?? '').trim(), screen: rest.join('\n---\n') };
 }
 
+function hashOf(s: string): string { return createHash('sha1').update(s).digest('hex').slice(0, 16); }
+function tailOf(screen: string, n = 20): string { return screen.split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim()).slice(-n).join('\n'); }
+
 /** 화면으로 상태를 본다: 승인 질문 → ask, 「esc to interrupt」 → run, 그 밖 → idle */
 function classify(screen: string): { state: ChatState; ask?: Ask; current: string } {
   const lines = screen.split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim());
   const tail = lines.slice(-25).join('\n');
   // 처음 여는 폴더: 「이 폴더를 믿을까요?」
   if (/trust this folder|Do you trust the files/i.test(tail) && /Enter to confirm/i.test(tail)) {
-    return { state: 'ask', ask: { id: 'tmux-trust', tool: 'Trust', input: null, summary: 'Open Claude Code in this folder? It will be able to read, edit and run files here.', ts: Date.now() }, current: 'trust this folder?' };
+    return { state: 'ask', ask: { id: 'tmux-trust', kind: 'trust', tool: 'Trust', input: null, summary: 'Open Claude Code in this folder? It will be able to read, edit and run files here.', ts: Date.now() }, current: 'trust this folder?' };
   }
   const q = /Do you want to [^\n?]{0,80}\?/i.exec(tail);
   if (q && /(^|\n)[^\S\n]*[❯>]?[^\S\n]*1\.[^\S\n]+Yes\b/.test(tail)) {
@@ -557,7 +570,21 @@ function classify(screen: string): { state: ChatState; ask?: Ask; current: strin
       .map((l) => l.replace(/^[\s│╭╰─╮╯]+|[\s│╭╰─╮╯]+$/g, '')).filter((l) => l && !/^─+$/.test(l));
     const summary = (before.join('\n') + '\n' + q[0]).trim().slice(-600);
     const id = 'tmux-' + Buffer.from(summary).toString('base64').slice(0, 24);
-    return { state: 'ask', ask: { id, tool: 'Terminal', input: null, summary, ts: Date.now() }, current: q[0] };
+    return { state: 'ask', ask: { id, kind: 'approve', tool: 'Terminal', input: null, summary, ts: Date.now() }, current: q[0] };
+  }
+  // 객관식 · 번호 메뉴(계획 승인 등) · 모르는 질문(비상구)
+  const sa = screenAsk(screen, !!blockingPrompt(screen));
+  if (sa?.kind === 'choice') {
+    const id = 'q-' + hashOf(sa.question + '|' + sa.options.map((o) => o.label).join('|'));
+    return { state: 'ask', ask: { id, kind: 'choice', tool: 'Question', input: null, summary: sa.question, ts: Date.now(),
+      question: sa.question, multiSelect: sa.multiSelect, choices: sa.options, typed: sa.typed, tabs: sa.tabs, tab: 0, cursor: sa.cursor }, current: sa.question };
+  }
+  if (sa?.kind === 'menu') {
+    const id = 'menu-' + hashOf(sa.title + '|' + sa.options.map((o) => o.label).join('|') + '|' + sa.body);
+    return { state: 'ask', ask: { id, kind: 'menu', tool: 'Menu', input: null, summary: sa.title || sa.options.map((o) => o.label).join(' · '), ts: Date.now(), title: sa.title, body: sa.body, options: sa.options }, current: sa.title };
+  }
+  if (sa?.kind === 'keys') {
+    return { state: 'ask', ask: { id: 'keys-' + hashOf(sa.screen), kind: 'keys', tool: 'Keys', input: null, summary: '터미널에서 입력을 기다려요', ts: Date.now(), screen: sa.screen }, current: 'waiting for input' };
   }
   if (/esc to interrupt/i.test(tail)) {
     // 지금 실행 중인 도구(⏺ Bash(…)) 가 있으면 그것, 없으면 스피너 글귀(「Beaming…」)
@@ -729,6 +756,12 @@ function subAgents(transcript: string): SubAgent[] {
   return out.sort((a, b) => Number(b.running) - Number(a.running) || b.updated - a.updated).slice(0, 12);
 }
 
+/** 객관식 탭 줄에서 지금 질문 번호(색으로만 보여서 -e 로 한 번 더 읽는다) */
+async function choiceTab(info: { machine: Parameters<typeof runShellOn>[0]; session: string }): Promise<number> {
+  const r = await runShellOn(info.machine, `tmux capture-pane -p -e -J -t ${shq(info.session)} 2>/dev/null | grep '←' | tail -1`, 6000);
+  return r.ok ? currentTab(r.stdout) : 0;
+}
+
 async function pollTmux(id: string): Promise<void> {
   const m = getChat(id); if (!m?.runId) return;
   const st = tmuxState.get(id) ?? { screen: '', mtime: 0 }; tmuxState.set(id, st);
@@ -753,6 +786,7 @@ async function pollTmux(id: string): Promise<void> {
   const agents = f && lc ? subAgents(f) : [];
   const nRun = agents.filter((a) => a.running).length;
   if (c.state === 'idle' && nRun) { c.state = 'run'; c.current = `뒤에서 ${nRun}개 작업 중`; }
+  if (c.ask?.kind === 'choice' && (c.ask.tabs?.length ?? 0) > 1) c.ask.tab = await choiceTab(p.info);
   const hints = screenHints(p.screen); if (hints.length) tmuxHint.set(id, hints);
   const l = live(id);
   l.current = c.current;
@@ -1005,6 +1039,74 @@ export async function answerAny(id: string, askId: string, allow: boolean, note?
   }
   return ok;
 }
+/** 키 · 글을 한 걸음씩(사이 0.3초). 글은 send-keys -l 로 그대로 넣는다 */
+async function tmuxSteps(m: ChatMeta, steps: Step[]): Promise<boolean> {
+  const info = await getRunTermInfo(m.runId!); if (!info) return false;
+  const t = shq(info.session);
+  if (!steps.length) return true;
+  const cmd = steps.map((x) => 'key' in x ? `tmux send-keys -t ${t} ${shq(x.key)}` : `tmux send-keys -t ${t} -l ${shq(x.lit)}`).join(' && sleep 0.3 && ');
+  return (await runShellOn(info.machine, cmd, 30000)).ok;
+}
+
+/** 지금 떠 있는 질문(최신으로 한 번 더 읽는다) */
+async function currentAsk(id: string): Promise<Ask | undefined> {
+  await pollTmux(id);
+  return tmuxState.get(id)?.ask;
+}
+
+/**
+ * 객관식 · 번호 메뉴에 앱이 고른 답을 넣는다. 객관식은 지금 화면의 질문 하나씩이다(앱도 한 질문씩 보인다).
+ */
+export async function answerTmux(id: string, askId: string, b: { pick?: number; text?: string; answers?: ChoiceAnswer[]; move?: 'next' | 'prev' | 'close' }): Promise<{ ok: boolean; via?: 'keys' | 'text'; error?: string }> {
+  const m = getChat(id); if (!m?.runId) return { ok: false, error: 'not a terminal chat' };
+  const a = await currentAsk(id);
+  if (!a || a.id !== askId) return { ok: false, error: 'the question is gone or changed' };
+  const done = () => {
+    const st = tmuxState.get(id); if (st) st.ask = undefined;
+    emit(id, { t: 'answered', id: askId, allow: true }); setTimeout(() => void pollTmux(id), 600);
+  };
+  if (a.kind === 'menu') {
+    const n = Number(b.pick);
+    if (!a.options?.some((o) => o.n === n)) return { ok: false, error: 'no such option' };
+    const steps: Step[] = [{ key: String(n) }];
+    const text = (b.text ?? '').replace(/[\r\n]+/g, ' ').trim();
+    if (text) steps.push({ lit: text }, { key: 'Enter' });
+    const ok = await tmuxSteps(m, steps);
+    if (ok) done();
+    return { ok, via: 'keys' };
+  }
+  if (a.kind === 'choice' && a.choices) {
+    let steps: Step[];
+    if (b.move === 'next') steps = [{ key: 'Right' }];
+    else if (b.move === 'prev') steps = [{ key: 'Left' }];
+    else if (b.move === 'close') steps = [{ key: 'Escape' }];
+    else steps = choiceSteps({ multiSelect: !!a.multiSelect, options: a.choices, cursor: a.cursor }, (b.answers ?? [])[0] ?? {});
+    if (!steps.length) return { ok: false, error: 'pick something' };
+    if (!(await tmuxSteps(m, steps))) return { ok: false, error: 'send failed' };
+    // 넘어갔는지 화면으로 본다. 마지막 질문이면 답 확인 화면이 뜬다 → 제출(앱에서 이미 다 골랐다)
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 300));
+      const p = await paneInfo(m.runId); if (!p) break;
+      if (b.move !== 'prev' && b.move !== 'next' && /Ready to submit your answers/i.test(p.screen)) { await tmuxSteps(m, [{ key: '1' }]); done(); return { ok: true, via: 'keys' }; }
+      const c = classify(p.screen);
+      if (c.ask?.id !== a.id) { done(); return { ok: true, via: 'keys' }; }
+    }
+    return { ok: false, error: '키가 안 먹었어요. 터미널 키로 답해 주세요' };
+  }
+  return { ok: false, error: 'this question takes allow/deny or keys' };
+}
+
+/** 비상구: 앱 키패드가 누른 키(정해 둔 것만)와 글 */
+export async function padKeys(id: string, keys: string[], text?: string): Promise<boolean> {
+  const m = getChat(id); if (!m?.runId) return false;
+  const steps: Step[] = [];
+  if (text) steps.push({ lit: text.replace(/[\r\n]+/g, ' ') });
+  for (const k of keys) { if (!PAD_KEYS.has(k)) return false; steps.push({ key: k }); }
+  const ok = await tmuxSteps(m, steps);
+  if (ok) setTimeout(() => void pollTmux(id), 500);
+  return ok;
+}
+
 export async function interruptAny(id: string): Promise<boolean> {
   const m = getChat(id); if (!m) return false;
   return m.runId ? tmuxKeys(m, 'Escape') : interruptChat(id);
