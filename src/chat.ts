@@ -46,7 +46,7 @@ export interface ChatMeta {
 }
 export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number; /** 마지막 도구 뒤에 쓴 글(= 끝 보고). 알림 · 목록 한 줄에 쓴다 */ final?: string }
 export interface ToolUse { name: string; summary: string }
-export interface SubAgent { id: string; desc: string; started: number; updated: number; current: string; running: boolean }
+export interface SubAgent { id: string; desc: string; started: number; updated: number; current: string; running: boolean; shell?: boolean }
 interface Ask {
   id: string; tool: string; input: unknown; summary: string; ts: number;
   /** approve(허락) · trust(폴더 믿기) · choice(객관식, questions) · menu(번호 메뉴, options) · keys(모르는 화면, screen). 없으면 approve */
@@ -704,6 +704,7 @@ function onStateChange(id: string, prev: ChatState, s: ChatState): void {
 // 끝남 = 메인 대본에 그 id 의 task-notification · task_status(끝) · (앞에서 돈 것은) tool_result 가 에이전트 마지막 기록 뒤에 있다.
 const AGENT_STALE_MS = 3 * 60 * 60 * 1000;   // 이보다 오래 조용하면 죽은 것으로 본다(claude 가 꺼진 채 남은 것)
 const AGENT_KEEP_MS = 15 * 60 * 1000;        // 끝난 것도 이만큼은 목록에 남긴다
+const AGENT_QUIET_MS = 10 * 60 * 1000;       // 도는 에이전트는 도구마다 대본을 쓴다. 10분 조용하면 멈춘 것(끊긴 · 꺼진 에이전트가 3시간 「작업 중」으로 남았다)
 // 뒤에서 돌린 셸(Bash run_in_background)도 같은 알림으로 끝난다 → 같이 센다
 interface BgShell { id: string; cmd: string; ts: number }
 const endIdx = new Map<string, { n: number; rows: unknown[]; ends: Map<string, number>; shells: Map<string, BgShell> }>();
@@ -770,7 +771,7 @@ function subAgents(transcript: string): SubAgent[] {
     const end = Math.max(ends.get(id) ?? 0, fg && meta.toolUseId ? (ends.get('tool:' + meta.toolUseId) ?? 0) : 0);
     // 끝 알림이 대본 창(꼬리 4MB) 밖으로 밀려나도 에이전트 자기 대본으로 끝을 안다
     const pr = agentProgress(jf, mt);
-    const running = end < mt - 1000 && !pr.finished;
+    const running = end < mt - 1000 && !pr.finished && now - mt < AGENT_QUIET_MS;
     if (!running && now - mt > AGENT_KEEP_MS) continue;
     out.push({ id, desc: String(meta.description ?? meta.agentType ?? '에이전트').slice(0, 120), started: pr.started || mt, updated: mt, current: running ? pr.current : '', running });
   }
@@ -781,7 +782,7 @@ function subAgents(transcript: string): SubAgent[] {
     const end = ix.ends.get('n:' + sh.id) ?? 0;
     const running = end < sh.ts;
     if (!running && now - end > AGENT_KEEP_MS) continue;
-    out.push({ id: sh.id, desc: '셸 · ' + (sh.cmd || '명령'), started: sh.ts, updated: running ? sh.ts : end, current: '', running });
+    out.push({ id: sh.id, desc: '셸 · ' + (sh.cmd || '명령'), started: sh.ts, updated: running ? sh.ts : end, current: '', running, shell: true });
   }
   return out.sort((a, b) => Number(b.running) - Number(a.running) || b.updated - a.updated).slice(0, 12);
 }
@@ -814,7 +815,9 @@ async function pollTmux(id: string): Promise<void> {
   const sid = await tmuxSid(m);
   const f = sid ? findTranscript(sid) : null;
   const agents = f && lc ? subAgents(f) : [];
-  const nRun = agents.filter((a) => a.running).length;
+  // 뒤에서 도는 셸은 세지 않는다: 개발 서버 · 감시처럼 안 끝나는 것, 끊겨 끝 알림이 안 온 것이 터미널은 쉬는데 몇 시간 「작업 중」으로 남겼다(11/01 오너).
+  // 셸이 끝나면 claude 가 알림을 받아 다시 돌므로 그때 작업 중이 된다
+  const nRun = agents.filter((a) => a.running && !a.shell).length;
   if (c.state === 'idle' && nRun) { c.state = 'run'; c.current = `뒤에서 ${nRun}개 작업 중`; }
   if (c.ask?.kind === 'choice' && (c.ask.tabs?.length ?? 0) > 1) c.ask.tab = await choiceTab(p.info);
   const hints = screenHints(p.screen); if (hints.length) tmuxHint.set(id, hints);
