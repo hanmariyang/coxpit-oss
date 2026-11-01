@@ -256,12 +256,27 @@ export function readTurns(m: ChatMeta, max = 300, hint?: string[]): Turn[] {
   const byId = new Map(rows.filter((r) => r.uuid).map((r) => [r.uuid!, r]));
   const flat = (r: Row): string => { const c = r.message?.content; return (typeof c === 'string' ? c : Array.isArray(c) ? c.map((b) => (b as { text?: string })?.text ?? '').join(' ') : '').replace(/\s+/g, ' '); };
   // 맥 화면에 떠 있는 답 글귀가 있으면 그 줄이 지금 갈래의 끝이다(같은 파일에 다른 갈래가 더 나중에 쓰였어도)
+  // 화면은 마크다운을 그려서 보인다(**굵게** · `코드` · # 머리). 글귀를 맞출 때는 양쪽 다 그 표시를 뺀다
+  const plain = (x: string) => x.replace(/[*`#_>|~\[\]]/g, '').replace(/\s+/g, ' ').trim();
+  const newest = [...rows].reverse().find((r) => (r.type === 'user' || r.type === 'assistant') && r.uuid && !r.isSidechain);
   let last: Row | undefined;
   for (const h of hint ?? []) {
-    last = [...rows].reverse().find((r) => r.type === 'assistant' && r.uuid && flat(r).includes(h));
+    const ph = plain(h); if (ph.length < 8) continue;
+    last = [...rows].reverse().find((r) => r.type === 'assistant' && r.uuid && plain(flat(r)).includes(ph));
     if (last) break;   // 화면의 마지막 답이 끝. 그 뒤에 남이 덧붙인 줄은 이 claude 가 모른다
   }
-  last ??= [...rows].reverse().find((r) => (r.type === 'user' || r.type === 'assistant') && r.uuid && !r.isSidechain);
+  // 화면 글귀로 찾은 줄이 가장 새 줄의 조상이면 같은 갈래다 → 가장 새 줄까지 보인다.
+  // (끝 보고 첫 줄이 화면과 안 맞으면 중간 안내에서 끊겨 마지막 답이 안 왔다. 다시 보내야 왔다 11/01 오너)
+  if (last && newest && last !== newest) {
+    let cur: Row | undefined = newest; const seen = new Set<string>();
+    while (cur && cur.uuid && !seen.has(cur.uuid)) {
+      if (cur.uuid === last.uuid) { last = newest; break; }
+      seen.add(cur.uuid);
+      const up: string | null | undefined = cur.parentUuid ?? cur.logicalParentUuid;
+      cur = up ? byId.get(up) : undefined;
+    }
+  }
+  last ??= newest;
   let chain: Row[] = rows;
   if (last) {
     const keep: Row[] = []; let cur: Row | undefined = last; const seen = new Set<string>();
