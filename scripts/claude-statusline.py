@@ -10,7 +10,9 @@ except Exception:
     d = {}
 rl = d.get('rate_limits') or {}
 if rl:
-    p = os.path.expanduser('~/.claude/coxpit-usage.json')
+    # coxpit 계정 여럿: 심이 COXPIT_ACCOUNT 를 넣어 준 claude 는 계정별 파일에(목록의 계정 칩이 읽는다)
+    acc = ''.join(ch for ch in os.environ.get('COXPIT_ACCOUNT', '') if ch.isalnum() or ch in '._-')
+    p = os.path.expanduser(f'~/.claude/coxpit-usage-{acc}.json' if acc else '~/.claude/coxpit-usage.json')
     tmp = '%s.%d' % (p, os.getpid())
     try:
         with open(tmp, 'w') as f:

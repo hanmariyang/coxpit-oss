@@ -22,8 +22,9 @@ import { db } from './db';
 import { machines, repos, tasks, agentRuns, agentEvents, designCaptures, shareLinks, taskGroups, secrets } from './db/schema';
 import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
-import { setTodo, searchChats, recentClaude, deleteChat, addSchedule, removeSchedule } from './chat';
+import { setTodo, searchChats, recentClaude, deleteChat, addSchedule, removeSchedule, switchAccount } from './chat';
 import { usage } from './usage';
+import { listAccounts, setDefault, renameAccount, deleteAccount, loginStart, loginCode, loginCancel } from './accounts';
 import { versionInfo, selfUpdate } from './selfupdate';
 import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice, pushSettings, savePushSettings, listDevices, setDevicePolicy, startPushTicker, pushLog, type Policy } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
@@ -1913,7 +1914,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/api/chats', async () => { void syncSessions(); return { chats: listChats(), direct: directUrl(), update: { behind: await behindNow() } }; });   // 맞추기는 뒤에서(목록은 바로)
   app.post('/api/chats/seen-all', async (req) => ({ ok: true, n: markSeenAll(Array.isArray((req.body as { ids?: unknown })?.ids) ? ((req.body as { ids: unknown[] }).ids).map(String) : undefined) }));
   app.post('/api/chats', async (req, reply) => {
-    const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string; quiet?: boolean };
+    const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string; quiet?: boolean; account?: string | null };
     try {
       // 맥에서 쓰던 coxpit 세션에 붙기 · 아니면 그 폴더에 새 coxpit 세션을 열고 붙기(둘 다 tmux 안의 claude 하나)
       if (b.runId != null) {
@@ -1923,7 +1924,7 @@ export async function buildServer(): Promise<FastifyInstance> {
         return reply.code(201).send({ chat: await adoptRun(r.id, b.title || r.title || tk[0]?.title || undefined) });
       }
       if (!b.cwd) return reply.code(400).send({ error: 'cwd required' });
-      const c = await openTmuxChat(b.cwd, b.title, b.create === true, b.resume);
+      const c = await openTmuxChat(b.cwd, b.title, b.create === true, b.resume, b.account === null ? null : typeof b.account === 'string' ? b.account : undefined);
       return reply.code(201).send({ chat: b.quiet === true ? updateChat(c.id, { quiet: true }) : c });
     } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
@@ -2012,7 +2013,21 @@ export async function buildServer(): Promise<FastifyInstance> {
       }
     }
   }, 5 * 60 * 1000);
-  app.get('/api/usage', async () => usage());
+  // 계정별 사용량도 같이(목록의 계정 칩)
+  app.get('/api/usage', async () => { const a = listAccounts(); return { ...usage(), accounts: Object.fromEntries(a.accounts.map((x) => [x.name, usage(x.name)])), default: a.default }; });
+  // ── 클로드 계정 여럿(시안 v6) ──
+  app.get('/api/accounts', async () => listAccounts());
+  app.patch('/api/accounts/default', async (req, reply) => setDefault(String((req.body as { name?: string })?.name ?? '')) ? listAccounts() : reply.code(404).send({ error: '그런 계정이 없어요' }));
+  app.patch('/api/accounts/:name', async (req, reply) => renameAccount((req.params as { name: string }).name, String((req.body as { name?: string })?.name ?? '')) ? listAccounts() : reply.code(400).send({ error: '이름을 못 바꿨어요' }));
+  app.delete('/api/accounts/:name', async (req, reply) => deleteAccount((req.params as { name: string }).name) ? listAccounts() : reply.code(404).send({ error: '그런 계정이 없어요' }));
+  app.post('/api/accounts/login', async (_req, reply) => { try { return await loginStart(); } catch (e) { return reply.code(500).send({ error: (e as Error).message }); } });
+  app.post('/api/accounts/login/code', async (req, reply) => { try { return await loginCode(String((req.body as { code?: string })?.code ?? '')); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); } });
+  app.post('/api/accounts/login/cancel', async () => { loginCancel(); return { ok: true }; });
+  app.post('/api/chats/:id/account', async (req, reply) => {
+    const b = (req.body as { name?: string | null }) ?? {};
+    const r = await switchAccount((req.params as { id: string }).id, b.name ? String(b.name) : null);
+    return r.ok ? r : reply.code(400).send({ error: r.error });
+  });
   // 예약 보내기(데몬이 그 때 보낸다)
   app.post('/api/chats/:id/schedule', async (req, reply) => {
     const b = (req.body ?? {}) as { text?: string; at?: number };
