@@ -1,6 +1,6 @@
 import { readFile, readdir, realpath, stat, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, networkInterfaces } from 'node:os';
 import { resolve as presolve, dirname as pdirname, join as pjoin, sep as psep } from 'node:path';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
@@ -28,7 +28,7 @@ import { versionInfo, selfUpdate } from './selfupdate';
 import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
 import type { ChoiceAnswer } from './askscreen';
-import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
+import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, restoreChat, pollStats, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun, INSTANCE_TAG } from './orchestrator';
 import { tmuxInstanceEnv } from './core';
 import { openTerm } from './term';
@@ -221,12 +221,18 @@ function ptyMax(): number | null {
 export async function buildServer(): Promise<FastifyInstance> {
   // 로거: 쿼리스트링의 캡처 키(?k=…)가 데몬 로그에 평문으로 남지 않게 가린다(issue #13).
   // (프록시/엣지 로그는 데몬이 못 막지만, 캡처 키는 저가치·회전가능이라 감수 가능.)
-  const app = Fastify({ logger: {
+  const app = Fastify({ disableRequestLogging: true, logger: {
     redact: {
       paths: ['req.url'],
       censor: (v: unknown) => (typeof v === 'string' ? v.replace(/([?&]k=)[^&]*/g, '$1REDACTED') : v),
     },
   } });
+  // 요청 로그는 느린 것(300ms 넘음)과 오류만: 요청마다 두 줄씩 하루 4.5MB 가 쌓였고 회전도 없었다
+  app.addHook('onResponse', (req, reply, done) => {
+    const ms = reply.elapsedTime;
+    if (ms > 300 || reply.statusCode >= 500) req.log.info({ url: req.url, method: req.method, status: reply.statusCode, ms: Math.round(ms) }, ms > 300 ? 'slow' : 'error');
+    done();
+  });
   // 살아있는 웹 터미널 수 — pty 압력 조기경보(/api/health)용. openTerm 성공 시 +1, 소켓 close 시 -1.
   // 누수가 재발하면 이 값이 실제 열린 탭보다 커지지 않아도(닫을 때 감소), machine-wide ptmx 대비
   // 이 데몬의 부하를 노출한다. leak 재발 자체는 회귀 테스트(test/pty-fd.mjs)가 잡는다.
@@ -254,8 +260,11 @@ export async function buildServer(): Promise<FastifyInstance> {
     // v6.0 T6b — worktree 디스크 빚을 바깥(모니터링)에서도 볼 수 있게. 값은 캐시에서 나오고
     // du 는 배경에서 돈다(health 는 기다리지 않는다). 없거나 0 이면 아예 싣지 않는다.
     const wt = await worktreeDisk().catch(() => null);
+    const mem = process.memoryUsage();
     return {
       ok: true, name: 'coxpit', version: config.version, terminals: liveTerminals,
+      rssMb: Math.round(mem.rss / 1048576), heapMb: Math.round(mem.heapUsed / 1048576), uptimeS: Math.round(process.uptime()),
+      poll: pollStats(),
       ...(max ? { ptyMax: max } : {}),
       ...(wt && wt.count ? { worktrees: { count: wt.count, sizeKb: wt.sizeKb } } : {}),
     };
@@ -1887,7 +1896,15 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
-  app.get('/api/chats', async () => { void syncSessions(); return { chats: listChats() }; });   // 맞추기는 뒤에서(목록은 바로)
+  // direct: 이 맥의 테일스케일 주소(100.x). 폰이 ts.net 이름을 못 풀어 LA 경유(1초)로 다니던 것 → 앱이 이 주소를 기억해 두고 먼저 붙어 본다
+  const directUrl = (): string | null => {
+    if (config.host !== '0.0.0.0') return null;
+    for (const list of Object.values(networkInterfaces())) for (const i of list ?? []) {
+      if (i.family === 'IPv4' && /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(i.address)) return `http://${i.address}:${config.port}`;
+    }
+    return null;
+  };
+  app.get('/api/chats', async () => { void syncSessions(); return { chats: listChats(), direct: directUrl() }; });   // 맞추기는 뒤에서(목록은 바로)
   app.post('/api/chats', async (req, reply) => {
     const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string; quiet?: boolean };
     try {
@@ -1997,6 +2014,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   app.post('/api/chats/:id/interrupt', async (req) => ({ ok: await interruptAny((req.params as { id: string }).id) }));
   app.post('/api/chats/:id/close', async (req) => { closeChat((req.params as { id: string }).id); return { ok: true }; });
+  app.post('/api/chats/:id/restore', async (req, reply) => {
+    const m = restoreChat((req.params as { id: string }).id);
+    return m ? { ok: true, chat: m } : reply.code(410).send({ error: '되돌릴 수 있는 때(30초)가 지났어요' });
+  });
   app.delete('/api/chats/:id', async (req, reply) =>
     (await deleteChat((req.params as { id: string }).id)) ? { ok: true } : reply.code(404).send({ error: 'not found' }));
   // 넘겨 받을 수 있는 coxpit 세션 — claude 세션 id 가 붙은 열린 run

@@ -107,7 +107,7 @@ export function activeDevice(): string | null {
   return null;
 }
 
-export async function pushNotify(n: { chatId: string; kind: 'done' | 'ask' | 'test'; title: string; body: string }): Promise<Array<{ name: string; status: number; reason?: string }>> {
+export async function pushNotify(n: { chatId: string; kind: 'done' | 'ask' | 'stop' | 'test'; title: string; body: string }): Promise<Array<{ name: string; status: number; reason?: string }>> {
   const k = loadKey(); if (!k) return [];
   const using = n.kind === 'test' ? null : activeDevice();
   if (using) { logPush(n, [{ name: `건넘(${using} 쓰는 중)`, status: 0 }]); return []; }

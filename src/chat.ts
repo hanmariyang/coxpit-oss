@@ -86,8 +86,20 @@ const dismissPath = (): string => path.join(path.dirname(storePath()), 'chats-di
 const dismissed = new Set<number>((() => { try { return JSON.parse(fs.readFileSync(dismissPath(), 'utf8')) as number[]; } catch { return []; } })());
 function saveDismissed(): void { try { fs.writeFileSync(dismissPath(), JSON.stringify([...dismissed].slice(-2000))); } catch { /* 다음에 */ } }
 
+let backedUpDay = '';
 function save(): void {
-  try { fs.writeFileSync(storePath(), JSON.stringify(metas, null, 1)); } catch (e) { console.warn('[coxpit] chats.json write failed', e); }
+  const p = storePath();
+  try {
+    // 하루 한 번 뒷판(7일): 즐겨찾기 · 할 일 · 예약이 이 한 파일이라 빈 DB 로 데몬이 뜨면(회사 맥 10/30) 다 사라진다
+    const day = new Date().toISOString().slice(0, 10);
+    if (day !== backedUpDay && fs.existsSync(p)) {
+      backedUpDay = day;
+      fs.copyFileSync(p, `${p}.bak-${day}`);
+      const dir = path.dirname(p), base = path.basename(p) + '.bak-';
+      fs.readdirSync(dir).filter((f) => f.startsWith(base)).sort().slice(0, -7).forEach((f) => { try { fs.unlinkSync(path.join(dir, f)); } catch { /* 다음에 */ } });
+    }
+    fs.writeFileSync(p, JSON.stringify(metas, null, 1));
+  } catch (e) { console.warn('[coxpit] chats.json write failed', e); }
 }
 function live(id: string): Live {
   let l = lives.get(id);
@@ -115,8 +127,14 @@ function emit(id: string, e: Record<string, unknown>): void {
   const l = lives.get(id);
   if (l) for (const f of l.subs) { try { f(e); } catch { /* 끊긴 구독 */ } }
 }
+// 같은 내용이면 다시 보내지 않는다(폴링마다 announce 가 가서 웹 콕핏이 1.4초마다 fleet 를 다시 받았다, 분당 42)
+const lastAnnounced = new Map<string, string>();
 function announce(id: string): void {
-  const m = getChat(id); if (m) broadcast({ type: 'chat', chat: summary(m) });
+  const m = getChat(id); if (!m) return;
+  const s = summary(m); const j = JSON.stringify(s);
+  if (lastAnnounced.get(id) === j) return;
+  lastAnnounced.set(id, j);
+  broadcast({ type: 'chat', chat: s });
 }
 function setState(id: string, s: ChatState): void {
   const l = live(id); if (l.state === s) return;
@@ -550,21 +568,45 @@ export function closeChat(id: string): void {
 /** 앱의 「세션 지우기」: 목록에서 빼고 다시 안 데려온다. 폴더에서 연 세션(가지 없음)은 그 터미널도 닫는다
  *  (claude 대화 기록은 맥에 남아 「최근 클로드 대화 이어 열기」로 다시 열 수 있다). 격리 작업 폴더(가지 있음)의 run 은
  *  목록에서만 뺀다 — 그 폴더를 지우는 건 맥 coxpit 화면의 몫이다 */
+const UNDO_MS = 30000;
+const undoable = new Map<string, { meta: ChatMeta; timer: NodeJS.Timeout }>();
 export async function deleteChat(id: string): Promise<boolean> {
   const m = getChat(id); if (!m) return false;
   if (m.runId) {
     dismissed.add(m.runId); saveDismissed();
-    try {
-      const r = (await db.select().from(agentRuns).where(eq(agentRuns.id, m.runId)).limit(1))[0];
-      if (r && !r.branch) await cleanupRun(m.runId);
-    } catch { /* 터미널 정리는 덤 */ }
+    // 터미널은 30초 뒤에 닫는다: 그 안에 「되돌리기」(restoreChat) 가 오면 그대로 둔다(제목만 보고 지웠다가 쓰던 세션을 죽인 적 있다)
+    const runId = m.runId;
+    undoable.set(id, { meta: { ...m }, timer: setTimeout(() => {
+      undoable.delete(id);
+      void (async () => {
+        try {
+          const r = (await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1))[0];
+          if (r && !r.branch) await cleanupRun(runId);
+        } catch { /* 터미널 정리는 덤 */ }
+      })();
+    }, UNDO_MS) });
   }
   return removeChat(id);
+}
+/** 지운 지 30초 안이면 되돌린다(목록에 다시, 터미널 그대로) */
+export function restoreChat(id: string): ChatMeta | null {
+  const u = undoable.get(id); if (!u) return null;
+  clearTimeout(u.timer); undoable.delete(id);
+  if (u.meta.runId && dismissed.delete(u.meta.runId)) saveDismissed();
+  if (!metas.find((x) => x.id === id)) { metas.push(u.meta); save(); }
+  announce(id); ensurePolling(id);
+  return u.meta;
 }
 
 export function removeChat(id: string): boolean {
   closeChat(id); lives.delete(id);
-  const n = metas.length; metas = metas.filter((m) => m.id !== id); save();
+  const m = getChat(id);
+  const n = metas.length; metas = metas.filter((x) => x.id !== id); save();
+  // 캐시도 같이 비운다(없으면 대본 줄 캐시 · 에이전트 색인이 데몬이 사는 동안 쌓였다)
+  lastAnnounced.delete(id); tmuxHint.delete(id); tmuxState.delete(id); recentCids.delete(id); notifiedDone.delete(id); finishTimers.delete(id);
+  const f = m?.sid ? pathCache.get(m.sid) : undefined;
+  if (m?.sid) pathCache.delete(m.sid);
+  if (f) { rowCache.delete(f); endIdx.delete(f); for (const k of [...agentCur.keys()]) if (k.startsWith(path.dirname(f))) agentCur.delete(k); }
   if (metas.length !== n) broadcast({ type: 'chat-removed', id });
   return metas.length !== n;
 }
@@ -694,11 +736,31 @@ async function tmuxSid(m: ChatMeta): Promise<string> {
 
 // ── 알림: 끝남 · 물어봄 → 폰 푸시(push.ts). 앱이 켜져 있으면 앱이 직접 띄우고 이건 앱이 화면에 안 보인다 ──
 const finishTimers = new Map<string, NodeJS.Timeout>();
+const notifiedDone = new Map<string, string>();   // 대화 → 마지막으로 「끝남」 알린 답(같은 답은 다시 안 알린다)
+const TERMINAL_MS = 3 * 60 * 1000;
+/** 그 세션의 터미널 앞에 사람이 있나: tmux 에 붙은 클라이언트의 마지막 손길이 3분 안(맥에서 /model 치는 동안 폰이 「물어봄」을 울렸다, 11/02) */
+async function terminalBusy(m: ChatMeta): Promise<boolean> {
+  if (!m.runId) return false;
+  try {
+    const info = await getRunTermInfo(m.runId); if (!info) return false;
+    const r = await runShellOn(info.machine, `tmux list-clients -t ${shq('=' + info.session)} -F '#{client_activity}' 2>/dev/null`, 4000);
+    const now = Date.now() / 1000;
+    return r.stdout.split('\n').some((l) => { const t = Number(l.trim()); return t > 0 && now - t < TERMINAL_MS / 1000; });
+  } catch { return false; }
+}
 function onStateChange(id: string, prev: ChatState, s: ChatState): void {
   const m = getChat(id); if (!m || m.quiet) return;
   if (s === 'ask' && prev !== 'ask') {
     const a = [...(lives.get(id)?.asks.values() ?? [])][0];
-    void pushNotify({ chatId: id, kind: 'ask', title: `${m.title} · 물어봄`, body: a?.summary || '허락을 기다려요' });
+    // 「터미널 키」(앱이 모르는 화면: 모델 고르기 · 구독 안내 …)는 맥에서 뭘 치는 중일 때가 많다 → 1분 뒤에도 그대로면 알린다
+    const wait = a?.kind === 'keys' ? 60000 : 0;
+    setTimeout(() => {
+      void (async () => {
+        const l = lives.get(id); if (l?.state !== 'ask') return;
+        if (await terminalBusy(m)) { logSkip(id, 'ask', '터미널 앞에 있음'); return; }
+        await pushNotify({ chatId: id, kind: 'ask', title: `${m.title} · 물어봄`, body: a?.summary || '허락을 기다려요' });
+      })();
+    }, wait);
   }
   if (prev === 'run' && s === 'idle') {
     // 잠깐 쉬었다 다시 도는 것(도구 사이 · 에이전트 사이)은 알리지 않는다
@@ -707,10 +769,22 @@ function onStateChange(id: string, prev: ChatState, s: ChatState): void {
       finishTimers.delete(id);
       if (lives.get(id)?.state !== 'idle') return;
       const mm = getChat(id); if (!mm) return;
+      // 같은 답으로 또 「끝남」이 가던 것(에이전트가 10분 조용 → run→idle 되돌이, 200건 중 20건): 답 지문이 같으면 건넌다
+      const fp = `${mm.sid}|${mm.last}`;
+      if (notifiedDone.get(id) === fp) { logSkip(id, 'done', '같은 답'); return; }
+      notifiedDone.set(id, fp);
       void pushNotify({ chatId: id, kind: 'done', title: `${mm.title} · 끝남`, body: mm.last.replace(/\*\*|`/g, '').slice(0, 180) || '답이 왔어요' });
     }, 8000));
   }
+  // 돌다가 죽거나 터미널이 사라진 것도 한 번 알린다(밤새 죽은 세션을 아침까지 몰랐다)
+  if ((prev === 'run' || prev === 'ask') && (s === 'error' || s === 'gone')) {
+    clearTimeout(finishTimers.get(id));
+    void pushNotify({ chatId: id, kind: 'stop', title: `${m.title} · 멈춤`, body: s === 'gone' ? '터미널이 사라졌어요' : '클로드가 꺼졌어요. 맥에서 다시 열어야 해요' });
+  }
   if (s === 'run') clearTimeout(finishTimers.get(id));
+}
+function logSkip(id: string, kind: string, why: string): void {
+  try { fs.appendFileSync(path.join(path.dirname(storePath()), 'push-log.jsonl'), JSON.stringify({ at: new Date().toISOString(), chatId: id, kind, title: '', body: '', sent: [`건넘(${why}):0`] }) + '\n'); } catch { /* 기록은 덤 */ }
 }
 
 // ── 서브에이전트 ──
@@ -900,6 +974,13 @@ function liveText(screen: string): string {
   return prose.join('\n\n').replace(/\n{3,}/g, '\n\n').trim().slice(-4000);
 }
 
+/** /api/health 용: 대화마다 폴링 횟수 · 평균 ms · 최대 · 마지막 때 */
+const pollStat = new Map<string, { n: number; ms: number; at: number; max: number }>();
+export function pollStats() {
+  const out: Record<string, { n: number; avgMs: number; maxMs: number; agoS: number }> = {};
+  for (const [id, p] of pollStat) out[id] = { n: p.n, avgMs: p.n ? Math.round(p.ms / p.n) : 0, maxMs: p.max, agoS: Math.round((Date.now() - p.at) / 1000) };
+  return out;
+}
 function ensurePolling(id: string): void {
   const st = tmuxState.get(id) ?? { screen: '', mtime: 0 }; tmuxState.set(id, st);
   if (st.polling) return;
@@ -907,8 +988,11 @@ function ensurePolling(id: string): void {
   const tick = async () => {
     const l = lives.get(id);
     const watching = (l?.subs.size ?? 0) > 0 || (l && l.state !== 'idle');
+    const t0 = Date.now();
     try { await pollTmux(id); } catch { /* 다음 번에 */ }
-    if (!getChat(id)) { st.polling = false; return; }
+    const ms = Date.now() - t0; const ps = pollStat.get(id) ?? { n: 0, ms: 0, at: 0, max: 0 };
+    ps.n++; ps.ms += ms; ps.at = Date.now(); ps.max = Math.max(ps.max, ms); pollStat.set(id, ps);
+    if (!getChat(id)) { st.polling = false; pollStat.delete(id); return; }
     setTimeout(tick, watching ? 1500 : 6000);
   };
   void tick();

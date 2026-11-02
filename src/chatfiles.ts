@@ -21,7 +21,15 @@ function expand(cwd: string, p: string): string {
   if (s === '~' || s.startsWith('~/')) s = path.join(HOME, s.slice(1));
   return path.resolve(path.isAbsolute(s) ? s : path.join(cwd || HOME, s));
 }
+// 홈 밖 · 숨김 폴더라도 여는 곳: 클로드 세션 스크래치패드(/private/tmp/claude-<uid>/…), 앱이 올린 파일(데이터 폴더 uploads/)
+const EXTRA_ROOTS = (() => {
+  const out: string[] = [];
+  try { out.push(fs.realpathSync(`/private/tmp/claude-${process.getuid?.() ?? 501}`)); } catch { /* 없음 */ }
+  try { out.push(fs.realpathSync(path.join(path.dirname(path.resolve(process.env.COXPIT_DB || path.join(HOME, '.coxpit', 'coxpit.db'))), 'uploads'))); } catch { /* 없음 */ }
+  return out;
+})();
 function allowed(full: string): boolean {
+  if (EXTRA_ROOTS.some((r) => full === r || full.startsWith(r + path.sep))) return true;
   if (full !== HOME && !full.startsWith(HOME + path.sep)) return false;
   return !path.relative(HOME, full).split(path.sep).some((x) => x.startsWith('.'));
 }

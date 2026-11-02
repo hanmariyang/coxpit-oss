@@ -4266,6 +4266,8 @@ ${HUMANIZE_JS}
     ws.onmessage = function(m){
       var ev=null; try{ ev = JSON.parse(m.data); }catch(e){}
       if (ev && ev.type==='agentstate'){ paintAgentState(ev.runId, ev.state); return; }
+      /* 폰 앱용 대화 이벤트(chat · chat-removed · presence)는 이 화면과 상관없다 — 이것까지 리하이드레이트하면 1.4초마다 fleet 를 다시 받았다 */
+      if (ev && (ev.type==='chat' || ev.type==='chat-removed' || ev.type==='presence')) return;
       scheduleHydrate();
     };
   }
