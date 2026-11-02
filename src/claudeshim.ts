@@ -41,7 +41,8 @@ export function claudeShimScript(real: string): string {
     '# pass through untouched if the user already selected a session.',
     // 계정 여럿(accounts.ts): 이 tmux 세션에 적힌 계정이 있으면 그 토큰만 이 claude 에 넣는다(화면 · 기록에 안 남는다)
     'if [ -n "${TMUX:-}" ] && command -v tmux >/dev/null 2>&1; then',
-    `  _s=$(tmux display-message -p -t "\${TMUX_PANE:-}" '#S' 2>/dev/null | tr -c 'A-Za-z0-9._-' '_')`,
+    // tr -c 는 display-message 의 끝 개행까지 '_' 로 바꿔 "coxpit-r5_" 가 됐다(11/02) → 파일이 안 잡혀 토큰 주입이 통째로 비껴갔다. 개행을 먼저 뗀다.
+    `  _s=$(tmux display-message -p -t "\${TMUX_PANE:-}" '#S' 2>/dev/null | tr -d '\\n' | tr -c 'A-Za-z0-9._-' '_')`,
     `  _f="${config.dbPath.replace(/\/[^/]+$/, '')}/accounts/by-session/$_s"`,
     '  if [ -n "$_s" ] && [ -f "$_f" ]; then',
     '    _a=$(cat "$_f" 2>/dev/null | tr -cd \'A-Za-z0-9._-\')',
