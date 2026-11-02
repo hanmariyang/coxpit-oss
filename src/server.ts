@@ -5,7 +5,7 @@ import { resolve as presolve, dirname as pdirname, join as pjoin, sep as psep } 
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyReply } from 'fastify';
 import websocket from '@fastify/websocket';
 import { eq, inArray, and, like, desc, asc, sql } from 'drizzle-orm';
 import { authGate } from './auth';
@@ -221,7 +221,7 @@ function ptyMax(): number | null {
 export async function buildServer(): Promise<FastifyInstance> {
   // 로거: 쿼리스트링의 캡처 키(?k=…)가 데몬 로그에 평문으로 남지 않게 가린다(issue #13).
   // (프록시/엣지 로그는 데몬이 못 막지만, 캡처 키는 저가치·회전가능이라 감수 가능.)
-  const app = Fastify({ disableRequestLogging: true, logger: {
+  const app = Fastify({ logController: new LogController({ disableRequestLogging: true }), logger: {
     redact: {
       paths: ['req.url'],
       censor: (v: unknown) => (typeof v === 'string' ? v.replace(/([?&]k=)[^&]*/g, '$1REDACTED') : v),
