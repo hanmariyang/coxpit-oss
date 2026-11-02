@@ -87,7 +87,8 @@ const boundPort = await listenAuto();
 // 테일스케일 IP 에만 들으면 127.0.0.1 로 들어오던 길(Cloudflare 터널 · tailscale serve · 데스크톱 앱)이 끊긴다 → loopback 에 같은 포트로 TCP 다리를 하나 둔다
 if (config.host === 'tailscale' && runtime.listenHost !== '127.0.0.1') {
   const bridge = createServer((c) => {
-    const up = connect(boundPort, runtime.listenHost);
+    // 데몬이 보는 상대 주소가 127.0.0.1 로 남게(loopback 신뢰 · 접속 제한 버킷 · 로그가 테일스케일 IP 로 뭉치지 않게)
+    const up = connect({ port: boundPort, host: runtime.listenHost, localAddress: '127.0.0.1' });
     c.pipe(up).pipe(c);
     const drop = () => { c.destroy(); up.destroy(); };
     c.on('error', drop); up.on('error', drop);
