@@ -74,6 +74,7 @@ export const config = {
   version: pkgVersion,
   // UTF-8 보장된 로케일 — PTY/원격 셸에 명시 전달용
   lang: process.env.LANG!,
+  // 'tailscale' = 테일스케일 IP(100.64/10)에만 듣는다(0.0.0.0 은 같은 와이파이에도 열린다). 부팅 때 IP 가 늦으면 index.ts 가 기다린다
   host: env.COXPIT_HOST ?? stored.host ?? '127.0.0.1',
   filesRoot: env.COXPIT_FILES_ROOT ?? stored.filesRoot ?? '',   // '' = home; '/' = whole fs (file viewer)
   // 선호 포트(env > settings > 8210). 점유 시 index.ts 가 자동 이동(portStrict 면 실패).
@@ -136,3 +137,14 @@ export const config = {
     pass: process.env.COXPIT_AUTH_PASS ?? '',
   },
 } as const;
+
+/** 이 맥의 테일스케일 IPv4(100.64.0.0/10). 없으면 null */
+export function tailscaleIp(): string | null {
+  for (const list of Object.values(os.networkInterfaces())) for (const i of list ?? []) {
+    if (i.family === 'IPv4' && /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(i.address)) return i.address;
+  }
+  return null;
+}
+
+/** 실제로 듣는 주소(index.ts 가 바인드한 뒤 넣는다). 'tailscale' 이 풀린 IP 또는 host 그대로 */
+export const runtime = { listenHost: '' };

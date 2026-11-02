@@ -1,6 +1,6 @@
 import { readFile, readdir, realpath, stat, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { homedir, networkInterfaces } from 'node:os';
+import { homedir } from 'node:os';
 import { resolve as presolve, dirname as pdirname, join as pjoin, sep as psep } from 'node:path';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
@@ -15,7 +15,7 @@ import {
   clientKey, rateCheck, rateFail, rateReset, setupAllowed,
   captureKey, captureKeyIsFixed, rotateCaptureKey, verifyCaptureKey,
 } from './authkey';
-import { config } from './config';
+import { config, runtime, tailscaleIp } from './config';
 import { readSettings, writeSettings } from './settings';
 import { readOpenTabs, writeOpenTabs, sanitizeOpenTabs } from './uistate';
 import { db } from './db';
@@ -1898,11 +1898,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   // 대화 세션(하네스) — 폰 앱의 대화 화면. 터미널 없이 claude 를 stream-json 으로 몬다(src/chat.ts).
   // direct: 이 맥의 테일스케일 주소(100.x). 폰이 ts.net 이름을 못 풀어 LA 경유(1초)로 다니던 것 → 앱이 이 주소를 기억해 두고 먼저 붙어 본다
   const directUrl = (): string | null => {
-    if (config.host !== '0.0.0.0') return null;
-    for (const list of Object.values(networkInterfaces())) for (const i of list ?? []) {
-      if (i.family === 'IPv4' && /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(i.address)) return `http://${i.address}:${config.port}`;
-    }
-    return null;
+    const h = runtime.listenHost || config.host;
+    const ip = h === '0.0.0.0' ? tailscaleIp() : /^100\./.test(h) ? h : null;
+    return ip ? `http://${ip}:${config.port}` : null;
   };
   app.get('/api/chats', async () => { void syncSessions(); return { chats: listChats(), direct: directUrl() }; });   // 맞추기는 뒤에서(목록은 바로)
   app.post('/api/chats', async (req, reply) => {

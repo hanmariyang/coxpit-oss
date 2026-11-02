@@ -1,4 +1,4 @@
-import { config } from './config';
+import { config, runtime, tailscaleIp } from './config';
 import { authMode, ensureSetupToken, isExposedBind } from './authkey';
 import { ensureClaudeShim } from './claudeshim';
 import { db, ensureSchema } from './db';
@@ -48,9 +48,21 @@ const app = await buildServer();
 
 // 포트 바인드 — 선호 포트가 점유면 자동으로 다음 빈 포트로 이동(고정 포트가 필수면
 // COXPIT_PORT_STRICT=1 로 실패 처리). 어떤 고정 포트에도 의존하지 않아 "포트 점유로 죽는" 케이스 소멸.
+async function resolveHost(): Promise<string> {
+  if (config.host !== 'tailscale') return config.host;
+  // 부팅 직후엔 테일스케일 IP 가 늦게 올라온다(회사 맥에서 EADDRNOTAVAIL 로 114번 죽었다) → 2분까지 기다리고, 그래도 없으면 loopback
+  for (let i = 0; i < 40; i++) {
+    const ip = tailscaleIp(); if (ip) return ip;
+    if (i === 0) console.log('[coxpit] waiting for tailscale ip…');
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  console.warn('[coxpit] no tailscale ip after 2 min — binding 127.0.0.1 only');
+  return '127.0.0.1';
+}
 async function listenAuto(): Promise<number> {
   const pref = config.port;
-  const tryBind = async (p: number) => { await app.listen({ host: config.host, port: p }); };
+  const host = await resolveHost(); runtime.listenHost = host;
+  const tryBind = async (p: number) => { await app.listen({ host, port: p }); };
   try {
     await tryBind(pref);
     return pref;
@@ -66,14 +78,14 @@ async function listenAuto(): Promise<number> {
     try { await tryBind(p); console.warn(`[coxpit] port ${pref} was busy — moved to ${p}.`); return p; }
     catch (e) { if ((e as NodeJS.ErrnoException)?.code !== 'EADDRINUSE') throw e; }
   }
-  await app.listen({ host: config.host, port: 0 });
+  await app.listen({ host: runtime.listenHost, port: 0 });
   const p = (app.server.address() as AddressInfo).port;
   console.warn(`[coxpit] ports ${pref}..${pref + 20} were busy — moved to OS-assigned ${p}.`);
   return p;
 }
 const boundPort = await listenAuto();
 updateLockPort(boundPort);   // 락에 실제 포트 반영 — 데스크톱/외부가 이걸 읽어 붙는다.
-console.log(`[coxpit] listening on http://${config.host === '0.0.0.0' ? '127.0.0.1' : config.host}:${boundPort}/`);
+console.log(`[coxpit] listening on http://${runtime.listenHost === '0.0.0.0' ? '127.0.0.1' : runtime.listenHost}:${boundPort}/`);
 
 // 접근키 인증 상태 안내. 첫 실행(키 미설정)이면 브랜디드 셋업 페이지 + 1회용 셋업 토큰을 찍는다.
 // (토큰 = Jupyter 스타일: 로그 접근자 = 머신 소유자. 터널/타넷/로컬 어디서 붙어도 이 토큰으로 셋업 가능.)
