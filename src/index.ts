@@ -7,7 +7,7 @@ import { acquireDaemonLock, updateLockPort } from './lock';
 import { reconcileOrphanRuns } from './orchestrator';
 import { buildServer } from './server';
 import { augmentPathForGuiLaunch } from './paths';
-import type { AddressInfo } from 'node:net';
+import { createServer, connect, type AddressInfo } from 'node:net';
 
 // macOS: GUI/launchd 로 뜨면 PATH 에 Homebrew 가 없어 로컬 tmux 를 못 찾는다(issue #10).
 // 어떤 로컬 spawn 보다 먼저 PATH 를 보강한다.
@@ -84,6 +84,17 @@ async function listenAuto(): Promise<number> {
   return p;
 }
 const boundPort = await listenAuto();
+// 테일스케일 IP 에만 들으면 127.0.0.1 로 들어오던 길(Cloudflare 터널 · tailscale serve · 데스크톱 앱)이 끊긴다 → loopback 에 같은 포트로 TCP 다리를 하나 둔다
+if (config.host === 'tailscale' && runtime.listenHost !== '127.0.0.1') {
+  const bridge = createServer((c) => {
+    const up = connect(boundPort, runtime.listenHost);
+    c.pipe(up).pipe(c);
+    const drop = () => { c.destroy(); up.destroy(); };
+    c.on('error', drop); up.on('error', drop);
+  });
+  bridge.on('error', (e) => console.warn('[coxpit] loopback bridge failed:', (e as Error).message));
+  bridge.listen(boundPort, '127.0.0.1', () => console.log(`[coxpit] loopback bridge 127.0.0.1:${boundPort} → ${runtime.listenHost}`));
+}
 updateLockPort(boundPort);   // 락에 실제 포트 반영 — 데스크톱/외부가 이걸 읽어 붙는다.
 console.log(`[coxpit] listening on http://${runtime.listenHost === '0.0.0.0' ? '127.0.0.1' : runtime.listenHost}:${boundPort}/`);
 
