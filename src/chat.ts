@@ -629,7 +629,12 @@ async function performSwitch(m: ChatMeta, name: string | null): Promise<void> {
     await runShellOn(info.machine, `tmux send-keys -t ${t} -l '/exit' && tmux send-keys -t ${t} Enter`, 5000);
     for (let i = 0; i < 25; i++) { await new Promise((r) => setTimeout(r, 1000)); if (!/claude|node/i.test(await cmd())) break; }
   }
-  await runShellOn(info.machine, `tmux send-keys -t ${t} -l 'claude' && tmux send-keys -t ${t} Enter`, 5000);
+  // 맨 `claude` 는 두 번 틀렸다(11/02): ① 창의 zsh 가 PATH 를 다시 짜서 심(~/.coxpit/shim)이 안 잡힌다 → 토큰 주입 없음,
+  // ② 심이 잡혀도 tmux 환경의 COXPIT_CLAUDE_SID 는 세션을 만들 때 것(옛 대화)이라 지금 대화로 안 잇는다 → 새 세션이 떠서 맥락이 날아갔다.
+  // 그래서 심 폴더를 PATH 앞에 직접 붙이고, 이 대화의 sid 로 --resume 을 명시한다(1199 줄과 같은 꼴).
+  let flags = m.mode && m.mode !== 'default' ? ` --permission-mode ${m.mode}` : '';
+  if (m.sid && findTranscript(m.sid)) flags += ` --resume ${m.sid}`;
+  await runShellOn(info.machine, `tmux send-keys -t ${t} ${shq(`PATH="$HOME/.coxpit/shim:$PATH" claude${flags}`)} Enter`, 5000);
 }
 /** 지운 지 30초 안이면 되돌린다(목록에 다시, 터미널 그대로) */
 export function restoreChat(id: string): ChatMeta | null {
@@ -1197,7 +1202,8 @@ async function tmuxSend(m: ChatMeta, text: string): Promise<void> {
   if (SHELLS.has(p.cmd)) {
     let flags = m.mode && m.mode !== 'default' ? ` --permission-mode ${m.mode}` : '';
     if (m.sid && findTranscript(m.sid)) flags += ` --resume ${m.sid}`;
-    await runShellOn(p.info.machine, `tmux send-keys -t ${t} ${shq('claude' + flags)} Enter`, 8000);
+    // 창의 zsh 가 PATH 를 다시 짜서 심이 안 잡히는 맥이 있다(11/02) → 심 폴더를 앞에 붙여 계정 토큰 주입이 되게
+    await runShellOn(p.info.machine, `tmux send-keys -t ${t} ${shq(`PATH="$HOME/.coxpit/shim:$PATH" claude${flags}`)} Enter`, 8000);
     let up = false, trust = false;
     for (let i = 0; i < 600; i++) {   // 폴더 믿기 · 새 MCP 서버 같은 질문에 앱 카드로 답할 시간까지 5분
       await new Promise((r) => setTimeout(r, 500));
