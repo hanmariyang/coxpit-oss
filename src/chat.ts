@@ -120,7 +120,8 @@ function summarize(name: string, input: unknown): string {
 
 export function summary(m: ChatMeta) {
   const l = lives.get(m.id);
-  return { ...m, state: l?.state ?? 'idle', current: l?.current ?? '', asks: l ? [...l.asks.values()] : [], agents: l?.agents ?? [] };
+  // brief: 목록 한 줄 · 알림용 「할 일 n · 링크 m · 첫 문장」
+  return { ...m, state: l?.state ?? 'idle', current: l?.current ?? '', asks: l ? [...l.asks.values()] : [], agents: l?.agents ?? [], brief: m.last ? doneBody(m) : '' };
 }
 /** 「다 봤음」: 끝남 · 안 봄 전부를 본 것으로 */
 export function markSeenAll(ids?: string[]): number {
