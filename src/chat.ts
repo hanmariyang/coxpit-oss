@@ -21,7 +21,7 @@ import { agentRuns } from './db/schema';
 import { eq } from 'drizzle-orm';
 import { runShellOn, shq } from './exec';
 import { cleanupRun, getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
-import { pushNotify } from './push';
+import { pushNotify, setOpenedLookup } from './push';
 import { screenAsk, choiceSteps, currentTab, PAD_KEYS, type QOption, type MenuOption, type ChoiceAnswer, type Step } from './askscreen';
 
 export type ChatState = 'idle' | 'run' | 'ask' | 'error' | 'gone';
@@ -43,6 +43,10 @@ export interface ChatMeta {
   todos?: Record<string, number>;
   /** 알림 없음: 시험용으로 연 대화(데몬 푸시 · 앱 알림 둘 다 건넌다) */
   quiet?: boolean;
+  /** 앱이 이 대화를 마지막으로 연 때(ms). doneAt 보다 앞이면 「끝남 · 안 봄」 */
+  seen?: number;
+  /** 마지막으로 새 답이 끝난 때(ms) */
+  doneAt?: number;
 }
 export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number; /** 마지막 도구 뒤에 쓴 글(= 끝 보고). 알림 · 목록 한 줄에 쓴다 */ final?: string }
 export interface ToolUse { name: string; summary: string }
@@ -118,6 +122,14 @@ export function summary(m: ChatMeta) {
   const l = lives.get(m.id);
   return { ...m, state: l?.state ?? 'idle', current: l?.current ?? '', asks: l ? [...l.asks.values()] : [], agents: l?.agents ?? [] };
 }
+/** 「다 봤음」: 끝남 · 안 봄 전부를 본 것으로 */
+export function markSeenAll(ids?: string[]): number {
+  let n = 0; const now = Date.now();
+  for (const m of metas) if (!ids || ids.includes(m.id)) { if ((m.doneAt ?? 0) > (m.seen ?? 0)) { m.seen = now; n++; announce(m.id); } }
+  if (n) save();
+  return n;
+}
+setOpenedLookup((chatId, at) => (getChat(chatId)?.seen ?? 0) > at);
 export function listChats() {
   return metas.slice().sort((a, b) => b.updated - a.updated).map(summary);
 }
@@ -176,8 +188,9 @@ export function createChat(input: { cwd: string; title?: string; model?: string;
   return m;
 }
 
-export function updateChat(id: string, patch: { title?: string; mode?: string; model?: string; pinned?: unknown; hidden?: unknown; quiet?: unknown }): ChatMeta {
+export function updateChat(id: string, patch: { title?: string; mode?: string; model?: string; pinned?: unknown; hidden?: unknown; quiet?: unknown; seen?: unknown }): ChatMeta {
   const m = getChat(id); if (!m) throw new Error('not found');
+  if (patch.seen != null) { if (patch.seen === true || patch.seen === 'true') m.seen = Date.now(); }
   if (patch.title != null) m.title = String(patch.title).trim().slice(0, 80) || m.title;
   if (patch.pinned != null) { if (patch.pinned === true || patch.pinned === 'true') m.pinned = true; else delete m.pinned; }
   if (patch.hidden != null) { if (patch.hidden === true || patch.hidden === 'true') m.hidden = true; else delete m.hidden; }
@@ -603,7 +616,7 @@ export function removeChat(id: string): boolean {
   const m = getChat(id);
   const n = metas.length; metas = metas.filter((x) => x.id !== id); save();
   // 캐시도 같이 비운다(없으면 대본 줄 캐시 · 에이전트 색인이 데몬이 사는 동안 쌓였다)
-  lastAnnounced.delete(id); tmuxHint.delete(id); tmuxState.delete(id); recentCids.delete(id); notifiedDone.delete(id); finishTimers.delete(id);
+  lastAnnounced.delete(id); tmuxHint.delete(id); tmuxState.delete(id); recentCids.delete(id); notifiedDone.delete(id); finishTimers.delete(id); lastFinal.delete(id);
   const f = m?.sid ? pathCache.get(m.sid) : undefined;
   if (m?.sid) pathCache.delete(m.sid);
   if (f) { rowCache.delete(f); endIdx.delete(f); for (const k of [...agentCur.keys()]) if (k.startsWith(path.dirname(f))) agentCur.delete(k); }
@@ -628,8 +641,17 @@ const tmuxState = new Map<string, { screen: string; mtime: number; ask?: Ask; po
 const recentCids = new Map<string, string[]>();   // 같은 말이 두 번 쳐지지 않게(앱이 다시 보낼 때)
 const SHELLS = new Set(['zsh', 'bash', 'sh', 'fish', '-zsh', '-bash', 'login']);
 
-async function paneInfo(runId: number) {
+// run → tmux 세션 이름은 안 바뀐다 → 1분 캐시(폴링마다 DB 쿼리 열 번이 나갔다)
+const termInfoCache = new Map<number, { at: number; info: Awaited<ReturnType<typeof getRunTermInfo>> }>();
+async function runTerm(runId: number) {
+  const c = termInfoCache.get(runId);
+  if (c && Date.now() - c.at < 60000) return c.info;
   const info = await getRunTermInfo(runId);
+  termInfoCache.set(runId, { at: Date.now(), info });
+  return info;
+}
+async function paneInfo(runId: number) {
+  const info = await runTerm(runId);
   if (!info) return null;
   const t = shq(info.session);
   const r = await runShellOn(info.machine,
@@ -711,7 +733,7 @@ function liveClaudeFor(session: string): { sid: string; status: string } | null 
 }
 
 async function tmuxSid(m: ChatMeta): Promise<string> {
-  const info = await getRunTermInfo(m.runId!);
+  const info = await runTerm(m.runId!);
   const lc = info ? liveClaudeFor(info.session) : null;
   if (lc && findTranscript(lc.sid)) {
     if (lc.sid !== m.sid) { m.sid = lc.sid; m.last = ''; const st = tmuxState.get(m.id); if (st) st.mtime = 0; save(); }
@@ -773,7 +795,8 @@ function onStateChange(id: string, prev: ChatState, s: ChatState): void {
       const fp = `${mm.sid}|${mm.last}`;
       if (notifiedDone.get(id) === fp) { logSkip(id, 'done', '같은 답'); return; }
       notifiedDone.set(id, fp);
-      void pushNotify({ chatId: id, kind: 'done', title: `${mm.title} · 끝남`, body: mm.last.replace(/\*\*|`/g, '').slice(0, 180) || '답이 왔어요' });
+      mm.doneAt = Date.now(); save(); announce(id);
+      void pushNotify({ chatId: id, kind: 'done', title: `${mm.title} · 끝남`, body: doneBody(mm) });
     }, 8000));
   }
   // 돌다가 죽거나 터미널이 사라진 것도 한 번 알린다(밤새 죽은 세션을 아침까지 몰랐다)
@@ -783,6 +806,23 @@ function onStateChange(id: string, prev: ChatState, s: ChatState): void {
   }
   if (s === 'run') clearTimeout(finishTimers.get(id));
 }
+/** 끝남 알림 한 줄: 「할 일 n · 링크 m · 첫 문장」(상자 선 · 마크다운 뺌). 알림만 보고 열지 말지 정하게 */
+export function doneBody(m: ChatMeta): string {
+  const full = lastFinal.get(m.id) ?? m.last;
+  const clean = (s: string) => s.replace(/^[\s╌─━═│┃┌┐└┘├┤╭╮╰╯]+$/gm, '').replace(/\*\*|`|^#+\s*/gm, '').replace(/\n{2,}/g, '\n').trim();
+  const t = clean(full);
+  const todoAt = t.search(/^(오너 )?할 일\s*$/m); const linkAt = t.search(/^링크\s*$/m);
+  const head = t.slice(0, Math.min(...[todoAt, linkAt].filter((x) => x >= 0), t.length));
+  const todoPart = todoAt >= 0 ? t.slice(todoAt, linkAt > todoAt ? linkAt : undefined) : '';
+  const linkPart = linkAt >= 0 ? t.slice(linkAt) : '';
+  const nTodo = (todoPart.match(/^\s*\d+\.\s/gm) ?? []).length;
+  const nLink = (linkPart.match(/https?:\/\/|~\/|\/Users\//g) ?? []).length;
+  const first = head.replace(/\s+/g, ' ').trim();
+  const parts = [nTodo ? `할 일 ${nTodo}` : '', nLink ? `링크 ${nLink}` : ''].filter(Boolean);
+  const body = (parts.length ? parts.join(' · ') + ' · ' : '') + (first || '답이 왔어요');
+  return body.slice(0, 200);
+}
+const lastFinal = new Map<string, string>();   // 대화 → 마지막 답의 끝 보고 전체(알림 본문용. m.last 는 200자)
 function logSkip(id: string, kind: string, why: string): void {
   try { fs.appendFileSync(path.join(path.dirname(storePath()), 'push-log.jsonl'), JSON.stringify({ at: new Date().toISOString(), chatId: id, kind, title: '', body: '', sent: [`건넘(${why}):0`] }) + '\n'); } catch { /* 기록은 덤 */ }
 }
@@ -843,6 +883,13 @@ function agentProgress(f: string, mt: number): { current: string; started: numbe
   } catch { /* 읽다 실패 → 빈 줄 */ }
   const v = { mt, current: current.slice(0, 160), started, finished }; agentCur.set(f, v); return v;
 }
+const metaCache = new Map<string, Record<string, any>>();   // meta.json 은 안 바뀐다 → 한 번만 읽는다(폴링마다 에이전트 42개를 다시 읽었다)
+function agentMeta(p: string): Record<string, any> {
+  const c = metaCache.get(p); if (c) return c;
+  let meta: Record<string, any> = {}; try { meta = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return {}; }
+  if (metaCache.size > 2000) metaCache.clear();
+  metaCache.set(p, meta); return meta;
+}
 function subAgents(transcript: string): SubAgent[] {
   const dir = path.join(transcript.replace(/\.jsonl$/, ''), 'subagents');
   let names: string[] = []; try { names = fs.readdirSync(dir).filter((x) => x.endsWith('.jsonl')); } catch { /* 에이전트 없음 · 셸만 볼 수 있다 */ }
@@ -853,7 +900,7 @@ function subAgents(transcript: string): SubAgent[] {
     let mt = 0; try { mt = fs.statSync(jf).mtimeMs; } catch { continue; }
     if (now - mt > AGENT_STALE_MS) continue;
     const id = n.replace(/^agent-/, '').replace(/\.jsonl$/, '');
-    let meta: Record<string, any> = {}; try { meta = JSON.parse(fs.readFileSync(path.join(dir, `agent-${id}.meta.json`), 'utf8')); } catch { /* 없음 */ }
+    const meta = agentMeta(path.join(dir, `agent-${id}.meta.json`));
     ends ??= agentEnds(transcript);
     // 뒤에서 도는 것은 띄우자마자 「launched」 tool_result 가 오므로 알림만 끝으로 친다
     const fg = meta.requestShape && meta.requestShape !== 'background';
@@ -932,7 +979,10 @@ async function pollTmux(id: string): Promise<void> {
     const turns = readTurns(m, 300, tmuxHint.get(id));
     const lastA = [...turns].reverse().find((t) => t.role === 'assistant' && t.text.trim());
     // 한 답 안의 중간 안내(「확인하는 중이에요」)가 아니라 끝 보고를 남긴다. 끝 보고가 아직 없으면(도구 중) 지금까지 글의 끝부분
-    if (lastA) { m.last = (lastA.final?.trim() ? lastA.final : lastA.text.split('\n\n').slice(-1)[0] ?? lastA.text).replace(/\s+/g, ' ').slice(0, 200); }
+    if (lastA) {
+      m.last = (lastA.final?.trim() ? lastA.final : lastA.text.split('\n\n').slice(-1)[0] ?? lastA.text).replace(/\s+/g, ' ').slice(0, 200);
+      lastFinal.set(id, (lastA.final?.trim() ? lastA.final : lastA.text).slice(-4000));
+    }
     m.updated = Math.max(m.updated, mt); save();
     // 바뀐 데부터만 보낸다(중계 길에서 가볍게). 앞이 달라졌으면 from 0
     const prev = st.sent ?? [];

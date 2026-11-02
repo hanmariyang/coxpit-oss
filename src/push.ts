@@ -15,7 +15,38 @@ const dataDir = (): string => path.dirname(path.resolve(process.env.COXPIT_DB ||
 const apnsDir = (): string => path.join(dataDir(), 'apns');
 const tokensPath = (): string => path.join(dataDir(), 'push-tokens.json');
 
-export interface Device { token: string; env: 'sandbox' | 'production'; topic: string; name?: string; device?: string; at: number }
+export type Policy = 'all' | 'ask' | 'off';
+export interface Device { token: string; env: 'sandbox' | 'production'; topic: string; name?: string; device?: string; at: number; /** 이 기기가 받을 알림: 전부 · 물어봄(멈춤 · 한도 포함)만 · 끄기 */ policy?: Policy }
+/** 알림 설정(맥마다 하나): 조용 시간엔 끝남을 모아 한 통, 쓰는 기기가 있어 건넌 알림은 5분 뒤 다시 본다 */
+export interface PushSettings { quiet: { on: boolean; from: number; to: number }; defer: boolean }
+const settingsPath = (): string => path.join(dataDir(), 'push-settings.json');
+export function pushSettings(): PushSettings {
+  const d: PushSettings = { quiet: { on: true, from: 0, to: 7 }, defer: true };
+  try { const j = JSON.parse(fs.readFileSync(settingsPath(), 'utf8')); return { quiet: { ...d.quiet, ...(j.quiet ?? {}) }, defer: typeof j.defer === 'boolean' ? j.defer : d.defer }; } catch { return d; }
+}
+export function savePushSettings(p: Partial<PushSettings>): PushSettings {
+  const cur = pushSettings();
+  const next: PushSettings = { quiet: { ...cur.quiet, ...(p.quiet ?? {}) }, defer: typeof p.defer === 'boolean' ? p.defer : cur.defer };
+  next.quiet.from = Math.max(0, Math.min(23, Math.round(Number(next.quiet.from) || 0)));
+  next.quiet.to = Math.max(0, Math.min(23, Math.round(Number(next.quiet.to) || 0)));
+  next.quiet.on = next.quiet.on === true;
+  fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2));
+  return next;
+}
+function inQuiet(s = pushSettings(), d = new Date()): boolean {
+  if (!s.quiet.on || s.quiet.from === s.quiet.to) return false;
+  const h = d.getHours();
+  return s.quiet.from < s.quiet.to ? h >= s.quiet.from && h < s.quiet.to : h >= s.quiet.from || h < s.quiet.to;
+}
+export function listDevices(): Array<{ device: string; name: string; env: string; at: number; policy: Policy }> {
+  return loadDevices().map((d) => ({ device: d.device ?? d.token.slice(0, 12), name: d.name ?? '', env: d.env, at: d.at, policy: d.policy ?? 'all' }));
+}
+export function setDevicePolicy(device: string, policy: Policy): boolean {
+  const all = loadDevices(); let hit = false;
+  for (const d of all) if ((d.device ?? d.token.slice(0, 12)) === device) { d.policy = policy; hit = true; }
+  if (hit) saveDevices(all);
+  return hit;
+}
 
 function loadDevices(): Device[] {
   try { return JSON.parse(fs.readFileSync(tokensPath(), 'utf8')) as Device[]; } catch { return []; }
@@ -24,15 +55,18 @@ function saveDevices(d: Device[]): void {
   fs.writeFileSync(tokensPath(), JSON.stringify(d, null, 2), { mode: 0o600 });
 }
 
-export function registerDevice(input: { token?: string; env?: string; topic?: string; name?: string; device?: string }): Device {
+export function registerDevice(input: { token?: string; env?: string; topic?: string; name?: string; device?: string; policy?: string }): Device {
   const token = String(input.token ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
   if (token.length < 32 || token.length > 200) throw new Error('token required');
   const topic = String(input.topic ?? '').trim();
   if (!/^[\w.-]+$/.test(topic)) throw new Error('topic required');
   const d: Device = { token, env: input.env === 'production' ? 'production' : 'sandbox', topic, name: input.name ? String(input.name).slice(0, 60) : undefined, device: input.device ? String(input.device).slice(0, 64) : undefined, at: Date.now() };
+  const pol = input.policy === 'all' || input.policy === 'ask' || input.policy === 'off' ? input.policy : undefined;
   // 같은 기기(이름 · 앱)가 다시 등록하면 옛 토큰은 뺀다 — 설치 페이지 판 → TestFlight 판으로 바꾸면 토큰이 둘이 돼 같은 알림이 두 번 갔다
   // 기기 id 가 오면 그것으로만 가린다(iOS 이름은 「iPad」 같은 모델 이름이라 두 대를 못 가른다). 옛 앱은 이름으로
   const same = (x: Device) => x.topic === topic && (d.device ? x.device === d.device || (!x.device && x.name === d.name) : !!d.name && x.name === d.name);
+  const prev = loadDevices().find((x) => x.token === token || same(x));
+  d.policy = pol ?? prev?.policy;   // 정책은 다시 등록해도 남는다
   const all = loadDevices().filter((x) => x.token !== token && !same(x));
   all.push(d); saveDevices(all.slice(-20));
   return d;
@@ -107,13 +141,40 @@ export function activeDevice(): string | null {
   return null;
 }
 
-export async function pushNotify(n: { chatId: string; kind: 'done' | 'ask' | 'stop' | 'test'; title: string; body: string }): Promise<Array<{ name: string; status: number; reason?: string }>> {
+export type PushKind = 'done' | 'ask' | 'stop' | 'usage' | 'digest' | 'test';
+export interface Notice { chatId: string; kind: PushKind; title: string; body: string }
+/** 건넌 알림을 5분 뒤 다시 볼 때 「그 사이 그 대화를 열었나」를 묻는다(chat.ts 가 seen 을 안다) */
+let openedSince: (chatId: string, at: number) => boolean = () => false;
+export function setOpenedLookup(f: typeof openedSince): void { openedSince = f; }
+
+const DEFER_MS = 5 * 60 * 1000;
+const deferred: Array<{ n: Notice; at: number }> = [];
+const digest: Array<{ n: Notice; at: number }> = [];
+let digestAsks = 0;
+
+/** 끝남 · 물어봄 · 멈춤 · 한도를 폰에 보낸다. 조용 시간이면 끝남은 모아 두고, 쓰는 기기가 있으면 5분 미뤘다 다시 본다 */
+export async function pushNotify(n: Notice, opt: { force?: boolean } = {}): Promise<Array<{ name: string; status: number; reason?: string }>> {
   const k = loadKey(); if (!k) return [];
-  const using = n.kind === 'test' ? null : activeDevice();
-  if (using) { logPush(n, [{ name: `건넘(${using} 쓰는 중)`, status: 0 }]); return []; }
-  const devices = loadDevices(); if (!devices.length) return [];
+  const s = pushSettings();
+  if (!opt.force && n.kind !== 'test') {
+    if (n.kind === 'done' && inQuiet(s)) { digest.push({ n, at: Date.now() }); logPush(n, [{ name: '건넘(조용 시간 · 아침에 묶어서)', status: 0 }]); return []; }
+    if (n.kind === 'ask' && inQuiet(s)) digestAsks++;
+    const using = activeDevice();
+    if (using) {
+      if (s.defer && (n.kind === 'done' || n.kind === 'ask')) { deferred.push({ n, at: Date.now() }); logPush(n, [{ name: `건넘(${using} 쓰는 중 · 5분 뒤 다시)`, status: 0 }]); }
+      else logPush(n, [{ name: `건넘(${using} 쓰는 중)`, status: 0 }]);
+      return [];
+    }
+  }
+  const devices = loadDevices().filter((d) => n.kind === 'test' || ((d.policy ?? 'all') === 'all' || ((d.policy ?? 'all') === 'ask' && n.kind !== 'done' && n.kind !== 'digest')));
+  if (!devices.length) { logPush(n, [{ name: '건넘(받을 기기 없음)', status: 0 }]); return []; }
+  const urgent = n.kind === 'ask' || n.kind === 'stop';
   const payload = {
-    aps: { alert: { title: n.title.slice(0, 120), body: n.body.slice(0, 240) }, sound: 'default', 'thread-id': n.chatId },
+    aps: {
+      alert: { title: n.title.slice(0, 120), body: n.body.slice(0, 240) }, sound: 'default',
+      'thread-id': n.kind === 'digest' ? 'night' : n.chatId, category: n.kind,
+      ...(urgent ? { 'interruption-level': 'time-sensitive' } : {}),
+    },
     chatId: n.chatId, kind: n.kind, host: os.hostname(),
   };
   const out: Array<{ name: string; status: number; reason?: string }> = [];
@@ -127,6 +188,34 @@ export async function pushNotify(n: { chatId: string; kind: 'done' | 'ask' | 'st
   if (dead.size) saveDevices(loadDevices().filter((d) => !dead.has(d.token)));
   logPush(n, out);
   return out;
+}
+
+// 30초마다: 미룬 알림은 5분 지나고 그 대화를 안 열었으면 보낸다. 조용 시간이 끝나면 모은 끝남을 한 통으로
+let tickStarted = false;
+export function startPushTicker(): void {
+  if (tickStarted) return; tickStarted = true;
+  setInterval(() => {
+    const now = Date.now();
+    while (deferred.length && now - deferred[0]!.at >= DEFER_MS) {
+      const { n, at } = deferred.shift()!;
+      if (openedSince(n.chatId, at)) { logPush(n, [{ name: '건넘(그 사이 열어 봄)', status: 0 }]); continue; }
+      void pushNotify(n, { force: true });
+    }
+    if (digest.length && !inQuiet()) {
+      const items = digest.splice(0); const asks = digestAsks; digestAsks = 0;
+      const titles = [...new Set(items.map((x) => x.n.title.replace(/ · 끝남$/, '')))];
+      const body = (asks ? `물어봄 ${asks} · ` : '') + titles.slice(0, 8).join(', ') + (titles.length > 8 ? ` 외 ${titles.length - 8}` : '') + ' 끝남';
+      void pushNotify({ chatId: 'night', kind: 'digest', title: `밤사이 끝남 ${items.length}${asks ? ` · 물어봄 ${asks}` : ''}`, body }, { force: true });
+    }
+  }, 30000);
+}
+
+/** 보낸 알림 기록(최근 n건) */
+export function pushLog(limit = 200): unknown[] {
+  try {
+    const lines = fs.readFileSync(path.join(dataDir(), 'push-log.jsonl'), 'utf8').trim().split('\n');
+    return lines.slice(-limit).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean).reverse();
+  } catch { return []; }
 }
 
 /** 보낸 알림 기록(최근 200건): 「알림이 이상하다」를 확인할 때 무엇을 언제 보냈는지 본다 */

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve as presolve, dirname as pdirname, join as pjoin, sep as psep } from 'node:path';
 import { createRequire } from 'node:module';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import Fastify, { LogController, type FastifyInstance, type FastifyReply } from 'fastify';
 import websocket from '@fastify/websocket';
@@ -25,10 +25,10 @@ import { runShellOn, shq } from './exec';
 import { setTodo, searchChats, recentClaude, deleteChat, addSchedule, removeSchedule } from './chat';
 import { usage } from './usage';
 import { versionInfo, selfUpdate } from './selfupdate';
-import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice } from './push';
+import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice, pushSettings, savePushSettings, listDevices, setDevicePolicy, startPushTicker, pushLog, type Policy } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
 import type { ChoiceAnswer } from './askscreen';
-import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, restoreChat, pollStats, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
+import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, restoreChat, pollStats, markSeenAll, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun, INSTANCE_TAG } from './orchestrator';
 import { tmuxInstanceEnv } from './core';
 import { openTerm } from './term';
@@ -1902,7 +1902,16 @@ export async function buildServer(): Promise<FastifyInstance> {
     const ip = h === '0.0.0.0' ? tailscaleIp() : /^100\./.test(h) ? h : null;
     return ip ? `http://${ip}:${config.port}` : null;
   };
-  app.get('/api/chats', async () => { void syncSessions(); return { chats: listChats(), direct: directUrl() }; });   // 맞추기는 뒤에서(목록은 바로)
+  // update: 데몬 새 판이 있나(뒤처진 커밋 수, 1분 캐시). 앱이 맥 머리에 「● 새 판」을 보인다
+  let behindCache: { at: number; behind: number | null } = { at: 0, behind: null };
+  const behindNow = async (): Promise<number | null> => {
+    if (Date.now() - behindCache.at < 60000) return behindCache.behind;
+    behindCache = { at: Date.now(), behind: behindCache.behind };
+    try { const v = await versionInfo(false); behindCache.behind = v.updatable ? v.behind : null; } catch { /* 모름 */ }
+    return behindCache.behind;
+  };
+  app.get('/api/chats', async () => { void syncSessions(); return { chats: listChats(), direct: directUrl(), update: { behind: await behindNow() } }; });   // 맞추기는 뒤에서(목록은 바로)
+  app.post('/api/chats/seen-all', async (req) => ({ ok: true, n: markSeenAll(Array.isArray((req.body as { ids?: unknown })?.ids) ? ((req.body as { ids: unknown[] }).ids).map(String) : undefined) }));
   app.post('/api/chats', async (req, reply) => {
     const b = (req.body ?? {}) as { cwd?: string; title?: string; runId?: number; create?: boolean; resume?: string; quiet?: boolean };
     try {
@@ -1975,6 +1984,34 @@ export async function buildServer(): Promise<FastifyInstance> {
     catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
   });
   app.get('/api/push/status', async () => pushStatus());
+  app.get('/api/push/settings', async () => ({ ...pushSettings(), devices: listDevices() }));
+  app.patch('/api/push/settings', async (req) => ({ ...savePushSettings((req.body ?? {}) as Record<string, never>), devices: listDevices() }));
+  app.get('/api/push/devices', async () => ({ devices: listDevices() }));
+  app.patch('/api/push/devices/:device', async (req, reply) => {
+    const p = ((req.body ?? {}) as { policy?: string }).policy;
+    if (p !== 'all' && p !== 'ask' && p !== 'off') return reply.code(400).send({ error: 'policy: all | ask | off' });
+    return setDevicePolicy((req.params as { device: string }).device, p as Policy) ? { ok: true, devices: listDevices() } : reply.code(404).send({ error: 'no such device' });
+  });
+  app.get('/api/push/log', async (req) => ({ log: pushLog(Math.min(500, Number((req.query as { limit?: string }).limit) || 200)) }));
+  startPushTicker();
+  // 구독 한도 80 · 95%: 창마다 한 번 알린다(한도에 막혀 밤 작업이 서는 것)
+  const usageNotified = new Map<string, number>();
+  setInterval(() => {
+    const u = usage();
+    for (const [name, w] of [['5시간', u.fiveHour], ['주간', u.sevenDay]] as const) {
+      if (!w || !w.resetsAt) continue;
+      for (const th of [95, 80]) {
+        if (w.used < th) continue;
+        const key = `${name}|${th}`;
+        if (usageNotified.get(key) !== w.resetsAt) {
+          usageNotified.set(key, w.resetsAt);
+          const when = new Date(w.resetsAt); const hh = `${when.getHours()}:${String(when.getMinutes()).padStart(2, '0')}`;
+          void pushNotify({ chatId: 'usage', kind: 'usage', title: `${u.account ? u.account.split('@')[0] + ' · ' : ''}${name} 한도 ${w.used}%`, body: `${hh} 에 풀려요. 넘으면 밤 작업이 서요` });
+        }
+        break;
+      }
+    }
+  }, 5 * 60 * 1000);
   app.get('/api/usage', async () => usage());
   // 예약 보내기(데몬이 그 때 보낸다)
   app.post('/api/chats/:id/schedule', async (req, reply) => {
@@ -2032,7 +2069,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     const id = (req.params as { id: string }).id;
     const d = chatDetail(id);
     if (!d) { socket.send(JSON.stringify({ t: 'error', message: 'not found' })); socket.close(); return; }
-    socket.send(JSON.stringify({ t: 'hello', ...d }));
+    // 증분 hello: 앱이 이미 가진 턴 수(have)와 그 마지막 턴 글의 지문(tail)이 맞으면 그 뒤만 보낸다(300턴 300KB → 몇 KB)
+    const q = (req.query ?? {}) as { have?: string; tail?: string };
+    const have = Math.max(0, Number(q.have) || 0);
+    const tailOk = have > 0 && have <= d.turns.length && q.tail && createHash('sha1').update(d.turns[have - 1]!.text).digest('hex').slice(0, 16) === q.tail;
+    if (tailOk) socket.send(JSON.stringify({ t: 'hello', ...d, turns: d.turns.slice(have), from: have, total: d.turns.length }));
+    else socket.send(JSON.stringify({ t: 'hello', ...d }));
     const off = subscribe(id, (e) => { try { socket.send(JSON.stringify(e)); } catch { /* 끊김 */ } });
     const ping = setInterval(() => { try { socket.ping(); } catch { /* 끊김 */ } }, 25000);
     socket.on('close', () => { off(); clearInterval(ping); });
