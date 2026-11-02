@@ -115,7 +115,7 @@ export function authFilePath(): string { return AUTH_PATH; }
 // 3) auth.json 존재 → stored  4) 아무것도 없음 → 첫 실행 셋업
 export type AuthMode =
   | { mode: 'disabled' }
-  | { mode: 'env'; key: string }
+  | { mode: 'env'; key: string; prev?: string }
   | { mode: 'stored'; rec: StoredAuth }
   | { mode: 'setup' };
 
@@ -141,7 +141,7 @@ export function authMode(): AuthMode {
   // 명시 키(COXPIT_AUTH_PASS)·저장 키는 바인드와 무관하게 항상 우선한다 — 리버스 프록시가
   // 앞에 있으면 요청이 loopback 으로 들어와도 인터넷 전체가 도달할 수 있어서, 바인드로
   // 신뢰를 판단하면 안 된다(issue #11). "loopback = 무마찰"은 authGate 가 요청별로 판단한다.
-  if (config.auth.pass !== '') return { mode: 'env', key: config.auth.pass };
+  if (config.auth.pass !== '') return { mode: 'env', key: config.auth.pass, ...(config.auth.prev ? { prev: config.auth.prev } : {}) };
   const rec = loadStored();
   if (rec) return { mode: 'stored', rec };
   // 키 미구성. 노출 바인드면 첫 실행 셋업을 강제하고, loopback 이면 setup 상태로 두되
@@ -160,7 +160,10 @@ export function verifyKey(key: string, m: AuthMode = authMode()): boolean {
   if (m.mode === 'env') {
     // env 는 평문 비교지만 상수시간으로 — 같은 salt 로 양쪽 해시 후 비교.
     const salt = 'coxpit-env-mode-fixed-salt';
-    return constantEqHex(scryptHex(key, Buffer.from(salt).toString('hex')), scryptHex(m.key, Buffer.from(salt).toString('hex')));
+    const h = scryptHex(key, Buffer.from(salt).toString('hex'));
+    if (constantEqHex(h, scryptHex(m.key, Buffer.from(salt).toString('hex')))) return true;
+    // 바꾸는 중이면 옛 키도(COXPIT_AUTH_PASS_PREV). 쿠키 서명은 새 키에서만 나온다
+    return !!m.prev && constantEqHex(h, scryptHex(m.prev, Buffer.from(salt).toString('hex')));
   }
   if (m.mode === 'stored') {
     return constantEqHex(scryptHex(key, m.rec.salt), m.rec.hash);

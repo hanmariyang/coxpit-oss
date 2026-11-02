@@ -135,6 +135,8 @@ export const config = {
     disabled: process.env.COXPIT_AUTH_DISABLED === '1',
     user: process.env.COXPIT_AUTH_USER ?? 'admin',
     pass: process.env.COXPIT_AUTH_PASS ?? '',
+    // 키를 바꿀 때 옛 키를 잠시 같이 받는다(기기마다 새 키를 넣는 동안). 다 바꾸면 지운다
+    prev: process.env.COXPIT_AUTH_PASS_PREV ?? '',
   },
 } as const;
 
