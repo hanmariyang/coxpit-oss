@@ -621,7 +621,8 @@ async function performSwitch(m: ChatMeta, name: string | null): Promise<void> {
   const info = await runTerm(m.runId!); if (!info) return;
   useAccount(info.session, name);
   m.account = name ?? undefined; delete m.pendingAccount; save(); announce(m.id);
-  const t = shq('=' + info.session);
+  // tmux 3.7 은 `=이름` 을 has-session 에는 받지만 display · send-keys 는 「can't find pane」 → 계정 표시만 적히고 claude 가 안 바뀌었다(11/02). 다른 데처럼 이름 그대로
+  const t = shq(info.session);
   const cmd = async () => (await runShellOn(info.machine, `tmux display -p -t ${t} '#{pane_current_command}'`, 5000)).stdout.trim();
   // claude 가 떠 있으면 /exit 로 내린다(최대 25초), 셸이 되면 다시 claude
   if (/claude|node/i.test(await cmd())) {
