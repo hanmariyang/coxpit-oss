@@ -1100,7 +1100,9 @@ setInterval(() => void runSchedules(), 15_000).unref();
 
 let watchStarted = false;
 export function startTmuxWatch(): void {
-  void syncSessions().then(() => { for (const m of metas) if (m.runId) ensurePolling(m.id); });
+  // 대화마다 1.5초씩 띄워 시작한다: 한꺼번에 시작하면 큰 대본(500MB) 열두 개의 첫 읽기(각 3~5초, 동기)가 이벤트 루프를 1분 가까이 막아
+  // 재시작 직후 모든 요청이 2~45초 걸렸다(11/02 실측). 데몬 자체는 2초면 뜬다
+  void syncSessions().then(() => { let i = 0; for (const m of metas) if (m.runId) setTimeout(() => ensurePolling(m.id), i++ * 1500); });
   // 대화를 열 때마다 불린다 — 타이머는 한 번만(전에는 열 때마다 하나씩 늘었다)
   if (watchStarted) return; watchStarted = true;
   setInterval(() => void syncSessions(), 20000);

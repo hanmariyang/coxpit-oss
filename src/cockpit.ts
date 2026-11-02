@@ -4256,11 +4256,13 @@ ${HUMANIZE_JS}
   $('rvVcmd').addEventListener('keydown', function(e){ if (e.key==='Enter'){ e.preventDefault(); saveVcmd(); } });
 
   // ── /ws 라이브 구독 → 트리·페인 갱신 ──
+  var wsWait = 1500;
   function wsConnect(){
     var proto = location.protocol==='https:'?'wss':'ws';
     var ws = new WebSocket(proto+'://'+location.host+'/ws');
-    ws.onopen = function(){ $('ws').classList.add('on'); $('wstext').textContent='live'; };
-    ws.onclose = function(){ $('ws').classList.remove('on'); $('wstext').textContent='reconnecting'; setTimeout(wsConnect, 1500); };
+    ws.onopen = function(){ $('ws').classList.add('on'); $('wstext').textContent='live'; wsWait = 1500; };
+    /* 끊기면 1.5 → 3 → 6 … 30초로 늘려 가며 다시(1.5초 고정이라 데몬이 내려간 밤에 탭 하나가 /ws 를 하루 3,500번 두드렸다) */
+    ws.onclose = function(){ $('ws').classList.remove('on'); $('wstext').textContent='reconnecting'; setTimeout(wsConnect, wsWait); wsWait = Math.min(wsWait * 2, 30000); };
     /* 델타는 종류가 많아 단순히 전체 리하이드레이트(디바운스).
        단 agentstate 는 초당 여러 번 올 수 있어 리하이드레이트를 걸지 않는다 — 그 run 자리만 표적으로 칠한다(A4). */
     ws.onmessage = function(m){
