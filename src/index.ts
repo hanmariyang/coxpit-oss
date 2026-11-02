@@ -7,7 +7,7 @@ import { acquireDaemonLock, updateLockPort } from './lock';
 import { reconcileOrphanRuns } from './orchestrator';
 import { buildServer } from './server';
 import { augmentPathForGuiLaunch } from './paths';
-import { createServer, connect, type AddressInfo } from 'node:net';
+import { createServer, type AddressInfo } from 'node:net';
 
 // macOS: GUI/launchd 로 뜨면 PATH 에 Homebrew 가 없어 로컬 tmux 를 못 찾는다(issue #10).
 // 어떤 로컬 spawn 보다 먼저 PATH 를 보강한다.
@@ -84,17 +84,12 @@ async function listenAuto(): Promise<number> {
   return p;
 }
 const boundPort = await listenAuto();
-// 테일스케일 IP 에만 들으면 127.0.0.1 로 들어오던 길(Cloudflare 터널 · tailscale serve · 데스크톱 앱)이 끊긴다 → loopback 에 같은 포트로 TCP 다리를 하나 둔다
+// 테일스케일 IP 에만 들으면 127.0.0.1 로 들어오던 길(Cloudflare 터널 · tailscale serve · 데스크톱 앱)이 끊긴다
+// → loopback 에 같은 포트로 소켓을 하나 더 열고, 들어온 연결을 같은 HTTP 서버에 넘긴다(두 번째 TCP 홉 없음, 상대 주소 127.0.0.1 그대로)
 if (config.host === 'tailscale' && runtime.listenHost !== '127.0.0.1') {
-  const bridge = createServer((c) => {
-    // 데몬이 보는 상대 주소가 127.0.0.1 로 남게(loopback 신뢰 · 접속 제한 버킷 · 로그가 테일스케일 IP 로 뭉치지 않게)
-    const up = connect({ port: boundPort, host: runtime.listenHost, localAddress: '127.0.0.1' });
-    c.pipe(up).pipe(c);
-    const drop = () => { c.destroy(); up.destroy(); };
-    c.on('error', drop); up.on('error', drop);
-  });
-  bridge.on('error', (e) => console.warn('[coxpit] loopback bridge failed:', (e as Error).message));
-  bridge.listen(boundPort, '127.0.0.1', () => console.log(`[coxpit] loopback bridge 127.0.0.1:${boundPort} → ${runtime.listenHost}`));
+  const bridge = createServer((c) => { app.server.emit('connection', c); });
+  bridge.on('error', (e) => console.warn('[coxpit] loopback listener failed:', (e as Error).message));
+  bridge.listen(boundPort, '127.0.0.1', () => console.log(`[coxpit] also listening on http://127.0.0.1:${boundPort}/`));
 }
 updateLockPort(boundPort);   // 락에 실제 포트 반영 — 데스크톱/외부가 이걸 읽어 붙는다.
 console.log(`[coxpit] listening on http://${runtime.listenHost === '0.0.0.0' ? '127.0.0.1' : runtime.listenHost}:${boundPort}/`);
