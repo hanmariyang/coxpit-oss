@@ -24,7 +24,7 @@ import { BOOKMARKLET_JS } from './design';
 import { runShellOn, shq } from './exec';
 import { setTodo, searchChats, recentClaude, deleteChat, addSchedule, removeSchedule } from './chat';
 import { usage } from './usage';
-import { listAccounts, setDefault, renameAccount, deleteAccount, loginStart, loginCode, loginCancel } from './accounts';
+import { listAccounts, switchTo, setAlias, deleteAccount, loginStart, loginCode, loginCancel } from './accounts';
 import { versionInfo, selfUpdate } from './selfupdate';
 import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice, pushSettings, savePushSettings, listDevices, setDevicePolicy, startPushTicker, pushLog, type Policy } from './push';
 import { chatFile, recentFiles, keepingItem } from './chatfiles';
@@ -2013,13 +2013,18 @@ export async function buildServer(): Promise<FastifyInstance> {
       }
     }
   }, 5 * 60 * 1000);
-  // 계정별 사용량도 같이(목록의 계정 칩)
-  app.get('/api/usage', async () => { const a = listAccounts(); return { ...usage(), accounts: Object.fromEntries(a.accounts.map((x) => [x.name, usage(x.name)])), default: a.default }; });
-  // ── 클로드 계정 여럿(시안 v6) ──
+  app.get('/api/usage', async () => usage());
+  // ── 클로드 계정: 기기(맥) 단위(시안 v7) ──
   app.get('/api/accounts', async () => listAccounts());
-  app.patch('/api/accounts/default', async (req, reply) => setDefault(String((req.body as { name?: string })?.name ?? '')) ? listAccounts() : reply.code(404).send({ error: '그런 계정이 없어요' }));
-  app.patch('/api/accounts/:name', async (req, reply) => renameAccount((req.params as { name: string }).name, String((req.body as { name?: string })?.name ?? '')) ? listAccounts() : reply.code(400).send({ error: '이름을 못 바꿨어요' }));
-  app.delete('/api/accounts/:name', async (req, reply) => deleteAccount((req.params as { name: string }).name) ? listAccounts() : reply.code(404).send({ error: '그런 계정이 없어요' }));
+  app.post('/api/accounts/switch', async (req, reply) => {
+    const r = switchTo(String((req.body as { email?: string })?.email ?? ''));
+    if (!r.ok) return reply.code(400).send({ error: r.error, current: r.current });
+    const liveChats = listChats().filter((c) => c.state && c.state !== 'gone').length;
+    return { ok: true, current: r.current, liveChats };
+  });
+  app.patch('/api/accounts/default', async (_req, reply) => reply.code(410).send({ error: '기본 계정은 없어요. 맥의 계정을 바꾸세요(/api/accounts/switch)' }));
+  app.patch('/api/accounts/:email', async (req, reply) => setAlias((req.params as { email: string }).email, String((req.body as { alias?: string })?.alias ?? '')) ? listAccounts() : reply.code(404).send({ error: '그런 계정이 없어요' }));
+  app.delete('/api/accounts/:email', async (req, reply) => { const r = deleteAccount((req.params as { email: string }).email); return r.ok ? listAccounts() : reply.code(400).send({ error: r.error }); });
   app.post('/api/accounts/login', async (_req, reply) => { try { return await loginStart(); } catch (e) { return reply.code(500).send({ error: (e as Error).message }); } });
   app.post('/api/accounts/login/code', async (req, reply) => { try { return await loginCode(String((req.body as { code?: string })?.code ?? '')); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); } });
   app.post('/api/accounts/login/cancel', async () => { loginCancel(); return { ok: true }; });

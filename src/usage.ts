@@ -16,13 +16,13 @@ function win(w: unknown, now: number): Window | null {
   return { used: Math.round(o.used_percentage), resetsAt: o.resets_at * 1000 };
 }
 
-/** name 이 있으면 그 계정 토큰으로 돈 claude 가 남긴 파일(coxpit-usage-<name>.json). 없으면 맥의 로그인 계정 */
-export function usage(name?: string): Usage {
+/** 이 맥의 로그인 계정(기기 단위) 사용량. 계정별 파일은 없다(11/03) */
+export function usage(): Usage {
   const home = os.homedir(), now = Date.now();
-  let account: string | null = name ?? null;
-  if (!name) { try { account = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'))?.oauthAccount?.emailAddress ?? null; } catch { /* 없음 */ } }
+  let account: string | null = null;
+  try { account = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'))?.oauthAccount?.emailAddress ?? null; } catch { /* 없음 */ }
   try {
-    const d = JSON.parse(fs.readFileSync(path.join(home, '.claude', name ? `coxpit-usage-${name}.json` : 'coxpit-usage.json'), 'utf8'));
+    const d = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'coxpit-usage.json'), 'utf8'));
     const rl = d.rate_limits ?? {};
     return { account, at: typeof d.at === 'number' ? d.at * 1000 : null, fiveHour: win(rl.five_hour, now), sevenDay: win(rl.seven_day, now) };
   } catch { return { account, at: null, fiveHour: null, sevenDay: null }; }
