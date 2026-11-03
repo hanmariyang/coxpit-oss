@@ -1168,7 +1168,7 @@ async function tmuxSend(m: ChatMeta, text: string): Promise<void> {
   if (SHELLS.has(p.cmd)) {
     let flags = m.mode && m.mode !== 'default' ? ` --permission-mode ${m.mode}` : '';
     if (m.sid && findTranscript(m.sid)) flags += ` --resume ${m.sid}`;
-    // 창의 zsh 가 PATH 를 다시 짜서 심이 안 잡히는 맥이 있다(11/02) → 심 폴더를 앞에 붙여 계정 토큰 주입이 되게
+    // 창의 zsh 가 PATH 를 다시 짜서 심이 안 잡히는 맥이 있다(11/02) → 심 폴더를 앞에 붙인다(심은 세션 id 태깅만, 토큰은 넣지 않는다)
     await runShellOn(p.info.machine, `tmux send-keys -t ${t} ${shq(`PATH="$HOME/.coxpit/shim:$PATH" claude${flags}`)} Enter`, 8000);
     let up = false, trust = false;
     for (let i = 0; i < 600; i++) {   // 폴더 믿기 · 새 MCP 서버 같은 질문에 앱 카드로 답할 시간까지 5분
