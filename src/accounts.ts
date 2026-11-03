@@ -65,7 +65,10 @@ export function currentEmail(): string | null {
 
 // ── 사본 ──
 function readSaved(email: string): Saved | null { try { return JSON.parse(fs.readFileSync(filePath(email), 'utf8')) as Saved; } catch { return null; } }
-function writeSaved(s: Saved): void { fs.mkdirSync(accDir(), { recursive: true, mode: 0o700 }); fs.writeFileSync(filePath(s.email), JSON.stringify(s), { mode: 0o600 }); }
+function writeSaved(s: Saved): void {
+  fs.mkdirSync(accDir(), { recursive: true, mode: 0o700 }); try { fs.chmodSync(accDir(), 0o700); } catch { /* 그대로 */ }
+  fs.writeFileSync(filePath(s.email), JSON.stringify(s), { mode: 0o600 });
+}
 function refreshExpiry(c: Creds): number | null {
   const v = c.refreshTokenExpiresAt; const n = typeof v === 'string' ? Number(v) : typeof v === 'number' ? v : NaN;
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -154,7 +157,9 @@ export function loginCancel(): void { tmux(['kill-session', '-t', LOGIN]); try {
 /** 돌아온 코드를 쳐 넣는다. 클로드 코드가 저장소에 쓰면 그 계정이 바로 이 맥의 계정이고, 사본을 남긴다 */
 export async function loginCode(code: string): Promise<{ name: string; email: string | null; previous: string | null }> {
   const c = code.trim(); if (!c || c.length > 400 || /\s/.test(c)) throw new Error('코드가 이상해요');
-  if (!screen().includes('Paste code')) throw new Error('로그인 창이 없어요. 처음부터 다시 해 주세요');
+  // 주소 파일은 화면보다 먼저 생긴다. 「Paste code」 줄이 그려질 때까지 잠깐 기다린다
+  let ready = false; for (let i = 0; i < 20 && !ready; i++) { ready = screen().includes('Paste code'); if (!ready) await sleep(500); }
+  if (!ready) throw new Error('로그인 창이 없어요. 처음부터 다시 해 주세요');
   tmux(['send-keys', '-t', LOGIN, '-l', c]); await sleep(300); tmux(['send-keys', '-t', LOGIN, 'Enter']);
   let changed = false;
   for (let i = 0; i < 90 && !changed; i++) {
