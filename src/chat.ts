@@ -22,7 +22,6 @@ import { eq } from 'drizzle-orm';
 import { runShellOn, shq } from './exec';
 import { cleanupRun, getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
 import { pushNotify, setOpenedLookup } from './push';
-import { listAccounts, useAccount } from './accounts';
 import { screenAsk, choiceSteps, currentTab, PAD_KEYS, type QOption, type MenuOption, type ChoiceAnswer, type Step } from './askscreen';
 
 export type ChatState = 'idle' | 'run' | 'ask' | 'error' | 'gone';
@@ -48,10 +47,6 @@ export interface ChatMeta {
   seen?: number;
   /** 마지막으로 새 답이 끝난 때(ms) */
   doneAt?: number;
-  /** 이 세션의 claude 가 쓰는 클로드 계정 이름(accounts.ts). 없으면 맥의 로그인 계정 */
-  account?: string;
-  /** 바꾸려는 계정: 작업 중이면 끝난 뒤에 바꾼다 */
-  pendingAccount?: string;
 }
 export interface Turn { role: 'user' | 'assistant'; text: string; tools?: ToolUse[]; ts?: number; /** 마지막 도구 뒤에 쓴 글(= 끝 보고). 알림 · 목록 한 줄에 쓴다 */ final?: string }
 export interface ToolUse { name: string; summary: string }
@@ -88,7 +83,12 @@ let metas: ChatMeta[] = load();
 const lives = new Map<string, Live>();
 
 function load(): ChatMeta[] {
-  try { const j = JSON.parse(fs.readFileSync(storePath(), 'utf8')); return Array.isArray(j) ? j : []; } catch { return []; }
+  try {
+    const j = JSON.parse(fs.readFileSync(storePath(), 'utf8')); if (!Array.isArray(j)) return [];
+    // 11/02 하루 쓰인 대화별 계정 칸은 걷어 냈다(계정은 기기 단위) — 남은 값이 옛 앱에 꼬리표로 보이지 않게 지운다
+    for (const m of j as Record<string, unknown>[]) { delete m.account; delete m.pendingAccount; }
+    return j;
+  } catch { return []; }
 }
 // 앱에서 지운 coxpit 세션(run). 맞추기(syncSessions)가 다시 데려오지 않게 기억한다
 const dismissPath = (): string => path.join(path.dirname(storePath()), 'chats-dismissed.json');
@@ -607,35 +607,6 @@ export async function deleteChat(id: string): Promise<boolean> {
   }
   return removeChat(id);
 }
-/** 이 대화의 계정 바꾸기: 세션에 적고, claude 를 /exit 로 내린 뒤 같은 창에서 다시 띄운다(심이 --resume 으로 잇는다).
- *  작업 중이면 pendingAccount 에 두고 쉬게 될 때 바꾼다 */
-export async function switchAccount(id: string, name: string | null): Promise<{ ok: boolean; pending?: boolean; error?: string }> {
-  const m = getChat(id); if (!m || !m.runId) return { ok: false, error: 'not found' };
-  if (name && !listAccounts().accounts.some((a) => a.name === name)) return { ok: false, error: '그런 계정이 없어요' };
-  const l = lives.get(id);
-  if (l && (l.state === 'run' || l.state === 'ask')) { m.pendingAccount = name ?? ''; save(); announce(id); return { ok: true, pending: true }; }
-  await performSwitch(m, name);
-  return { ok: true };
-}
-async function performSwitch(m: ChatMeta, name: string | null): Promise<void> {
-  const info = await runTerm(m.runId!); if (!info) return;
-  useAccount(info.session, name);
-  m.account = name ?? undefined; delete m.pendingAccount; save(); announce(m.id);
-  // tmux 3.7 은 `=이름` 을 has-session 에는 받지만 display · send-keys 는 「can't find pane」 → 계정 표시만 적히고 claude 가 안 바뀌었다(11/02). 다른 데처럼 이름 그대로
-  const t = shq(info.session);
-  const cmd = async () => (await runShellOn(info.machine, `tmux display -p -t ${t} '#{pane_current_command}'`, 5000)).stdout.trim();
-  // claude 가 떠 있으면 /exit 로 내린다(최대 25초), 셸이 되면 다시 claude
-  if (/claude|node/i.test(await cmd())) {
-    await runShellOn(info.machine, `tmux send-keys -t ${t} -l '/exit' && tmux send-keys -t ${t} Enter`, 5000);
-    for (let i = 0; i < 25; i++) { await new Promise((r) => setTimeout(r, 1000)); if (!/claude|node/i.test(await cmd())) break; }
-  }
-  // 맨 `claude` 는 두 번 틀렸다(11/02): ① 창의 zsh 가 PATH 를 다시 짜서 심(~/.coxpit/shim)이 안 잡힌다 → 토큰 주입 없음,
-  // ② 심이 잡혀도 tmux 환경의 COXPIT_CLAUDE_SID 는 세션을 만들 때 것(옛 대화)이라 지금 대화로 안 잇는다 → 새 세션이 떠서 맥락이 날아갔다.
-  // 그래서 심 폴더를 PATH 앞에 직접 붙이고, 이 대화의 sid 로 --resume 을 명시한다(1199 줄과 같은 꼴).
-  let flags = m.mode && m.mode !== 'default' ? ` --permission-mode ${m.mode}` : '';
-  if (m.sid && findTranscript(m.sid)) flags += ` --resume ${m.sid}`;
-  await runShellOn(info.machine, `tmux send-keys -t ${t} ${shq(`PATH="$HOME/.coxpit/shim:$PATH" claude${flags}`)} Enter`, 5000);
-}
 /** 지운 지 30초 안이면 되돌린다(목록에 다시, 터미널 그대로) */
 export function restoreChat(id: string): ChatMeta | null {
   const u = undoable.get(id); if (!u) return null;
@@ -990,8 +961,6 @@ async function pollTmux(id: string): Promise<void> {
   // 셸이 끝나면 claude 가 알림을 받아 다시 돌므로 그때 작업 중이 된다
   const nRun = agents.filter((a) => a.running && !a.shell).length;
   if (c.state === 'idle' && nRun) { c.state = 'run'; c.current = `뒤에서 ${nRun}개 작업 중`; }
-  // 기다리던 계정 바꾸기: 쉬게 되면 그때
-  if (m.pendingAccount !== undefined && c.state === 'idle') { const want = m.pendingAccount || null; delete m.pendingAccount; void performSwitch(m, want); }
   if (c.ask?.kind === 'choice' && (c.ask.tabs?.length ?? 0) > 1) c.ask.tab = await choiceTab(p.info);
   const hints = screenHints(p.screen); if (hints.length) tmuxHint.set(id, hints);
   const l = live(id);
@@ -1159,7 +1128,7 @@ export async function adoptRun(runId: number, title?: string): Promise<ChatMeta>
 }
 
 /** 새 대화 = 새 coxpit 세션(tmux)을 그 폴더에 열고 붙는다. 맥 coxpit 화면에도 세션으로 뜬다 */
-export async function openTmuxChat(cwd: string, title?: string, create?: boolean, resumeSid?: string, account?: string | null): Promise<ChatMeta> {
+export async function openTmuxChat(cwd: string, title?: string, create?: boolean, resumeSid?: string): Promise<ChatMeta> {
   const dir = path.resolve(cwd.replace(/^~(?=$|\/)/, os.homedir()));
   if (create && !fs.existsSync(dir)) {
     if (!dir.startsWith(os.homedir() + path.sep)) throw new Error('new folders go under your home folder');
@@ -1174,9 +1143,6 @@ export async function openTmuxChat(cwd: string, title?: string, create?: boolean
   if (!r.ok || !r.runId) throw new Error(r.detail || 'could not open a session');
   const m = await adoptRun(r.runId, title || path.basename(dir));
   if (resumeSid && findTranscript(resumeSid)) { m.sid = resumeSid; save(); }   // 이전 대화를 이 세션에서 잇는다
-  // 계정: 고른 것 · 없으면 기본 계정(등록된 게 있을 때). claude 가 뜨기 전에 세션에 적어 둔다(심이 읽는다)
-  const acc = account === undefined ? listAccounts().default : account;
-  if (acc) { const info = await runTerm(r.runId); if (info) { useAccount(info.session, acc); m.account = acc; save(); announce(m.id); } }
   return m;
 }
 

@@ -1,6 +1,7 @@
-// 클로드 계정 여럿(시안 v6): 계정마다 `claude setup-token` 으로 받은 긴 토큰을 ~/.config/claude/accounts/<이름>.env(600) 에 두고,
-// 세션(tmux)마다 어느 계정인지를 데이터 폴더 accounts/by-session/<세션> 에 적는다. claude 심(claudeshim.ts)이 그 파일을 보고
-// 그 세션의 claude 에만 CLAUDE_CODE_OAUTH_TOKEN 을 넣는다. 토큰 값은 API 응답 · 로그 · 화면 어디에도 싣지 않는다.
+// 클로드 계정 목록(앱 설정 「클로드 계정」): 계정마다 `claude setup-token` 으로 받은 긴 토큰을 ~/.config/claude/accounts/<이름>.env(600) 에 둔다.
+// ⚠️ 11/03 오너 결정: 계정은 기기 단위다. 세션별 토큰 주입(by-session · 심 · CLAUDE_CODE_OAUTH_TOKEN)은 걷어 냈고, claude 는 클로드 코드 기본
+// 자격증명(키체인 · ~/.claude/.credentials.json)으로만 돈다. 이 파일은 목록 · 로그인 대행만 남았고, 기기 단위 「바꾸기」는 시안 뒤 다시 짠다.
+// 토큰 값은 API 응답 · 로그 · 화면 어디에도 싣지 않는다.
 // 「계정 더하기」는 앱에서 단추 하나: 데몬이 숨은 tmux 창에 setup-token 을 띄워 로그인 주소를 읽어 주고, 돌아온 코드를 대신 쳐 넣는다.
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -10,7 +11,6 @@ import path from 'node:path';
 const tokenDir = (): string => path.join(os.homedir(), '.config', 'claude', 'accounts');
 const dataDir = (): string => path.dirname(path.resolve(process.env.COXPIT_DB || path.join(os.homedir(), '.coxpit', 'coxpit.db')));
 const metaPath = (): string => path.join(dataDir(), 'accounts.json');
-export const bySessionDir = (): string => path.join(dataDir(), 'accounts', 'by-session');
 
 export interface Account { name: string; email?: string; since: number }
 interface Meta { default?: string; list: Account[] }
@@ -42,8 +42,6 @@ export function renameAccount(from: string, to: string): boolean {
   const m = readMeta(); const a = m.list.find((x) => x.name === from); if (!a || m.list.some((x) => x.name === to)) return false;
   try { fs.renameSync(envPath(from), envPath(to)); } catch { return false; }
   a.name = to; if (m.default === from) m.default = to; writeMeta(m);
-  // 세션 표시도 따라간다
-  try { for (const f of fs.readdirSync(bySessionDir())) { const p = path.join(bySessionDir(), f); if (fs.readFileSync(p, 'utf8').trim() === from) fs.writeFileSync(p, to); } } catch { /* 없음 */ }
   return true;
 }
 export function deleteAccount(name: string): boolean {
@@ -52,12 +50,6 @@ export function deleteAccount(name: string): boolean {
   if (m.default === name) delete m.default;
   writeMeta(m); try { fs.unlinkSync(envPath(name)); } catch { /* 이미 없음 */ }
   return true;
-}
-/** 이 세션의 claude 가 쓸 계정을 적는다(심이 읽는다). null 이면 표시를 지운다 = 맥의 로그인 계정 그대로 */
-export function useAccount(session: string, name: string | null): void {
-  fs.mkdirSync(bySessionDir(), { recursive: true });
-  const p = path.join(bySessionDir(), session.replace(/[^A-Za-z0-9._-]/g, '_'));
-  if (name) fs.writeFileSync(p, name, { mode: 0o600 }); else { try { fs.unlinkSync(p); } catch { /* 없음 */ } }
 }
 
 // ── 로그인(계정 더하기): 숨은 tmux 창에서 setup-token ──
@@ -72,7 +64,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** 로그인 시작: 주소를 돌려준다(앱이 브라우저를 연다). 이미 떠 있으면 새로 */
 export async function loginStart(): Promise<{ url: string }> {
   tmux(['kill-session', '-t', LOGIN]);
-  // 심을 피해서 진짜 claude 를 바로 부른다(심은 COXPIT_CLAUDE_SID 가 없으면 통과하지만, 계정 파일을 읽지 않게 by-session 도 없는 이름이다)
+  // 심은 COXPIT_CLAUDE_SID 가 없으면 통과한다. 환경변수 토큰이 섞이지 않게 비우고 띄운다
   tmux(['new-session', '-d', '-s', LOGIN, '-x', '160', '-y', '40', 'env -u CLAUDE_CODE_OAUTH_TOKEN -u COXPIT_ACCOUNT claude setup-token; sleep 600']);
   for (let i = 0; i < 40; i++) {
     await sleep(500);
