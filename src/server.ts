@@ -1974,20 +1974,26 @@ export async function buildServer(): Promise<FastifyInstance> {
     const m = getChat((req.params as { id: string }).id); if (!m) return reply.code(404).send({ error: 'not found' });
     return { cwd: m.cwd, files: await recentFiles(m.cwd, 30) };
   });
-  // keeping 기획 · 시안을 앱 안에서(토큰은 데몬만 든다). 설정이 없으면 404 → 앱은 브라우저로 연다
+  // keeping 기획 · 시안을 앱 안에서(토큰은 데몬만 든다).
+  // 설정이 없으면 503 + reason=unconfigured(앱은 「설정 없음」 안내), 항목이 없으면 404. 둘을 같은 404 로 주면 앱이 구별 못 한다(이슈 coxpit-app#1)
+  const keepingFail = (reply: { code: (n: number) => { send: (b: unknown) => unknown } }, e: unknown) => {
+    const message = (e as Error).message;
+    const off = message.includes('설정 없음') || message.includes('토큰 없음');
+    return reply.code(off ? 503 : 404).send(off ? { error: message, reason: 'unconfigured' } : { error: message });
+  };
   app.get('/api/keeping/search', async (req, reply) => {
     const q = (req.query ?? {}) as { project?: string; kind?: string; q?: string; limit?: string };
     try { return { items: await keepingSearch({ project: q.project, kind: q.kind === 'plan' || q.kind === 'mockup' ? q.kind : undefined, query: q.q, limit: q.limit ? Number(q.limit) : undefined }) }; }
-    catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
+    catch (e) { return keepingFail(reply, e); }
   });
   app.get('/api/keeping/projects', async (_req, reply) => {
     try { return { projects: await keepingProjects() }; }
-    catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
+    catch (e) { return keepingFail(reply, e); }
   });
   app.get('/api/keeping/:id', async (req, reply) => {
     const v = Number((req.query as { version?: string } | undefined)?.version);
     try { return await keepingItem((req.params as { id: string }).id, Number.isFinite(v) && v > 0 ? v : undefined); }
-    catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
+    catch (e) { return keepingFail(reply, e); }
   });
   // 폰 푸시: 앱이 기기 토큰을 맡긴다 · 상태 · 시험 한 번
   app.post('/api/push/register', async (req, reply) => {
