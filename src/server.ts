@@ -27,7 +27,7 @@ import { usage } from './usage';
 import { listAccounts, switchTo, setAlias, deleteAccount, loginStart, loginCode, loginCancel } from './accounts';
 import { versionInfo, selfUpdate } from './selfupdate';
 import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice, pushSettings, savePushSettings, listDevices, setDevicePolicy, startPushTicker, pushLog, type Policy } from './push';
-import { chatFile, recentFiles, keepingItem } from './chatfiles';
+import { chatFile, recentFiles, keepingItem, keepingSearch, keepingProjects } from './chatfiles';
 import type { ChoiceAnswer } from './askscreen';
 import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, restoreChat, pollStats, markSeenAll, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun, INSTANCE_TAG } from './orchestrator';
@@ -1975,8 +1975,18 @@ export async function buildServer(): Promise<FastifyInstance> {
     return { cwd: m.cwd, files: await recentFiles(m.cwd, 30) };
   });
   // keeping 기획 · 시안을 앱 안에서(토큰은 데몬만 든다). 설정이 없으면 404 → 앱은 브라우저로 연다
+  app.get('/api/keeping/search', async (req, reply) => {
+    const q = (req.query ?? {}) as { project?: string; kind?: string; q?: string; limit?: string };
+    try { return { items: await keepingSearch({ project: q.project, kind: q.kind === 'plan' || q.kind === 'mockup' ? q.kind : undefined, query: q.q, limit: q.limit ? Number(q.limit) : undefined }) }; }
+    catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
+  });
+  app.get('/api/keeping/projects', async (_req, reply) => {
+    try { return { projects: await keepingProjects() }; }
+    catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
+  });
   app.get('/api/keeping/:id', async (req, reply) => {
-    try { return await keepingItem((req.params as { id: string }).id); }
+    const v = Number((req.query as { version?: string } | undefined)?.version);
+    try { return await keepingItem((req.params as { id: string }).id, Number.isFinite(v) && v > 0 ? v : undefined); }
     catch (e) { return reply.code(404).send({ error: (e as Error).message }); }
   });
   // 폰 푸시: 앱이 기기 토큰을 맡긴다 · 상태 · 시험 한 번

@@ -72,23 +72,28 @@ export async function recentFiles(cwd: string, limit = 30): Promise<Array<{ path
 
 // ── keeping ──
 const dataDir = (): string => path.dirname(path.resolve(process.env.COXPIT_DB || path.join(HOME, '.coxpit', 'coxpit.db')));
-const kCache = new Map<string, { at: number; v: { id: string; title: string; kind: 'md' | 'html'; body: string } }>();
+export interface KeepingVersion { v: number; note: string; current: boolean }
+export interface KeepingItem { id: string; title: string; kind: 'md' | 'html'; body: string; key?: string; versions?: KeepingVersion[]; version?: number }
+export interface KeepingHit { id: string; title: string; kind: 'plan' | 'mockup'; key: string; project: string; version: number; size: string; note: string }
+const kCache = new Map<string, { at: number; v: unknown }>();
+function cached<T>(key: string, ttl: number, make: () => Promise<T>): Promise<T> {
+  const hit = kCache.get(key); if (hit && Date.now() - hit.at < ttl) return Promise.resolve(hit.v as T);
+  return make().then((v) => { kCache.set(key, { at: Date.now(), v }); return v; });
+}
 
-export async function keepingItem(id: string): Promise<{ id: string; title: string; kind: 'md' | 'html'; body: string }> {
-  if (!/^[A-Za-z0-9_-]{6,64}$/.test(id)) throw new Error('bad id');
-  const hit = kCache.get(id); if (hit && Date.now() - hit.at < 120_000) return hit.v;
+/** keeping MCP 도구 하나를 부른다. 토큰은 데몬만 들고, 파일로만 curl 에 넘긴다(프로세스 인자에 안 싣는다) */
+async function keepingCall(name: string, args: Record<string, unknown>): Promise<string> {
   let cfg: { url?: string; tokenFile?: string };
   try { cfg = JSON.parse(fs.readFileSync(path.join(dataDir(), 'keeping.json'), 'utf8')); } catch { throw new Error('keeping 설정 없음'); }
   if (!cfg.url) throw new Error('keeping 설정 없음');
   const tf = (cfg.tokenFile || '').replace(/^~(?=\/)/, HOME);
   let token = '';
   try { token = fs.readFileSync(tf, 'utf8').trim(); } catch { throw new Error('keeping 토큰 없음'); }
-  // 토큰은 파일로만 curl 에 넘긴다(프로세스 인자에 안 싣는다)
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'coxpit-keep-'));
   const cf = path.join(tmp, 'c'), bf = path.join(tmp, 'b');
   try {
     fs.writeFileSync(cf, `header = "Authorization: Bearer ${token}"\n`, { mode: 0o600 });
-    fs.writeFileSync(bf, JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'keeping_get', arguments: { itemId: id } } }), { mode: 0o600 });
+    fs.writeFileSync(bf, JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }), { mode: 0o600 });
     const raw = await new Promise<string>((resolve, reject) => execFile('curl', ['-sS', '-m', '30', '-K', cf, '-X', 'POST', cfg.url!.replace(/\/$/, '') + '/mcp',
       '-H', 'content-type: application/json', '-H', 'accept: application/json, text/event-stream', '--data-binary', '@' + bf],
       { maxBuffer: 32 * 1024 * 1024 }, (e, so) => (e ? reject(new Error('keeping 연결 실패')) : resolve(so))));
@@ -96,15 +101,59 @@ export async function keepingItem(id: string): Promise<{ id: string; title: stri
     const d = JSON.parse(line);
     const res = d.result ?? {};
     if (d.error || res.isError) throw new Error('keeping 에 없는 항목');
-    const text: string = (res.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
-    // 머리 세 줄(# 제목 · keepKey · 판)과 빈 줄을 떼고 본문만
+    return (res.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
+/** 항목 원문 + 머리(제목 · 키 · 판 목록). version 을 주면 그 판 */
+export async function keepingItem(id: string, version?: number): Promise<KeepingItem> {
+  if (!/^[A-Za-z0-9_-]{6,64}$/.test(id)) throw new Error('bad id');
+  return cached(`item:${id}:${version ?? ''}`, 120_000, async () => {
+    const text = await keepingCall('keeping_get', version ? { itemId: id, version } : { itemId: id });
     const lines = text.split('\n');
-    const title = (lines[0] ?? '').replace(/^#\s*/, '').trim();
-    let i = 1; while (i < lines.length && i < 4 && (/^(keepKey|판):/.test(lines[i]!) || !lines[i]!.trim())) i++;
+    const title = (lines[0] ?? '').replace(/^#\s*/, '').replace(/\s*\(v\d+\s*·[^)]*\)\s*$/, '').trim();
+    let key: string | undefined, versions: KeepingVersion[] | undefined;
+    let i = 1;
+    while (i < lines.length && i < 5 && (/^(keepKey|판):/.test(lines[i]!) || !lines[i]!.trim())) {
+      const l = lines[i]!;
+      if (l.startsWith('keepKey:')) key = l.slice(8).trim();
+      if (l.startsWith('판:')) {
+        versions = l.slice(2).split(/\s·\s(?=v\d+\s*\()/).map((part) => {
+          const m = part.trim().match(/^v(\d+)\s*\((.*)\)\s*(←\s*지금)?\s*$/s);
+          return m ? { v: Number(m[1]), note: m[2]!.trim(), current: !!m[3] } : { v: 0, note: part.trim(), current: false };
+        }).filter((v) => v.v > 0);
+      }
+      i++;
+    }
     const body = lines.slice(i).join('\n');
     const kind: 'md' | 'html' = /^\s*(<!doctype|<html|<head|<body|<div|<style|<meta)/i.test(body) ? 'html' : 'md';
-    const v = { id, title, kind, body };
-    kCache.set(id, { at: Date.now(), v });
-    return v;
-  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+    return { id, title, kind, body, key, versions, version: version ?? versions?.find((v) => v.current)?.v };
+  });
+}
+
+/** 목록: 제목 · id · 키 · 프로젝트 · 판 · 크기 · 최신 판 메모. 썸네일은 없다(앱이 그린다) */
+export async function keepingSearch(q: { project?: string; kind?: 'plan' | 'mockup'; query?: string; limit?: number }): Promise<KeepingHit[]> {
+  const args: Record<string, unknown> = {};
+  if (q.project) args.project = q.project; if (q.kind) args.kind = q.kind; if (q.query) args.query = q.query; args.limit = q.limit ?? 60;
+  return cached('search:' + JSON.stringify(args), 20_000, async () => {
+    const text = await keepingCall('keeping_search', args);
+    const out: KeepingHit[] = [];
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const h = lines[i]!.match(/^(기획|시안)\s*·\s*(.+)$/); if (!h) continue;
+      const m = (lines[i + 1] ?? '').match(/id=(\S+)\s*·\s*keepKey=(\S+)\s*·\s*(.+?)\s*·\s*v(\d+)\s*·\s*(\S+)\s*$/); if (!m) continue;
+      const noteLine = (lines[i + 2] ?? '').match(/^\s*최신 판:\s*(.*)$/);
+      out.push({ id: m[1]!, title: h[2]!.trim(), kind: h[1] === '기획' ? 'plan' : 'mockup', key: m[2]!, project: m[3]!.trim(), version: Number(m[4]), size: m[5]!, note: noteLine ? noteLine[1]!.trim() : '' });
+      i += noteLine ? 2 : 1;
+    }
+    return out;
+  });
+}
+
+/** 프로젝트 이름과 수 */
+export async function keepingProjects(): Promise<Array<{ name: string; count: number }>> {
+  return cached('projects', 60_000, async () => {
+    const text = await keepingCall('keeping_projects', {});
+    return text.split('\n').map((l) => l.match(/^\s+(.+?)\s*·\s*(\d+)건\s*$/)).filter((m): m is RegExpMatchArray => !!m).map((m) => ({ name: m[1]!, count: Number(m[2]) }));
+  });
 }
