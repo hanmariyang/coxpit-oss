@@ -27,7 +27,7 @@ import { usage } from './usage';
 import { listAccounts, switchTo, setAlias, deleteAccount, loginStart, loginCode, loginCancel } from './accounts';
 import { versionInfo, selfUpdate } from './selfupdate';
 import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice, pushSettings, savePushSettings, listDevices, setDevicePolicy, startPushTicker, pushLog, type Policy } from './push';
-import { chatFile, recentFiles, keepingItem, keepingSearch, keepingProjects } from './chatfiles';
+import { chatFile, recentFiles, keepingItem, keepingItems, keepingSearch, keepingProjects } from './chatfiles';
 import type { ChoiceAnswer } from './askscreen';
 import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, restoreChat, pollStats, markSeenAll, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
 import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun, INSTANCE_TAG } from './orchestrator';
@@ -1988,6 +1988,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
   app.get('/api/keeping/projects', async (_req, reply) => {
     try { return { projects: await keepingProjects() }; }
+    catch (e) { return keepingFail(reply, e); }
+  });
+  app.get('/api/keeping/items', async (req, reply) => {
+    const ids = String((req.query as { ids?: string } | undefined)?.ids ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    try { return { items: await keepingItems(ids) }; }
     catch (e) { return keepingFail(reply, e); }
   });
   app.get('/api/keeping/:id', async (req, reply) => {

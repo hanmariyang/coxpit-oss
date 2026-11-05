@@ -3,7 +3,7 @@
 // - recentFiles: 대화 폴더에서 최근 바뀐 파일.
 // - keepingItem: keeping(기획 · 시안 보관함) 항목. 토큰은 데몬만 들고 앱엔 내용만 준다.
 //   설정은 데이터 폴더의 keeping.json {"url": "https://…", "tokenFile": "~/…"} — 없으면 꺼진다.
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
@@ -81,34 +81,48 @@ function cached<T>(key: string, ttl: number, make: () => Promise<T>): Promise<T>
   return make().then((v) => { kCache.set(key, { at: Date.now(), v }); return v; });
 }
 
-/** keeping MCP 도구 하나를 부른다. 토큰은 데몬만 들고, 파일로만 curl 에 넘긴다(프로세스 인자에 안 싣는다) */
-async function keepingCall(name: string, args: Record<string, unknown>): Promise<string> {
+/** keeping MCP 도구 하나를 부른다. 토큰은 데몬만 들고, 파일로만 curl 에 넘긴다(프로세스 인자에 안 싣는다).
+ *  curl 설정 파일(600)은 토큰이 바뀌지 않는 한 한 번만 만들어 재사용하고, 요청 본문은 stdin 으로 준다(이슈 coxpit-app#2) */
+let curlCfg: { token: string; file: string } | undefined;
+function keepingConfig(): { url: string; cfgFile: string } {
   let cfg: { url?: string; tokenFile?: string };
   try { cfg = JSON.parse(fs.readFileSync(path.join(dataDir(), 'keeping.json'), 'utf8')); } catch { throw new Error('keeping 설정 없음'); }
   if (!cfg.url) throw new Error('keeping 설정 없음');
   const tf = (cfg.tokenFile || '').replace(/^~(?=\/)/, HOME);
   let token = '';
   try { token = fs.readFileSync(tf, 'utf8').trim(); } catch { throw new Error('keeping 토큰 없음'); }
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'coxpit-keep-'));
-  const cf = path.join(tmp, 'c'), bf = path.join(tmp, 'b');
-  try {
-    fs.writeFileSync(cf, `header = "Authorization: Bearer ${token}"\n`, { mode: 0o600 });
-    fs.writeFileSync(bf, JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }), { mode: 0o600 });
-    const raw = await new Promise<string>((resolve, reject) => execFile('curl', ['-sS', '-m', '30', '-K', cf, '-X', 'POST', cfg.url!.replace(/\/$/, '') + '/mcp',
-      '-H', 'content-type: application/json', '-H', 'accept: application/json, text/event-stream', '--data-binary', '@' + bf],
-      { maxBuffer: 32 * 1024 * 1024 }, (e, so) => (e ? reject(new Error('keeping 연결 실패')) : resolve(so))));
-    const line = raw.trimStart().startsWith('{') ? raw : (raw.split('\n').filter((l) => l.startsWith('data:')).pop() ?? '').slice(5);
-    const d = JSON.parse(line);
-    const res = d.result ?? {};
-    if (d.error || res.isError) throw new Error('keeping 에 없는 항목');
-    return (res.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
-  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  if (!curlCfg || curlCfg.token !== token || !fs.existsSync(curlCfg.file)) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coxpit-keep-'));
+    const file = path.join(dir, 'c');
+    fs.writeFileSync(file, `header = "Authorization: Bearer ${token}"\n`, { mode: 0o600 });
+    if (curlCfg) fs.rmSync(path.dirname(curlCfg.file), { recursive: true, force: true });
+    curlCfg = { token, file };
+  }
+  return { url: cfg.url.replace(/\/$/, ''), cfgFile: curlCfg.file };
+}
+async function keepingCall(name: string, args: Record<string, unknown>): Promise<string> {
+  const { url, cfgFile } = keepingConfig();
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } });
+  const raw = await new Promise<string>((resolve, reject) => {
+    const p = spawn('curl', ['-sS', '-m', '30', '-K', cfgFile, '-X', 'POST', url + '/mcp',
+      '-H', 'content-type: application/json', '-H', 'accept: application/json, text/event-stream', '--data-binary', '@-']);
+    const out: Buffer[] = [];
+    p.stdout.on('data', (b: Buffer) => out.push(b));
+    p.on('error', () => reject(new Error('keeping 연결 실패')));
+    p.on('close', (code) => (code === 0 ? resolve(Buffer.concat(out).toString('utf8')) : reject(new Error('keeping 연결 실패'))));
+    p.stdin.end(body);
+  });
+  const line = raw.trimStart().startsWith('{') ? raw : (raw.split('\n').filter((l) => l.startsWith('data:')).pop() ?? '').slice(5);
+  const d = JSON.parse(line);
+  const res = d.result ?? {};
+  if (d.error || res.isError) throw new Error('keeping 에 없는 항목');
+  return (res.content ?? []).filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
 }
 
 /** 항목 원문 + 머리(제목 · 키 · 판 목록). version 을 주면 그 판 */
 export async function keepingItem(id: string, version?: number): Promise<KeepingItem> {
   if (!/^[A-Za-z0-9_-]{6,64}$/.test(id)) throw new Error('bad id');
-  return cached(`item:${id}:${version ?? ''}`, 120_000, async () => {
+  return cached(`item:${id}:${version ?? ''}`, version ? 3_600_000 : 300_000, async () => {
     const text = await keepingCall('keeping_get', version ? { itemId: id, version } : { itemId: id });
     const lines = text.split('\n');
     const title = (lines[0] ?? '').replace(/^#\s*/, '').replace(/\s*\(v\d+\s*·[^)]*\)\s*$/, '').trim();
@@ -131,11 +145,22 @@ export async function keepingItem(id: string, version?: number): Promise<Keeping
   });
 }
 
+/** 본문 묶음(지금 판). 넷씩 나란히, 없는 항목은 빠진다. 앱이 목록을 받은 뒤 썸네일 본문을 한 번에 받아 간다 */
+export async function keepingItems(ids: string[]): Promise<KeepingItem[]> {
+  const out: KeepingItem[] = [];
+  const q = ids.filter((id) => /^[A-Za-z0-9_-]{6,64}$/.test(id)).slice(0, 40);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(4, q.length) }, async () => {
+    while (i < q.length) { const id = q[i++]!; try { out.push(await keepingItem(id)); } catch { /* 없는 항목은 뺀다 */ } }
+  }));
+  return ids.map((id) => out.find((k) => k.id === id)).filter((k): k is KeepingItem => !!k);
+}
+
 /** 목록: 제목 · id · 키 · 프로젝트 · 판 · 크기 · 최신 판 메모. 썸네일은 없다(앱이 그린다) */
 export async function keepingSearch(q: { project?: string; kind?: 'plan' | 'mockup'; query?: string; limit?: number }): Promise<KeepingHit[]> {
   const args: Record<string, unknown> = {};
   if (q.project) args.project = q.project; if (q.kind) args.kind = q.kind; if (q.query) args.query = q.query; args.limit = q.limit ?? 60;
-  return cached('search:' + JSON.stringify(args), 20_000, async () => {
+  return cached('search:' + JSON.stringify(args), 120_000, async () => {
     const text = await keepingCall('keeping_search', args);
     const out: KeepingHit[] = [];
     const lines = text.split('\n');
@@ -152,7 +177,7 @@ export async function keepingSearch(q: { project?: string; kind?: 'plan' | 'mock
 
 /** 프로젝트 이름과 수 */
 export async function keepingProjects(): Promise<Array<{ name: string; count: number }>> {
-  return cached('projects', 60_000, async () => {
+  return cached('projects', 600_000, async () => {
     const text = await keepingCall('keeping_projects', {});
     return text.split('\n').map((l) => l.match(/^\s+(.+?)\s*·\s*(\d+)건\s*$/)).filter((m): m is RegExpMatchArray => !!m).map((m) => ({ name: m[1]!, count: Number(m[2]) }));
   });
