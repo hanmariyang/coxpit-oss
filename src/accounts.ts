@@ -161,10 +161,13 @@ export function loginCancel(): void { tmux(['kill-session', '-t', LOGIN]); try {
 
 /** 돌아온 코드를 쳐 넣는다. 클로드 코드가 저장소에 쓰면 그 계정이 바로 이 맥의 계정이고, 사본을 남긴다 */
 export async function loginCode(code: string): Promise<{ name: string; email: string | null; previous: string | null }> {
-  const c = code.trim(); if (!c || c.length > 400 || /\s/.test(c)) throw new Error('코드가 이상해요');
+  let c = code.trim();
+  // 주소째 붙여도 받는다: …/callback?code=X&state=Y → X#Y (claude 의 「Paste code」 꼴)
+  try { const u = new URL(c); const k = u.searchParams.get('code'), st = u.searchParams.get('state'); if (k) c = st ? `${k}#${st}` : k; } catch { /* 주소 아님 */ }
+  if (!c || c.length > 400 || /\s/.test(c)) throw new Error('코드가 이상해요');
   // 주소 파일은 화면보다 먼저 생긴다. 「Paste code」 줄이 그려질 때까지 잠깐 기다린다
   let ready = false; for (let i = 0; i < 20 && !ready; i++) { ready = screen().includes('Paste code'); if (!ready) await sleep(500); }
-  if (!ready) throw new Error('로그인 창이 없어요. 처음부터 다시 해 주세요');
+  if (!ready) throw new Error('로그인 창이 닫혔어요(앞 코드가 거절됐거나 시간이 지났어요). 「계정 더하기」를 처음부터 다시 해 주세요');
   tmux(['send-keys', '-t', LOGIN, '-l', c]); await sleep(300); tmux(['send-keys', '-t', LOGIN, 'Enter']);
   let changed = false;
   for (let i = 0; i < 90 && !changed; i++) {
@@ -172,7 +175,12 @@ export async function loginCode(code: string): Promise<{ name: string; email: st
     const t = readStore().creds?.accessToken; if (t && t !== loginBefore) changed = true;
     else if (/invalid|expired|failed|error/i.test(screen().replace(/Browser didn't open\?.*$/m, ''))) break;
   }
-  if (!changed) { loginCancel(); throw new Error('로그인이 안 됐어요. 코드가 틀렸거나 시간이 지났어요'); }
+  if (!changed) {
+    // 클로드가 화면에 적은 까닭을 그대로 돌려준다(코드 · 토큰은 화면에 안 나온다)
+    const why = (screen().split('\n').find((l) => /OAuth error|invalid|expired|failed/i.test(l)) ?? '').trim().slice(0, 200);
+    loginCancel();
+    throw new Error('로그인이 안 됐어요. 「계정 더하기」를 처음부터 다시 해 주세요' + (why ? ` (${why})` : ''));
+  }
   // 메일은 claude 가 프로필을 받아 ~/.claude.json 에 적는다. 조금 기다린다
   let email: string | null = null;
   for (let i = 0; i < 20; i++) { email = currentEmail(); if (email && email !== loginPrev) break; await sleep(500); }
