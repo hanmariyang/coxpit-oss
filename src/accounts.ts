@@ -139,13 +139,22 @@ export async function loginStart(): Promise<{ url: string; previous: string | nu
   // /login 은 브라우저를 바로 연다. BROWSER 를 이 조각으로 두면 주소를 파일에 적고, 화면엔 「Paste code here」 가 뜬다
   fs.writeFileSync(browserShim(), `#!/bin/sh\nprintf '%s\\n' "$1" >> ${JSON.stringify(urlFile())}\n`, { mode: 0o700 });
   // 환경변수 토큰이 섞이지 않게 비우고 띄운다. 심은 COXPIT_CLAUDE_SID 가 없으면 통과한다
-  tmux(['new-session', '-d', '-s', LOGIN, '-x', '160', '-y', '40', '-c', os.homedir(),
+  // 빈 전용 폴더에서 띄운다. 처음 보는 폴더면 「trust this folder」 창이 먼저 뜨는데(맥미니 홈이 그랬다, 11/07) 아래에서 넘긴다
+  const cwd = path.join(dataDir(), 'login-cwd'); fs.mkdirSync(cwd, { recursive: true, mode: 0o700 });
+  tmux(['new-session', '-d', '-s', LOGIN, '-x', '160', '-y', '40', '-c', cwd,
     `env -u CLAUDE_CODE_OAUTH_TOKEN -u COXPIT_ACCOUNT -u COXPIT_CLAUDE_SID BROWSER=${JSON.stringify(browserShim())} claude; sleep 600`]);
   const until = async (test: () => boolean, tries: number, ms = 500): Promise<boolean> => { for (let i = 0; i < tries; i++) { if (test()) return true; await sleep(ms); } return test(); };
   if (!(await until(() => /❯/.test(screen()), 60))) { loginCancel(); throw new Error('claude 가 안 떴어요'); }
+  if (/trust this folder/i.test(screen())) {   // ❯ No, exit / Yes, I trust this folder
+    tmux(['send-keys', '-t', LOGIN, 'Down']); await sleep(200); tmux(['send-keys', '-t', LOGIN, 'Enter']);
+    if (!(await until(() => !/trust this folder/i.test(screen()) && /❯/.test(screen()), 40))) { loginCancel(); throw new Error('claude 폴더 확인 창을 못 넘겼어요'); }
+  }
   await sleep(600);
   tmux(['send-keys', '-t', LOGIN, '-l', '/login']); await sleep(400); tmux(['send-keys', '-t', LOGIN, 'Enter']);
-  if (!(await until(() => /Select login method/.test(screen()), 30))) { loginCancel(); throw new Error('로그인 메뉴가 안 떴어요'); }
+  if (!(await until(() => /Select login method/.test(screen()), 30))) {
+    const tail = screen().split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' / ').slice(0, 200);
+    loginCancel(); throw new Error('로그인 메뉴가 안 떴어요' + (tail ? ` (화면: ${tail})` : ''));
+  }
   tmux(['send-keys', '-t', LOGIN, 'Enter']);   // 1. Claude account with subscription
   if (!(await until(() => fs.existsSync(urlFile()), 40))) { loginCancel(); throw new Error('로그인 주소를 못 받았어요'); }
   const raw = fs.readFileSync(urlFile(), 'utf8').trim().split('\n')[0] ?? '';
