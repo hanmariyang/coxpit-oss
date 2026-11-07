@@ -148,8 +148,13 @@ export async function loginStart(): Promise<{ url: string; previous: string | nu
   if (!(await until(() => /Select login method/.test(screen()), 30))) { loginCancel(); throw new Error('로그인 메뉴가 안 떴어요'); }
   tmux(['send-keys', '-t', LOGIN, 'Enter']);   // 1. Claude account with subscription
   if (!(await until(() => fs.existsSync(urlFile()), 40))) { loginCancel(); throw new Error('로그인 주소를 못 받았어요'); }
-  const url = fs.readFileSync(urlFile(), 'utf8').trim().split('\n')[0] ?? '';
-  if (!/^https:\/\/(claude\.com|claude\.ai)\/.*oauth/.test(url)) { loginCancel(); throw new Error('로그인 주소가 이상해요'); }
+  const raw = fs.readFileSync(urlFile(), 'utf8').trim().split('\n')[0] ?? '';
+  if (!/^https:\/\/(claude\.com|claude\.ai)\/.*oauth/.test(raw)) { loginCancel(); throw new Error('로그인 주소가 이상해요'); }
+  // claude 2.1.3xx 는 BROWSER 에 localhost 콜백 주소를 넘긴다. 폰 브라우저에서 열면 localhost 가 폰이라 연결 거부가 난다.
+  // 화면의 「Paste code」 주소와는 redirect_uri 만 다르니(state · challenge 같음) 수동 코드 콜백으로 바꿔 준다
+  const u = new URL(raw);
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)[:/]/.test(u.searchParams.get('redirect_uri') ?? '')) u.searchParams.set('redirect_uri', 'https://platform.claude.com/oauth/code/callback');
+  const url = u.toString();
   return { url, previous: loginPrev };
 }
 export function loginCancel(): void { tmux(['kill-session', '-t', LOGIN]); try { fs.unlinkSync(urlFile()); } catch { /* 없음 */ } }
