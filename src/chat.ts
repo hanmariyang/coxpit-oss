@@ -20,7 +20,7 @@ import { db } from './db';
 import { agentRuns } from './db/schema';
 import { eq } from 'drizzle-orm';
 import { runShellOn, shq } from './exec';
-import { cleanupRun, getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
+import { cleanupRun, ensureRunTmux, getRunTermInfo, getSessionChat, openSessionAt } from './orchestrator';
 import { pushNotify, setOpenedLookup } from './push';
 import { screenAsk, choiceSteps, currentTab, PAD_KEYS, type QOption, type MenuOption, type ChoiceAnswer, type Step } from './askscreen';
 
@@ -1157,7 +1157,9 @@ function blockingPrompt(screen: string): string | null {
 }
 
 async function tmuxSend(m: ChatMeta, text: string): Promise<void> {
-  const p = await paneInfo(m.runId!);
+  let p = await paneInfo(m.runId!);
+  // 재부팅 등으로 tmux 창이 없어졌으면 그 자리에 새로 만든다 → 아래에서 셸로 보고 claude --resume 으로 잇는다
+  if (!p && (await ensureRunTmux(m.runId!)) === 'revived') p = await paneInfo(m.runId!);
   if (!p) throw new Error('the terminal session is gone');
   if (!SHELLS.has(p.cmd)) {
     const b = blockingPrompt(p.screen);

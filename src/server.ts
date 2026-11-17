@@ -30,7 +30,7 @@ import { pushStatus, registerDevice, pushNotify, setPresence, activeDevice, push
 import { chatFile, recentFiles, keepingItem, keepingItems, keepingSearch, keepingProjects } from './chatfiles';
 import type { ChoiceAnswer } from './askscreen';
 import { listChats, getChat, updateChat, chatDetail, closeChat, removeChat, restoreChat, pollStats, markSeenAll, subscribe, sendAny, answerAny, answerTmux, padKeys, interruptAny, adoptRun, openTmuxChat, startTmuxWatch, syncSessions } from './chat';
-import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun, INSTANCE_TAG } from './orchestrator';
+import { launchRun, cleanupRun, stopRun, getRunDiff, loadRunDocs, mergeRun, getRunTermInfo, steerRun, exportRun, prRun, integrateRuns, planFanout, reviewTask, syncRun, openWorkbench, spawnSubtasks, listSubtasks, resolveAgentToken, taskCloseRisk, launchGroupTask, isRunLive, liveInPlaceRun, askGroupCoordinator, computeRunOutputs, normalizeOutputs, listReclaimableWorktrees, pruneWorktrees, worktreeDisk, listOrphanTmux, killTmuxSessions, noopSignal, groupOverlap, landTarget, mergePreview, startLandResolve, listDocuments, verifyRun, verifyBase, openSessionAt, deleteSession, getScrollback, sendRunInput, getRunPwd, getSessionChat, tmuxNewSession, claudeTagEnvForRun, INSTANCE_TAG, ensureRunTmux } from './orchestrator';
 import { tmuxInstanceEnv } from './core';
 import { openTerm } from './term';
 import { attach as agentAttach, feed as agentFeed, input as agentInput, onExit as agentExit, detach as agentDetach, allAgentStates, spottedPorts } from './agentstate';
@@ -2163,23 +2163,14 @@ export async function buildServer(): Promise<FastifyInstance> {
       socket.close();
       return;
     }
-    // 세션 자동 소생 — 셸 exit 등으로 죽었어도 worktree 가 살아있으면 그 자리에서 재생성
-    const has = await runShellOn(info.machine, `tmux has-session -t ${shq('=' + info.session)} 2>&1`, 8000);
-    if (!has.ok) {
-      const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, id)).limit(1);
-      const wt = rr[0]?.worktreePath ?? '';
-      // 소생한 페인에서도 `claude` 가 이 세션의 대화로 묶이게 태깅 env 를 다시 얹는다(없으면 빈 문자열).
-      const tagEnv = claudeTagEnvForRun(info.machine, rr[0]?.claudeSessionId ?? '');
-      const revive = wt
-        ? await runShellOn(info.machine, `export LANG=${shq(config.lang)}; test -d ${shq(wt)} && ${tmuxNewSession(`-d${tagEnv}${tmuxInstanceEnv(INSTANCE_TAG, config.port)} -s ${shq(info.session)} -c ${shq(wt)}`)}`, 10000)
-        : { ok: false } as { ok: boolean };
-      if (!revive.ok) {
-        socket.send(JSON.stringify({ t: 'err', d: `tmux session '${info.session}' gone and could not be revived (worktree missing?)` }));
-        socket.close();
-        return;
-      }
-      socket.send(JSON.stringify({ t: 'o', d: '\r\n\x1b[90m[coxpit] session revived in the worktree\x1b[0m\r\n' }));
+    // 세션 자동 소생 — 셸 exit · 재부팅으로 죽었어도 worktree 가 살아있으면 그 자리에서 재생성
+    const ens = await ensureRunTmux(id);
+    if (ens === 'failed') {
+      socket.send(JSON.stringify({ t: 'err', d: `tmux session '${info.session}' gone and could not be revived (worktree missing?)` }));
+      socket.close();
+      return;
     }
+    if (ens === 'revived') socket.send(JSON.stringify({ t: 'o', d: '\r\n\x1b[90m[coxpit] session revived in the worktree\x1b[0m\r\n' }));
     let term;
     try {
       term = openTerm(info.machine, info.session, cols, rows);

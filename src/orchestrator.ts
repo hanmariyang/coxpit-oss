@@ -859,6 +859,25 @@ export async function getRunTermInfo(runId: number): Promise<{ machine: MachineT
   return { machine: ctx.machine, session: run.tmuxWindow };
 }
 
+/**
+ * run 의 tmux 세션이 없으면(재부팅 · 셸 exit 등) worktree 에서 다시 만든다.
+ * 터미널 화면(ws/term)과 앱 채팅 보내기가 같이 쓴다. 2026-11-17 재부팅 뒤 채팅 전부가 400 으로 막혔다.
+ */
+export async function ensureRunTmux(runId: number): Promise<'alive' | 'revived' | 'failed'> {
+  const info = await getRunTermInfo(runId);
+  if (!info) return 'failed';
+  const has = await runShellOn(info.machine, `tmux has-session -t ${shq('=' + info.session)} 2>&1`, 8000);
+  if (has.ok) return 'alive';
+  const rr = await db.select().from(agentRuns).where(eq(agentRuns.id, runId)).limit(1);
+  const wt = rr[0]?.worktreePath ?? '';
+  if (!wt) return 'failed';
+  // 소생한 페인에서도 `claude` 가 이 세션의 대화로 묶이게 태깅 env 를 다시 얹는다(없으면 빈 문자열).
+  const tagEnv = claudeTagEnvForRun(info.machine, rr[0]?.claudeSessionId ?? '');
+  const r = await runShellOn(info.machine,
+    `export LANG=${shq(config.lang)}; test -d ${shq(wt)} && ${tmuxNewSession(`-d${tagEnv}${instEnv()} -s ${shq(info.session)} -c ${shq(wt)}`)}`, 10000);
+  return r.ok ? 'revived' : 'failed';
+}
+
 /** 대본 꼬리 상한 — runShellOn 의 maxBuffer(1MB)를 넘기면 읽기 자체가 실패한다. */
 const CHAT_TAIL_BYTES = 800000;
 
